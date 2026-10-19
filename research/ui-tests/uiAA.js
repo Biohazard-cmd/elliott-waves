@@ -1,0 +1,22 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3000);
+  await p.click('#setBtn'); await p.waitForTimeout(300);
+  const tabs = await p.$$('#setTabs button'); for (const t of tabs) { const tx = await t.textContent(); if (/Анализ|Сигнал/.test(tx)) { await t.click(); await p.waitForTimeout(200); if (await p.$('input[data-a="addAO"]')) break; } }
+  console.log('чекбоксы:', !!(await p.$('input[data-a="addAO"]')), !!(await p.$('input[data-a="addPyramid"]')));
+  await p.click('input[data-a="addAO"]'); await p.waitForTimeout(300); console.log('выбор строгости:', !!(await p.$('#aoMode')));
+  await p.click('input[data-a="addPyramid"]'); await p.waitForTimeout(300);
+  await p.screenshot({ path: 'shots/220-set.png', fullPage: false });
+  await p.click('[data-close="settings"]'); await p.waitForTimeout(800);
+  console.log('HUD:', await p.evaluate(() => document.querySelector('#hud').innerText));
+  console.log('доп.:', await p.evaluate(() => (document.querySelector('#nowCard h3') || {}).innerText));
+  console.log('доливок в таблице:', await p.evaluate(() => (document.querySelector('#panel').innerHTML.match(/\\+д</g) || []).length));
+  await p.click('#viewBtn'); await p.click('#trOpen'); await p.fill('#trDate', '2026-07-10'); await p.click('#trGo');
+  await p.waitForFunction(() => !document.querySelector('#trBar').hidden, null, { timeout: 30000 });
+  for (let k = 0; k < 300; k++) await p.click('#trSB');
+  await p.evaluate(() => { const o = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => { window.__csv = t; }); return o(b); }; });
+  await p.click('#trCsv'); await p.waitForTimeout(500);
+  const t = await p.evaluate(() => window.__csv); console.log((t.match(/[^\\n]*(долил|110%)[^\\n]*/g) || ['событий доливки нет']).slice(0, 5).join('\\n'));
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

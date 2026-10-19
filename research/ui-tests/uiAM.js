@@ -1,0 +1,20 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3000);
+  await p.click('#viewBtn'); await p.click('#trOpen'); await p.fill('#trDate', '2026-07-01'); await p.click('#trGo');
+  await p.waitForFunction(() => !document.querySelector('#trBar').hidden, null, { timeout: 30000 });
+  let found = false;
+  for (let k = 0; k < 600 && !found; k++) { await p.click('#trSB'); found = await p.evaluate(() => /ПОКУПКА ·|ПРОДАЖА ·/.test((document.querySelector('#nowCard') || {}).innerText || '')); }
+  console.log('сигнал найден:', found);
+  await p.click('#trPl'); await p.waitForTimeout(300);
+  console.log('кнопки:', await p.evaluate(() => [...document.querySelectorAll('#pop [data-pl]')].map((b) => b.innerText).join(' | ')));
+  await p.click('#pop [data-pl="both"]'); await p.waitForTimeout(300);
+  console.log('заявка:', await p.evaluate(() => [document.querySelector('#tkSL') && document.querySelector('#tkSL').value, document.querySelector('#tkTP') && document.querySelector('#tkTP').value].join(' / ')), '|', await p.evaluate(() => (document.querySelector('#trBar .warn') || {}).innerText));
+  await p.screenshot({ path: 'shots/300-planlv.png' });
+  await p.click('#trB'); await p.waitForTimeout(300);
+  await p.click('#trPl').catch(() => {}); await p.waitForTimeout(100); if (await p.evaluate(() => document.querySelector('#pop').hidden)) await p.click('#trPl');
+  await p.waitForTimeout(300);
+  console.log('после покупки:', await p.evaluate(() => [...document.querySelectorAll('#pop [data-pl]')].map((b) => b.dataset.pl + ':' + b.innerText).join(' | ')));
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

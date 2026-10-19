@@ -1,0 +1,2216 @@
+<title>Волновой советник 1.12</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Layout: штурманский стол аналитика — график-лист на миллиметровке слева, журнал подсчёта справа, под графиком проверка на истории. */
+:root {
+  --paper: #edf0ec;      /* фон: холодная миллиметровка */
+  --sheet: #f8faf7;      /* лист графика и панели */
+  --ink: #18211d;        /* основной текст */
+  --muted: #5b6862;      /* подписи */
+  --rule: #d3dbd6;       /* линии сетки и рамки */
+  --wave: #2347c4;       /* разметка волн — синие чернила */
+  --target: #a8650f;     /* цели Фибоначчи — охра */
+  --up: #17876a;         /* рост */
+  --down: #c2412c;       /* падение */
+  --zone: rgba(168, 101, 15, .12);
+  --wave-soft: rgba(35, 71, 196, .1);
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d1311; --sheet: #141c19; --ink: #e2eae5; --muted: #95a59d; --rule: #26332e;
+    --wave: #86a6ff; --target: #e3ab52; --up: #3cc39b; --down: #ff7d65;
+    --zone: rgba(227, 171, 82, .13); --wave-soft: rgba(134, 166, 255, .12); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d1311; --sheet: #141c19; --ink: #e2eae5; --muted: #95a59d; --rule: #26332e;
+  --wave: #86a6ff; --target: #e3ab52; --up: #3cc39b; --down: #ff7d65;
+  --zone: rgba(227, 171, 82, .13); --wave-soft: rgba(134, 166, 255, .12); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--paper); color: var(--ink); }
+body { font-family: var(--font-body); font-size: 14px; line-height: 1.45; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 40px; }
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 14px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+.num, .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; justify-content: space-between; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.brand h1 { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: -.01em; }
+.brand h1 span { color: var(--wave); }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.dataset { font-family: var(--font-data); font-size: 12px; color: var(--muted); }
+.meta { display: grid; gap: 2px; justify-items: end; min-width: 0; }
+@media (max-width: 700px) { .meta { justify-items: start; } }
+.ver { font-size: 12px; color: var(--wave); font-weight: 500; }
+
+/* toolbar */
+.bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); padding: 12px 14px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+select, input[type="number"], button, .filebtn { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; min-height: 34px; }
+input[type="text"], input[type="date"] { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; min-height: 34px; }
+#mx-tic { width: 130px; font-family: var(--font-data); text-transform: uppercase; }
+input[type="number"] { width: 84px; font-family: var(--font-data); }
+.steps { margin: 10px 0 0; padding-left: 20px; font-size: 13px; display: grid; gap: 4px; max-width: 80ch; }
+.mxlinks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mxlinks a.part { font-family: var(--font-data); font-size: 12.5px; color: var(--wave); text-decoration: none; border: 1px solid var(--rule); border-radius: 5px; padding: 6px 10px; background: var(--paper); }
+.mxlinks a.part:hover { border-color: var(--wave); }
+.mxlinks a.part.seen { color: var(--muted); }
+.mxcheck { color: var(--wave); text-decoration: underline; text-underline-offset: 3px; }
+.mxsum, .warnline { flex-basis: 100%; margin: 0; }
+.warnline { color: var(--down); }
+.mxsum a { color: var(--wave); }
+input[type="range"] { width: 150px; accent-color: var(--wave); }
+button, .filebtn { cursor: pointer; }
+button:hover, .filebtn:hover { border-color: var(--wave); }
+:focus-visible { outline: 2px solid var(--wave); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--paper); }
+.seg button[aria-pressed="true"] { background: var(--wave); color: var(--sheet); }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.filebtn input { display: none; }
+details.more { flex-basis: 100%; }
+details.more summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.grid-set { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 10px; align-items: end; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.checks label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+
+/* main */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart side" "tabs side"; grid-template-rows: auto 1fr; gap: 14px; align-items: start; }
+.area-chart { grid-area: chart; } .area-side { grid-area: side; } .area-tabs { grid-area: tabs; }
+@media (max-width: 1020px) { .main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "chart" "side" "tabs"; grid-template-rows: auto; } }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); min-width: 0; }
+.chartbox { position: relative; }
+.chartbar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+.swingctl { display: grid; gap: 4px; min-width: 0; }
+.swingctl .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.qbtn { min-height: 24px; padding: 1px 8px; font-size: 12px; color: var(--wave); background: none; }
+.mini { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; min-width: 0; }
+.mini div { background: var(--paper); border-radius: 5px; padding: 4px 9px; display: grid; }
+.mini span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.mini b { font-family: var(--font-data); font-weight: 500; font-size: 14px; }
+.mini a { align-self: center; color: var(--wave); font-size: 12.5px; padding: 0 4px; }
+.swinghelp { padding: 10px 14px; border-bottom: 1px solid var(--rule); font-size: 13px; display: grid; gap: 6px; max-width: 90ch; }
+.swinghelp p, .swinghelp ul { margin: 0; } .swinghelp ul { padding-left: 20px; display: grid; gap: 3px; }
+.chartbox canvas { display: block; width: 100%; height: clamp(340px, 62vh, 660px); touch-action: none; cursor: crosshair; }
+.charttools { position: absolute; bottom: 32px; right: 80px; display: flex; gap: 4px; }
+.charttools button { min-height: 28px; padding: 2px 9px; background: var(--sheet); font-family: var(--font-data); }
+.cinfo { position: absolute; left: 10px; top: 52px; z-index: 2; width: min(280px, calc(100% - 100px)); background: var(--sheet); border: 1px solid var(--wave); border-radius: 6px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 13px; display: grid; gap: 6px; }
+.ci-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ci-head button { min-height: 26px; padding: 0 8px; line-height: 1; font-size: 16px; }
+.ci-when { color: var(--muted); font-size: 12px; }
+.ci-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
+.ci-grid span { color: var(--muted); }
+.ci-grid b { font-family: var(--font-data); font-weight: 500; text-align: right; }
+.ci-note { color: var(--muted); font-size: 11.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 12px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--muted); }
+.legend label { display: inline-flex; gap: 6px; align-items: center; }
+.sw { display: inline-block; width: 16px; height: 3px; border-radius: 2px; vertical-align: middle; }
+
+/* side */
+.side { display: grid; gap: 14px; min-width: 0; }
+.card { padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.card h2 { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.conf { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.meter { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--wave); border-radius: 3px; }
+.expect { margin: 0; }
+.levels { display: grid; gap: 2px; font-size: 13px; }
+.levels div { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 3px 0; border-bottom: 1px dashed var(--rule); }
+.levels .p { font-family: var(--font-data); }
+.levels .d { font-family: var(--font-data); color: var(--muted); min-width: 56px; text-align: right; }
+.inval { font-size: 13px; padding: 8px 10px; border-left: 3px solid var(--down); background: var(--paper); border-radius: 0 4px 4px 0; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.list li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; }
+.list .ok { color: var(--up); } .list .bad { color: var(--down); } .list .n { color: var(--muted); }
+.ref { color: var(--muted); font-size: 12px; }
+
+.plan { border-color: var(--wave); }
+.evlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
+.evlist li { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+.evtag { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; line-height: 1.4; }
+.ev-cbr { color: var(--wave); } .ev-div { color: var(--down); } .ev-corp, .ev-report { color: var(--target); } .ev-own { color: var(--ink); }
+textarea { font-family: var(--font-data); font-size: 13px; width: 100%; max-width: 640px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 8px 10px; }
+td.wrap { white-space: normal; min-width: 220px; }
+td.lbl { white-space: normal; min-width: 110px; }
+tr.future td { color: var(--wave); }
+[data-pane="ev"] tbody tr { cursor: default; }
+.ckrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.ckrow div { background: var(--paper); border-radius: 5px; padding: 7px 10px; min-width: 0; }
+.ckrow span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.ckrow b { font-family: var(--font-data); font-weight: 500; overflow-wrap: anywhere; }
+.ckwarn { margin: 0; padding: 8px 12px 8px 28px; border-left: 3px solid var(--target); background: var(--paper); border-radius: 0 4px 4px 0; font-size: 13px; display: grid; gap: 4px; }
+.small.ok { color: var(--up); }
+.datacheck a { color: var(--wave); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; width: fit-content; }
+.pill.long { background: color-mix(in srgb, var(--up) 16%, transparent); color: var(--up); }
+.pill.short { background: color-mix(in srgb, var(--down) 16%, transparent); color: var(--down); }
+.pill.wait { background: var(--rule); color: var(--muted); }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.kv div { background: var(--paper); border-radius: 5px; padding: 7px 9px; min-width: 0; }
+.kv span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.kv b { font-family: var(--font-data); font-weight: 500; font-size: 14px; overflow-wrap: anywhere; }
+.small { font-size: 12px; color: var(--muted); margin: 0; }
+
+.alts { display: grid; gap: 6px; }
+.alt { text-align: left; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; background: var(--paper); padding: 8px 10px; }
+.alt[aria-pressed="true"] { border-color: var(--wave); background: var(--wave-soft); }
+.alt .s { font-family: var(--font-data); color: var(--muted); font-size: 12px; }
+
+/* lower */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--rule); padding: 0 10px; overflow-x: auto; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 12px; color: var(--muted); white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--wave); font-weight: 600; }
+.pane { padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.pane > * { min-width: 0; }
+.wrap > *, .main > *, .side > * { min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.stat { background: var(--paper); border-radius: 5px; padding: 9px 11px; }
+.stat span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat b { font-family: var(--font-data); font-weight: 500; font-size: 18px; }
+.pos { color: var(--up); } .neg { color: var(--down); }
+#eq { display: block; width: 100%; height: 220px; }
+.tablewrap { overflow-x: auto; max-height: 420px; overflow-y: auto; border: 1px solid var(--rule); border-radius: 5px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 6px 9px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+th { position: sticky; top: 0; background: var(--sheet); font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+td { font-family: var(--font-data); }
+td.l, th.l { text-align: left; font-family: var(--font-body); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--wave-soft); }
+.note { background: var(--paper); border-radius: 5px; padding: 10px 12px; font-size: 13px; margin: 0; }
+.prose { max-width: 72ch; display: grid; gap: 10px; }
+.prose h3 { font-size: 15px; margin-top: 6px; }
+.prose p, .prose ul { margin: 0; }
+.prose ul { padding-left: 20px; display: grid; gap: 4px; }
+.err { color: var(--down); font-size: 13px; }
+.foot { color: var(--muted); font-size: 12px; max-width: 90ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Волновой <span>советник</span></h1>
+      <p>Подсчёт волн по книге Пректера и Фроста «Волновой принцип Эллиотта»</p>
+    </div>
+    <div class="meta">
+      <div class="dataset" id="dsname"></div>
+      <div class="ver" id="ver">Версия 1.12 · 17.10.2026 · управление графиком и ползунок у графика</div>
+    </div>
+  </header>
+
+  <section class="bar" aria-label="Данные и настройки">
+    <label class="field"><span>Котировки</span>
+      <div class="row">
+        <select id="src">
+          <option value="waves">Учебный ряд с волнами</option>
+          <option value="random">Случайное блуждание (контроль)</option>
+          <option value="csv">Мой CSV-файл</option>
+        </select>
+        <button id="reseed" type="button" title="Сгенерировать другой учебный ряд">Другой ряд</button>
+        <label class="filebtn" id="filelbl">Загрузить CSV<input id="file" type="file" multiple accept=".csv,.txt,text/csv"></label>
+      </div>
+    </label>
+    <div class="field"><span>Масштаб</span>
+      <div class="seg" role="group" aria-label="Масштаб цены">
+        <button type="button" id="sc-log" aria-pressed="true">Логарифм.</button>
+        <button type="button" id="sc-lin" aria-pressed="false">Линейный</button>
+      </div>
+    </div>
+    <details class="more" id="moexbox">
+      <summary>Котировки Московской биржи — бесплатно, с задержкой 15 минут</summary>
+      <div class="grid-set">
+        <label class="field"><span>Рынок</span>
+          <select id="mx-mkt">
+            <option value="shares">Акции (TQBR)</option>
+            <option value="etf">Фонды (TQTF)</option>
+            <option value="index">Индексы</option>
+            <option value="fut">Фьючерсы (FORTS)</option>
+            <option value="cur">Валюта (CETS)</option>
+          </select>
+        </label>
+        <label class="field"><span>Тикер</span><input id="mx-tic" type="text" value="SBER" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Таймфрейм</span>
+          <select id="mx-iv">
+            <option value="24">1 день</option>
+            <option value="60">1 час</option>
+            <option value="10">10 минут</option>
+            <option value="7">1 неделя</option>
+          </select>
+        </label>
+        <label class="field"><span>С даты</span><input id="mx-from" type="date"></label>
+      </div>
+      <ol class="steps">
+        <li>Перед скачиванием новой бумаги удалите старые файлы <span class="mono">candles</span> из папки «Загрузки», чтобы не смешать бумаги.</li>
+        <li>Откройте по очереди ссылки ниже. Браузер скачает файлы <span class="mono">candles.csv</span>, в каждом до 500 свечей. Если файл пустой, значит свечи кончились.</li>
+        <li>По желанию переименуйте файлы, например <span class="mono">GAZP_1.csv</span>, <span class="mono">GAZP_2.csv</span>. Приложение возьмёт тикер из имени.</li>
+        <li>Нажмите «Загрузить CSV» и выделите все скачанные файлы сразу. Приложение склеит их и уберёт повторы.</li>
+      </ol>
+      <div class="mxlinks" id="mx-links"></div>
+    </details>
+    <details class="more" id="more">
+      <summary>Настройки сигналов и бэктеста</summary>
+      <div class="grid-set">
+        <label class="field"><span>Мин. оценка сценария</span><input id="minScore" type="number" min="0" max="100" step="1"></label>
+        <label class="field"><span>Мин. прибыль / риск</span><input id="minRR" type="number" min="0.5" max="10" step="0.1"></label>
+        <label class="field"><span>Риск на сделку, %</span><input id="riskPct" type="number" min="0.1" max="10" step="0.1"></label>
+        <label class="field"><span>Макс. плечо</span><input id="maxLev" type="number" min="1" max="20" step="0.5"></label>
+        <label class="field"><span>Комиссия, % за сторону</span><input id="feePct" type="number" min="0" max="2" step="0.01"></label>
+        <label class="field"><span>Проскальзывание, %</span><input id="slipPct" type="number" min="0" max="2" step="0.01"></label>
+        <label class="field"><span>Макс. баров в сделке</span><input id="maxHold" type="number" min="5" max="5000" step="5"></label>
+        <label class="field"><span>Капитал для расчёта лота</span><input id="capital" type="number" min="0" step="1000" style="width:120px"></label>
+        <div class="field"><span>Торговые сетапы</span>
+          <div class="checks" id="setups"></div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="sheet card datacheck" id="datacheck" hidden aria-live="polite"></section>
+
+  <div class="main">
+    <section class="sheet area-chart" aria-label="График">
+      <div class="chartbar">
+        <div class="swingctl">
+          <div class="row"><label for="swing" class="lbl">Порог разворота</label><button type="button" class="qbtn" id="swinghelpbtn" aria-expanded="false" aria-controls="swinghelp">Что это?</button></div>
+          <div class="row">
+            <input id="swing" type="range" min="0.3" max="20" step="0.1" aria-label="Порог разворота, %">
+            <input id="swingN" type="number" min="0.3" max="20" step="0.1" aria-label="Порог разворота, % (число)">
+            <span class="small">%</span>
+            <button id="auto" type="button" title="Подобрать по средней волатильности">Авто</button>
+          </div>
+        </div>
+        <div class="mini" id="mini" aria-live="polite"></div>
+      </div>
+      <div class="swinghelp" id="swinghelp" hidden>
+        <p><b>Порог разворота</b> — на сколько процентов цена должна пройти в обратную сторону, чтобы советник засчитал вершину или дно. Из этих разворотов складываются волны на графике.</p>
+        <ul>
+          <li><b>Маленький порог</b> (на дневных свечах 1–3%): видны мелкие волны, сигналов больше, но и ложных больше.</li>
+          <li><b>Большой порог</b> (8–15%): остаются только крупные волны, сигналов мало, зато они значимее.</li>
+        </ul>
+        <p>В книге это называется <b>степенью волны</b>: любая волна делится на волны меньшей степени, а сама входит в волну большей. Порог выбирает, какую степень вы сейчас разглядываете. Кнопка «Авто» ставит порог примерно в 2,5 раза больше среднего размаха свечи.</p>
+        <p>Двигайте ползунок и смотрите, как меняются разметка и итоги бэктеста справа от ползунка. Хороший порог — тот, при котором разметка выглядит естественно, а результат не рушится от соседних значений (вкладка «Устойчивость»).</p>
+      </div>
+      <div class="chartbox">
+        <canvas id="chart" aria-label="Свечной график с волновой разметкой"></canvas>
+        <div class="cinfo" id="cinfo" hidden aria-live="polite"></div>
+        <div class="charttools">
+          <button type="button" id="zin" aria-label="Приблизить">+</button>
+          <button type="button" id="zout" aria-label="Отдалить">−</button>
+          <button type="button" id="zreset" aria-label="Показать последние бары">⟲</button>
+          <button type="button" id="yauto" title="Автомасштаб цены">Авто цена</button>
+        </div>
+      </div>
+      <div class="legend">
+        <label><input type="checkbox" id="lg-zz" checked> <span class="sw" style="background:var(--muted)"></span> Зигзаг разворотов</label>
+        <label><input type="checkbox" id="lg-sub"> Младшая степень</label>
+        <label><input type="checkbox" id="lg-tg" checked> <span class="sw" style="background:var(--target)"></span> Цели и зона</label>
+        <label><input type="checkbox" id="lg-plan" checked> План сделки</label>
+        <label><input type="checkbox" id="lg-tr" checked> Сделки бэктеста</label>
+        <span><span class="evtag ev-cbr">ЦБ</span> <span class="evtag ev-div">Див</span> <span class="evtag ev-corp">Нов</span> — события, см. вкладку «События»</span>
+        <span>Перетаскивание — сдвиг в любую сторону · тянуть шкалу цен или дат — растянуть/сжать · щелчок по свече — её данные · двойной щелчок — сброс</span>
+      </div>
+    </section>
+
+    <aside class="side area-side">
+      <section class="sheet card plan" id="plan" aria-live="polite"></section>
+      <section class="sheet card" id="scn"></section>
+      <section class="sheet card">
+        <div class="eyebrow">Альтернативные подсчёты</div>
+        <p class="small">Книга советует всегда держать в голове второй по вероятности подсчёт (стр. 99). Нажмите, чтобы показать на графике.</p>
+        <div class="alts" id="alts"></div>
+      </section>
+    </aside>
+
+    <section class="sheet area-tabs" aria-label="Проверка на истории">
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="bt" id="tab-bt">Бэктест</button>
+        <button role="tab" aria-selected="false" data-tab="tr" id="tab-tr">Сделки</button>
+        <button role="tab" aria-selected="false" data-tab="sw" id="tab-sw">Устойчивость</button>
+        <button role="tab" aria-selected="false" data-tab="ev" id="tab-ev">События</button>
+        <button role="tab" aria-selected="false" data-tab="ab" id="tab-ab">Как это работает</button>
+      </div>
+      <div class="pane" data-pane="bt"></div>
+      <div class="pane" data-pane="tr" hidden></div>
+      <div class="pane" data-pane="sw" hidden></div>
+      <div class="pane" data-pane="ev" hidden>
+        <div class="grid-set" style="margin-top:0">
+          <label class="checks"><input type="checkbox" id="ev-filter"> Не открывать сделки, если событие ближе чем через</label>
+          <label class="row"><input id="ev-days" type="number" min="1" max="30" step="1"> <span class="small">дн.</span></label>
+          <label class="checks"><input type="checkbox" id="ev-close"> Закрывать позицию накануне события</label>
+          <label class="checks"><input type="checkbox" id="ev-builtin"> Встроенный календарь (ЦБ, дивиденды, новости компаний)</label>
+        </div>
+        <div id="ev-note"></div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:4px">Мои события</div>
+          <textarea id="ev-own" rows="4" spellcheck="false" placeholder="По одному в строке: 23.10.2026 Заседание ЦБ&#10;29.10.2026 Отчёт РСБУ"></textarea>
+          <p class="small" id="ev-own-msg">По одному событию в строке: дата и описание. Действуют для любой загруженной бумаги.</p>
+        </div>
+        <div id="ev-table"></div>
+      </div>
+      <div class="pane prose" data-pane="ab" hidden>
+        <h3>Что делает советник</h3>
+        <p>Находит развороты цены (зигзаг) и пробует разметить последние из них как импульс 1-2-3-4-5, клин, зигзаг A-B-C, горизонтальную коррекцию или треугольник A-B-C-D-E. Подсчёты, нарушающие правила, отбрасываются. Остальные получают оценку по нормам книги. Сценарий с наибольшей оценкой — предпочтительный подсчёт, следующие — альтернативы.</p>
+        <h3>Правила (нарушать нельзя, стр. 34–35)</h3>
+        <ul>
+          <li>Волна 2 никогда не откатывает больше 100% волны 1.</li>
+          <li>Волна 3 никогда не бывает самой короткой из волн 1, 3, 5.</li>
+          <li>Волна 4 не заходит на ценовую территорию волны 1. Исключение — диагональный треугольник (клин).</li>
+          <li>Коррекции не бывают пятёрками; треугольник стоит только перед последней волной.</li>
+        </ul>
+        <h3>Нормы, которые повышают оценку</h3>
+        <ul>
+          <li>Откаты: волна 2 — 50–61,8% волны 1, волна 4 — 23,6–38,2% волны 3 (стр. 141).</li>
+          <li>Соотношения: волна 3 = 1,618 или 2,618 × волна 1; при растянутой третьей волны 1 и 5 близки к равенству (стр. 76, 142–143).</li>
+          <li>Чередование: одна из коррекций 2 и 4 резкая, другая боковая (стр. 70).</li>
+          <li>Канал: линия через концы волн 2 и 4 и параллель через 3 указывают конец волны 5 (стр. 78–79).</li>
+          <li>Объём в третьей волне выше, чем в первой и пятой (стр. 83, 88).</li>
+          <li>Деление на младшей степени: движущие волны состоят из пяти частей, коррективные — из трёх.</li>
+          <li>Зигзаг: C ≈ A, реже 0,618 или 1,618 × A. Треугольник: каждая волна ≈ 0,618 от волны через одну (стр. 144–146).</li>
+        </ul>
+        <h3>Торговые сетапы</h3>
+        <ul>
+          <li><b>Вход в волну 3.</b> После подтверждённой волны 2 (откат 30–80%). Стоп за началом волны 1, цель — 1,618 × волна 1 от конца волны 2.</li>
+          <li><b>Вход в волну 5.</b> После мелкой волны 4. Стоп за концом волны 4, цель — ближайшая проекция волны 5 с нужным соотношением прибыль/риск.</li>
+          <li><b>После коррекции A-B-C.</b> Вход в сторону старшего тренда, стоп за концом C, цель — возврат 61,8% коррекции.</li>
+          <li><b>Рывок из треугольника.</b> Стоп за концом E, цель — ширина треугольника (стр. 57).</li>
+          <li><b>Против тренда после 5 волн</b> (выключен по умолчанию). Цель — район волны 4.</li>
+        </ul>
+        <p>Разворот подтверждается только после того, как цена ушла от экстремума на величину порога, поэтому вход всегда запаздывает. Бэктест учитывает это честно: сигнал рассчитывается по данным до текущего бара, вход — по открытию следующего, стоп проверяется раньше цели, вычитаются комиссия и проскальзывание.</p>
+        <h3>Как загрузить свои котировки</h3>
+        <ul>
+          <li>Московская биржа: раскройте «Котировки Московской биржи» под панелью настроек, укажите тикер и таймфрейм, скачайте файлы по ссылкам и загрузите их все разом. Данные бесплатные, с задержкой 15 минут.</li>
+          <li>Финам: раздел «Экспорт котировок», формат CSV с полями DATE, TIME, OPEN, HIGH, LOW, CLOSE, VOL.</li>
+          <li>MetaTrader 5: Вид → Символы → вкладка «Бары» → «Запрос» → «Экспорт баров».</li>
+          <li>TradingView: меню графика → «Экспорт данных графика».</li>
+          <li>Подойдёт любой CSV со столбцами даты, open, high, low, close и (по желанию) объёма. Разделитель: запятая, точка с запятой или табуляция.</li>
+        </ul>
+        <h3>Чего ожидать</h3>
+        <p>Авторы прямо пишут, что волновой анализ даёт вероятности, а не определённость (стр. 98–99). Сравните учебный ряд со «Случайным блужданием»: на ряде без волн сетапы не должны давать преимущества, и средний R около нуля показывает, что бэктест не подглядывает в будущее. Прежде чем торговать, проверьте свои инструменты на вкладке «Устойчивость»: результат не должен держаться на одном удачном значении порога.</p>
+      </div>
+    </section>
+  </div>
+
+
+  <p class="foot">Инструмент для анализа, а не инвестиционная рекомендация. Результаты на истории не гарантируют будущей доходности. Начинайте с суммы, потерю которой вы можете себе позволить (стр. 101).</p>
+</div>
+
+<script>
+/*
+ * Волновой движок по книге Р. Пректера и А. Фроста «Волновой принцип Эллиотта».
+ * Чистый JS без зависимостей: работает и в браузере (window.EW), и в Node (module.exports).
+ *
+ * Что внутри:
+ *  - Zigzag      — причинный (без заглядывания вперёд) поиск разворотов по % порогу;
+ *  - evalImpulse — проверка правил импульса (стр. 34–37) и норм (гл. 2, гл. 4);
+ *  - evalABC     — зигзаг / горизонтальная коррекция (стр. 46–54, 144–146);
+ *  - evalTriangle— сужающийся треугольник (стр. 54–57, 146);
+ *  - analyze     — сценарии «предпочтительный + альтернативы» с целями и уровнем отмены;
+ *  - backtest    — пошаговая проверка торговых сетапов без заглядывания в будущее;
+ *  - parseCSV / synth — загрузка котировок и учебные данные.
+ */
+(function (root) {
+  'use strict';
+
+  const DEFAULTS = {
+    swingPct: 3,          // порог разворота зигзага, %
+    subRatio: 0.4,        // порог младшей степени = swingPct * subRatio
+    scale: 'log',         // 'log' (полулогарифмический) или 'linear' (стр. 81–83)
+    minScore: 45,         // минимальная оценка сценария для сигнала
+    minRR: 1.5,           // минимальное отношение прибыль/риск
+    riskPct: 1,           // риск на сделку, % капитала
+    maxLev: 3,            // максимальное плечо (ограничивает размер позиции)
+    feePct: 0.05,         // комиссия на одну сторону, %
+    slipPct: 0.02,        // проскальзывание на одну сторону, %
+    maxHold: 200,         // максимум баров в позиции
+    stopBufPct: 0.1,      // запас за уровень стопа, %
+    w2min: 0.3, w2max: 0.8,
+    setups: { w3: true, w5: true, abc: true, tri: true, counter: false },
+    events: [],           // [{ t, type, title }] — события для фильтра (уже отобранные под бумагу)
+    eventFilter: false,   // не открывать сделки, если событие в ближайшие eventDays дней
+    eventDays: 2,
+    eventClose: false     // закрывать позицию накануне события
+  };
+
+  const SETUP_NAMES = {
+    w3: 'Вход в волну 3',
+    w5: 'Вход в волну 5',
+    abc: 'После коррекции A-B-C',
+    tri: 'Рывок из треугольника',
+    counter: 'Против тренда после 5 волн'
+  };
+
+  // ---------------------------------------------------------------- utils
+  const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  /** Близость x к ближайшему из уровней: 1 — точно, 0 — дальше допуска. */
+  function near(x, levels, tol) {
+    let best = { c: 0, lvl: null };
+    for (const l of levels) {
+      const c = 1 - Math.abs(x - l) / (tol * Math.max(l, 0.2));
+      if (c > best.c) best = { c, lvl: l };
+    }
+    best.c = clamp(best.c, 0, 1);
+    return best;
+  }
+  const pct = (x) => (x * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',') + '%';
+  const fx = (x) => (Math.round(x * 1000) / 1000).toString().replace('.', ',');
+
+  function makeCtx(opts, bars, subPivots) {
+    const log = opts.scale !== 'linear';
+    return {
+      opts,
+      bars,
+      sub: subPivots || [],
+      F: log ? Math.log : (x) => x,
+      G: log ? Math.exp : (x) => x
+    };
+  }
+
+  // ---------------------------------------------------------------- zigzag
+  /**
+   * Причинный зигзаг. Разворот подтверждается, когда цена ушла от экстремума на thr.
+   * Каждый пивот хранит i (бар экстремума) и c (бар подтверждения).
+   */
+  class Zigzag {
+    constructor(thr) {
+      this.thr = thr;
+      this.pivots = [];
+      this.dir = 0;
+      this.hiP = -Infinity; this.hiI = 0;
+      this.loP = Infinity; this.loI = 0;
+      this.extP = 0; this.extI = 0;
+    }
+    push(b, i) {
+      const t = this.thr;
+      let out = null;
+      if (this.dir === 0) {
+        if (b.h > this.hiP) { this.hiP = b.h; this.hiI = i; }
+        if (b.l < this.loP) { this.loP = b.l; this.loI = i; }
+        if (this.hiI > this.loI && this.hiP >= this.loP * (1 + t)) {
+          out = { i: this.loI, p: this.loP, t: 'L', c: i };
+          this.dir = 1; this.extP = this.hiP; this.extI = this.hiI;
+        } else if (this.loI > this.hiI && this.loP <= this.hiP * (1 - t)) {
+          out = { i: this.hiI, p: this.hiP, t: 'H', c: i };
+          this.dir = -1; this.extP = this.loP; this.extI = this.loI;
+        }
+      } else if (this.dir === 1) {
+        if (b.h > this.extP) { this.extP = b.h; this.extI = i; }
+        else if (b.l <= this.extP * (1 - t)) {
+          out = { i: this.extI, p: this.extP, t: 'H', c: i };
+          this.dir = -1; this.extP = b.l; this.extI = i;
+        }
+      } else {
+        if (b.l < this.extP) { this.extP = b.l; this.extI = i; }
+        else if (b.h >= this.extP * (1 + t)) {
+          out = { i: this.extI, p: this.extP, t: 'L', c: i };
+          this.dir = 1; this.extP = b.h; this.extI = i;
+        }
+      }
+      if (out) this.pivots.push(out);
+      return out;
+    }
+    /** Текущий неподтверждённый экстремум (куда тянется последняя волна). */
+    pending() {
+      if (this.dir === 0) return null;
+      return { i: this.extI, p: this.extP, t: this.dir === 1 ? 'H' : 'L', c: null };
+    }
+  }
+
+  function zigzag(bars, thr) {
+    const z = new Zigzag(thr);
+    for (let i = 0; i < bars.length; i++) z.push(bars[i], i);
+    return { pivots: z.pivots, pending: z.pending() };
+  }
+
+  /** Сколько колебаний младшей степени внутри отрезка [a, b] (по подтверждённым пивотам). */
+  function subLegs(ctx, a, b) {
+    let n = 0;
+    for (const p of ctx.sub) if (p.i > a && p.i < b) n++;
+    return n + 1;
+  }
+
+  function legVolume(ctx, a, b) {
+    let s = 0, k = 0;
+    for (let i = a + 1; i <= b; i++) { const v = ctx.bars[i] && ctx.bars[i].v; if (v > 0) { s += v; k++; } }
+    return k ? s / k : 0;
+  }
+
+  // ---------------------------------------------------------------- impulse
+  const STATUS_IMP = { 2: 'w2', 3: 'w3', 4: 'w4', 5: 'w5', 6: 'done' };
+
+  /**
+   * Проверка последовательности 0-1-2-3-4-5 (может быть неполной: 2..6 точек).
+   * Правила (не допускают исключений, стр. 34–35):
+   *  - волна 2 не заходит за начало волны 1;
+   *  - волна 3 не бывает самой короткой из 1, 3, 5;
+   *  - волна 4 не заходит на территорию волны 1 (иначе — диагональный треугольник).
+   */
+  function evalImpulse(P, ctx) {
+    const n = P.length, F = ctx.F;
+    const v = P.map((x) => F(x.p));
+    const d = sgn(v[1] - v[0]);
+    const w = [];
+    for (let k = 1; k < n; k++) w.push(Math.abs(v[k] - v[k - 1]));
+    const rules = [], notes = [], flags = {};
+    let ok = true, score = 35, diag = false;
+    const rule = (good, text, ref) => { rules.push({ ok: good, text, ref }); if (!good) ok = false; };
+
+    if (n >= 3) rule(d * (v[2] - v[0]) > 0, 'Волна 2 не уходит за начало волны 1', 'стр. 34');
+    if (n >= 4) rule(d * (v[3] - v[1]) > 0, 'Волна 3 проходит дальше конца волны 1', 'стр. 34');
+    if (n >= 5) {
+      const overlap = d * (v[4] - v[1]) <= 0;
+      if (overlap) {
+        // Перекрытие допустимо только в диагональном треугольнике (клине)
+        const contracting = w[2] < w[0] && w[3] < w[1];
+        rule(d * (v[4] - v[2]) > 0, 'Волна 4 не уходит за начало волны 3', 'стр. 34');
+        rule(contracting, 'Перекрытие 4 и 1 допустимо только в сужающемся клине', 'стр. 40');
+        diag = true;
+      } else {
+        rule(true, 'Волна 4 не заходит на территорию волны 1', 'стр. 34');
+      }
+    }
+    if (n >= 6) {
+      rule(!(w[2] < w[0] && w[2] < w[4]), 'Волна 3 не самая короткая из 1, 3, 5', 'стр. 34');
+      if (diag) rule(w[4] < w[2], 'В клине волна 5 короче волны 3', 'стр. 40');
+      if (d * (v[5] - v[3]) <= 0) {
+        flags.truncated = true;
+        notes.push({ s: 0, t: 'Усечённая пятая: волна 5 не обновила экстремум волны 3 — признак слабости (стр. 38)' });
+      }
+    }
+    if (!ok) return { ok: false, rules, notes, score: 0 };
+
+    // --- нормы и соотношения Фибоначчи
+    const add = (pts, text) => { score += pts; notes.push({ s: pts, t: text }); };
+    let r2 = null, r4 = null;
+    if (n >= 3) {
+      r2 = w[1] / w[0];
+      const c = near(r2, [0.382, 0.5, 0.618, 0.786], 0.14);
+      if (c.c > 0) add(8 * c.c, `Откат волны 2 = ${pct(r2)} от волны 1 (норма 50–61,8%, стр. 141)`);
+    }
+    if (n >= 4) {
+      const r3 = w[2] / w[0];
+      const c = near(r3, [1, 1.618, 2.618], 0.12);
+      if (c.c > 0) add(8 * c.c, `Волна 3 = ${fx(r3)} × волна 1 (ориентиры 1,618 и 2,618, стр. 142)`);
+      if (r3 > 1.3) add(4, 'Волна 3 растянута — так бывает чаще всего (стр. 37)');
+    }
+    if (n >= 5) {
+      r4 = w[3] / w[2];
+      const c = near(r4, [0.236, 0.382, 0.5], 0.18);
+      if (c.c > 0) add(6 * c.c, `Откат волны 4 = ${pct(r4)} от волны 3 (норма 38,2%, стр. 141)`);
+      // Чередование (стр. 70): одна коррекция резкая и глубокая, другая боковая и мелкая
+      if ((r2 >= 0.5 && r4 <= 0.4) || (r2 <= 0.4 && r4 >= 0.5)) add(6, 'Чередование: волны 2 и 4 разной глубины (стр. 70)');
+      else if (Math.abs(r2 - r4) < 0.1) add(-4, 'Нет чередования: волны 2 и 4 одинаково глубоки (стр. 70)');
+      // Время: четвёртая обычно дольше второй, если она боковая
+      const t2 = P[2].i - P[1].i, t4 = P[4].i - P[3].i;
+      if (r4 < r2 && t4 > t2) add(2, 'Волна 4 мельче, но дольше волны 2 — типичная боковая коррекция');
+    }
+    if (n >= 6) {
+      const r5 = w[4] / w[0];
+      const total03 = Math.abs(v[3] - v[0]);
+      const c1 = near(r5, [0.618, 1, 1.618], 0.1);
+      const c2 = near(w[4] / total03, [0.618, 1.618], 0.1);
+      if (c1.c >= c2.c && c1.c > 0) add(7 * c1.c, `Волна 5 = ${fx(r5)} × волна 1 (равенство волн, стр. 76, 142)`);
+      else if (c2.c > 0) add(7 * c2.c, `Волна 5 = ${fx(w[4] / total03)} × путь 0→3 (стр. 143)`);
+      if (w[2] / w[0] > 1.5 && Math.abs(r5 - 1) < 0.25) add(4, 'Волна 3 растянута, волны 1 и 5 близки к равенству (стр. 36)');
+      // Канал: линия 2–4 и параллель через 3 (стр. 78–79)
+      const s = (v[4] - v[2]) / (P[4].i - P[2].i || 1);
+      const upper = v[3] + s * (P[5].i - P[3].i);
+      const width = Math.abs(v[3] - (v[2] + s * (P[3].i - P[2].i))) || 1e-9;
+      const over = d * (v[5] - upper) / width;
+      if (Math.abs(over) <= 0.35) add(5, 'Волна 5 закончилась у верхней границы канала (стр. 79)');
+      else if (over > 0.35) notes.push({ s: 0, t: 'Прокол границы канала волной 5 («выброс», стр. 79–81)' });
+    }
+    // Объём (стр. 83–84): в волне 3 выше, в волне 5 ниже
+    if (n >= 6) {
+      const v1 = legVolume(ctx, P[0].i, P[1].i), v3 = legVolume(ctx, P[2].i, P[3].i), v5 = legVolume(ctx, P[4].i, P[5].i);
+      if (v3 > 0 && v3 > v5 && v3 > v1) add(4, 'Объём в волне 3 выше, чем в 1 и 5 (стр. 83, 88)');
+    }
+    // Внутреннее деление на младшей степени: 1,3,5 — пятёрки, 2,4 — тройки
+    if (ctx.sub.length) {
+      let good = 0, checked = 0;
+      for (let k = 0; k < n - 1; k++) {
+        const legs = subLegs(ctx, P[k].i, P[k + 1].i);
+        const motive = k % 2 === 0;
+        checked++;
+        if (motive ? legs >= 5 : legs >= 3) good++;
+      }
+      if (checked) {
+        const pts = Math.round((8 * good) / checked);
+        if (pts > 0) add(pts, `Деление на младшей степени согласуется в ${good} из ${checked} волн`);
+      }
+    }
+    if (diag) score -= 10;
+    const evidence = Math.min(n - 1, 5);
+    score = clamp(score + evidence * 2, 0, 100);
+    return { ok: true, rules, notes, score, d, v, w, r2, r4, diag, flags };
+  }
+
+  // ---------------------------------------------------------------- corrections
+  /**
+   * A-B-C: зигзаг (5-3-5) или горизонтальная коррекция (3-3-5).
+   * P: 3 точки (A завершена, идёт B) — не оцениваем; 3 точки = 0,A,B; 4 точки = 0,A,B,C.
+   */
+  function evalABC(P, ctx) {
+    const n = P.length, F = ctx.F;
+    const v = P.map((x) => F(x.p));
+    const d = sgn(v[1] - v[0]);
+    const A = Math.abs(v[1] - v[0]);
+    const B = Math.abs(v[2] - v[1]);
+    const rB = B / A;
+    const rules = [], notes = [];
+    let ok = true, score = 32, kind;
+    const rule = (good, text, ref) => { rules.push({ ok: good, text, ref }); if (!good) ok = false; };
+    const add = (pts, text) => { score += pts; notes.push({ s: pts, t: text }); };
+
+    if (rB < 0.9) kind = 'zigzag';
+    else kind = 'flat';
+    rule(rB <= 1.382 + 0.05, 'Волна B не длиннее 138,2% волны A', 'стр. 146');
+    if (kind === 'zigzag') {
+      const c = near(rB, [0.382, 0.5, 0.618], 0.2);
+      if (c.c > 0) add(6 * c.c, `Откат B = ${pct(rB)} от A (резкая коррекция, стр. 141)`);
+    } else {
+      notes.push({ s: 0, t: rB > 1.05 ? `B = ${pct(rB)} от A: расширенная горизонтальная (стр. 51)` : `B ≈ ${pct(rB)} от A: обычная горизонтальная (стр. 51)` });
+    }
+    let subtype = kind === 'flat' ? (rB > 1.05 ? 'расширенная' : 'обычная') : '';
+    if (n >= 4) {
+      const C = Math.abs(v[3] - v[2]);
+      const beyond = d * (v[3] - v[1]); // >0: C ушла дальше конца A
+      const rC = C / A;
+      if (kind === 'zigzag') {
+        rule(beyond > 0, 'В зигзаге C проходит дальше конца A', 'стр. 46');
+        const c = near(rC, [0.618, 1, 1.618], 0.12);
+        if (c.c > 0) add(10 * c.c, `C = ${fx(rC)} × A (обычно C = A, стр. 144)`);
+      } else {
+        if (beyond < 0 && rB > 1.05) { subtype = 'бегущая'; add(-6, 'Бегущая коррекция — редкость, не спешите с этим подсчётом (стр. 54)'); }
+        const c = rB > 1.05 ? near(rC, [1.618, 2.618], 0.1) : near(rC, [1, 1.236], 0.12);
+        if (c.c > 0) add(10 * c.c, `C = ${fx(rC)} × A (${rB > 1.05 ? 'в расширенной часто 1,618' : 'в обычной A ≈ B ≈ C'}, стр. 144)`);
+      }
+      // деление: зигзаг 5-3-5, горизонтальная 3-3-5
+      if (ctx.sub.length) {
+        const lA = subLegs(ctx, P[0].i, P[1].i), lC = subLegs(ctx, P[2].i, P[3].i);
+        const goodA = kind === 'zigzag' ? lA >= 5 : lA >= 3 && lA < 5 || lA >= 3;
+        if (lC >= 5) add(4, 'Волна C делится на пять (стр. 45–46)');
+        if (goodA && kind === 'zigzag') add(3, 'Волна A зигзага делится на пять');
+        if (kind === 'flat' && lA < 5) add(2, 'Волна A горизонтальной — тройка (стр. 50)');
+      }
+    }
+    if (!ok) return { ok: false, rules, notes, score: 0 };
+    score = clamp(score + (n - 1) * 2, 0, 100);
+    return { ok: true, rules, notes, score, kind, subtype, d, v, A, rB };
+  }
+
+  /** Сужающийся треугольник A-B-C-D-E (стр. 54–57). P: 0,A,B,C,D[,E]. */
+  function evalTriangle(P, ctx) {
+    const n = P.length, F = ctx.F;
+    const v = P.map((x) => F(x.p));
+    const d = sgn(v[1] - v[0]);
+    const s = [];
+    for (let k = 1; k < n; k++) s.push(Math.abs(v[k] - v[k - 1]));
+    const rules = [], notes = [];
+    let ok = true, score = 30;
+    const rule = (good, text, ref) => { rules.push({ ok: good, text, ref }); if (!good) ok = false; };
+    const add = (pts, text) => { score += pts; notes.push({ s: pts, t: text }); };
+    rule(s[2] < s[0] && s[3] < s[1], 'Стороны сужаются: C < A и D < B', 'стр. 54');
+    if (n >= 6) rule(s[4] < s[2], 'Волна E короче волны C', 'стр. 54');
+    rule(s[1] < s[0] * 1.6, 'Волна B не выходит далеко за начало A', 'стр. 54');
+    if (!ok) return { ok: false, rules, notes, score: 0 };
+    const pairs = [[2, 0, 'c/a'], [3, 1, 'd/b']];
+    if (n >= 6) pairs.push([4, 2, 'e/c']);
+    for (const [a, b, lbl] of pairs) {
+      const r = s[a] / s[b];
+      const c = near(r, [0.618], 0.15);
+      if (c.c > 0) add(6 * c.c, `${lbl} = ${fx(r)} (норма 0,618, стр. 146)`);
+    }
+    // треугольник не должен быть слишком коротким по времени
+    const dur = P[n - 1].i - P[0].i;
+    if (dur > 0 && (P[1].i - P[0].i) / dur < 0.5) add(3, 'Волны треугольника сопоставимы по времени');
+    notes.push({ s: 0, t: 'Треугольник бывает только перед последней волной: 4, B, последней X (стр. 56)' });
+    score = clamp(score + (n - 1) * 2, 0, 100);
+    return { ok: true, rules, notes, score, d, v, s };
+  }
+
+  // ---------------------------------------------------------------- scenarios
+  const IMP_LABELS = ['0', '1', '2', '3', '4', '5'];
+  const ABC_LABELS = ['0', 'A', 'B', 'C'];
+  const TRI_LABELS = ['0', 'A', 'B', 'C', 'D', 'E'];
+
+  function lvl(ctx, fromV, dir, size, ratio, label) {
+    const val = fromV + dir * size * ratio;
+    return { price: ctx.G(val), label, ratio };
+  }
+
+  function impulseScenario(P, e, ctx) {
+    const n = P.length, d = e.d, v = e.v, w = e.w;
+    const st = STATUS_IMP[n];
+    const name = e.diag ? 'Диагональный треугольник (клин)' : 'Импульс';
+    const dirTxt = d > 0 ? 'вверх' : 'вниз';
+    const s = {
+      family: 'impulse', kind: e.diag ? 'diag' : 'impulse', status: st, dir: d,
+      title: '', points: P.map((p, k) => ({ i: p.i, p: p.p, label: IMP_LABELS[k] })),
+      score: e.score, rules: e.rules, notes: e.notes, targets: [], zone: null, invalid: null, expect: '', r2: e.r2, r4: e.r4, diag: e.diag
+    };
+    const G = ctx.G;
+    if (n === 2) {
+      s.title = `${name} ${dirTxt}: идёт волна 2`;
+      s.expect = 'Откат волны 2 — обычно резкий, на 50–61,8% волны 1. Затем ожидается сильная волна 3.';
+      s.targets = [0.382, 0.5, 0.618, 0.786].map((r) => lvl(ctx, v[1], -d, w[0], r, `W2 ${pct(r)}`));
+      s.zone = [lvl(ctx, v[1], -d, w[0], 0.5, '').price, lvl(ctx, v[1], -d, w[0], 0.618, '').price];
+      s.invalid = { price: P[0].p, text: 'Уход за начало волны 1 отменяет подсчёт (правило, стр. 34)' };
+    } else if (n === 3) {
+      s.title = `${name} ${dirTxt}: начинается волна 3`;
+      s.expect = 'Волна 3 обычно самая сильная и длинная: цели 1,618 и 2,618 длины волны 1 от конца волны 2.';
+      s.targets = [1, 1.618, 2.618].map((r) => lvl(ctx, v[2], d, w[0], r, `W3 = ${r} × W1`));
+      s.invalid = { price: P[0].p, text: 'Уход за начало волны 1 (правило: волна 2 не откатывает больше 100%)' };
+    } else if (n === 4) {
+      s.title = `${name} ${dirTxt}: идёт волна 4`;
+      const sideways = e.r2 >= 0.5;
+      s.expect = 'Волна 4 обычно откатывает 23,6–38,2% волны 3 и не заходит на территорию волны 1. ' +
+        (sideways ? 'Волна 2 была глубокой, поэтому волна 4 скорее будет боковой и мелкой (чередование).' : 'Волна 2 была мелкой, поэтому волна 4 может быть резкой (чередование).');
+      s.targets = [0.236, 0.382, 0.5].map((r) => lvl(ctx, v[3], -d, w[2], r, `W4 ${pct(r)}`));
+      s.zone = [lvl(ctx, v[3], -d, w[2], 0.236, '').price, lvl(ctx, v[3], -d, w[2], 0.382, '').price];
+      s.invalid = { price: P[1].p, text: 'Заход на территорию волны 1 отменяет импульс (возможен только клин)' };
+      // временный канал: линия 1–3 и параллель через 2 (стр. 78)
+      const sl = (v[3] - v[1]) / (P[3].i - P[1].i || 1);
+      s.channel = { a: { i: P[1].i, v: v[1] }, b: { i: P[3].i, v: v[3] }, c: { i: P[2].i, v: v[2] }, slope: sl };
+    } else if (n === 5) {
+      s.title = `${name} ${dirTxt}: идёт волна 5`;
+      const ext3 = w[2] / w[0] > 1.618 * 0.95;
+      const total03 = Math.abs(v[3] - v[0]);
+      const t = [];
+      t.push(lvl(ctx, v[4], d, w[0], 1, 'W5 = W1'));
+      t.push(lvl(ctx, v[4], d, w[0], 0.618, 'W5 = 0,618 × W1'));
+      t.push(lvl(ctx, v[4], d, total03, 0.618, 'W5 = 0,618 × (0→3)'));
+      if (!ext3) t.push(lvl(ctx, v[4], d, total03, 1.618, 'Растянутая W5 = 1,618 × (0→3)'));
+      t.sort((a, b) => d * (a.price - b.price));
+      s.targets = t;
+      s.expect = ext3
+        ? 'Волна 3 растянута, поэтому волна 5 скорее всего близка к волне 1 по длине (стр. 36). Если 5 не обновит вершину 3 — это усечение и сигнал разворота.'
+        : 'Волна 3 не растянута — возможна растянутая волна 5. Следите за объёмом: в пятой он обычно ниже, чем в третьей.';
+      s.invalid = { price: e.diag ? P[3].p : P[1].p, text: e.diag ? 'Выход за начало волны 4 клина' : 'Заход на территорию волны 1 отменяет подсчёт' };
+      const sl = (v[4] - v[2]) / (P[4].i - P[2].i || 1);
+      s.channel = { a: { i: P[2].i, v: v[2] }, b: { i: P[4].i, v: v[4] }, c: { i: P[3].i, v: v[3] }, slope: sl };
+    } else {
+      s.title = `${name} ${dirTxt} завершён: ожидается коррекция`;
+      const tot = Math.abs(v[5] - v[0]);
+      s.targets = [0.382, 0.5, 0.618].map((r) => lvl(ctx, v[5], -d, tot, r, `Откат ${pct(r)} всего импульса`));
+      s.targets.unshift({ price: P[4].p, label: 'Район волны 4 (стр. 72–73)', ratio: null });
+      s.expect = e.diag
+        ? 'После конечного клина обычно следует резкий разворот, по меньшей мере к началу клина (стр. 43).'
+        : 'После пяти волн идёт коррекция из трёх волн. Обычно она доходит до района четвёртой волны меньшей степени (стр. 73).';
+      if (e.flags.truncated) s.expect += ' Пятая волна усечена — разворот может быть резким.';
+      s.invalid = { price: P[5].p, text: 'Новый экстремум за концом волны 5 — пятая растягивается или подсчёт неверен' };
+    }
+    return s;
+  }
+
+  function abcScenario(P, e, ctx) {
+    const n = P.length, d = e.d, v = e.v;
+    const kindName = e.kind === 'zigzag' ? 'Зигзаг A-B-C' : `Горизонтальная коррекция A-B-C${e.subtype ? ' (' + e.subtype + ')' : ''}`;
+    const s = {
+      family: 'abc', kind: e.kind, status: n === 3 ? 'c' : 'done', dir: d,
+      points: P.map((p, k) => ({ i: p.i, p: p.p, label: ABC_LABELS[k] })),
+      score: e.score, rules: e.rules, notes: e.notes, targets: [], zone: null, invalid: null, title: '', expect: ''
+    };
+    const dirTxt = d > 0 ? 'вверх' : 'вниз';
+    if (n === 3) {
+      s.title = `${kindName} ${dirTxt}: идёт волна C`;
+      s.targets = (e.kind === 'zigzag' ? [0.618, 1, 1.618] : e.rB > 1.05 ? [1, 1.618, 2.618] : [1, 1.236])
+        .map((r) => lvl(ctx, v[2], d, e.A, r, `C = ${r} × A`));
+      s.expect = e.kind === 'zigzag'
+        ? 'В зигзаге волна C чаще всего равна волне A, реже 0,618 или 1,618 от неё (стр. 144).'
+        : 'В горизонтальной коррекции C обычно заканчивается чуть дальше конца A; в расширенной — около 1,618 × A (стр. 144).';
+      s.invalid = { price: e.kind === 'zigzag' ? P[0].p : null, text: 'Выход за начало A превращает зигзаг в горизонтальную коррекцию или в импульс' };
+      if (!s.invalid.price) s.invalid = null;
+    } else {
+      s.title = `${kindName} ${dirTxt} ${e.kind === 'zigzag' ? 'завершён' : 'завершена'}: ожидается возобновление тренда ${d > 0 ? 'вниз' : 'вверх'}`;
+      const tot = Math.abs(v[3] - v[0]);
+      const t = [0.618, 1].map((r) => lvl(ctx, v[3], -d, tot, r, r === 1 ? 'Возврат к началу коррекции' : `Возврат ${pct(r)} коррекции`));
+      if (e.kind === 'flat') t.push({ price: P[2].p, label: 'Уровень конца B', ratio: null });
+      s.targets = t;
+      s.expect = 'Коррекция из трёх волн закончена — возобновляется более крупный тренд. Если вместо пятёрки пойдёт тройка, коррекция усложняется (двойная тройка).';
+      s.invalid = { price: P[3].p, text: 'Новый экстремум за концом C — коррекция продолжается' };
+    }
+    return s;
+  }
+
+  function triScenario(P, e, ctx) {
+    const n = P.length, d = e.d, v = e.v;
+    const trend = -d; // треугольник идёт против тренда старшей степени
+    const s = {
+      family: 'triangle', kind: 'triangle', status: n === 5 ? 'e' : 'done', dir: d,
+      points: P.map((p, k) => ({ i: p.i, p: p.p, label: TRI_LABELS[k] })),
+      score: e.score, rules: e.rules, notes: e.notes, targets: [], zone: null, invalid: null, title: '', expect: ''
+    };
+    if (n === 5) {
+      s.title = 'Треугольник: формируется волна E';
+      s.targets = [lvl(ctx, v[4], -sgn(v[4] - v[3]), e.s[2], 0.618, 'E = 0,618 × C')];
+      s.expect = 'Волна E часто не доходит до линии A–C или ложно прокалывает её (стр. 54, 93). После E — рывок по тренду.';
+      s.invalid = { price: P[3].p, text: 'Выход за конец C ломает сужение' };
+    } else {
+      const widest = e.s[1];
+      s.title = `Треугольник завершён: ожидается рывок ${trend > 0 ? 'вверх' : 'вниз'}`;
+      s.targets = [lvl(ctx, v[5], trend, widest, 1, 'Рывок ≈ ширина треугольника (стр. 57)')];
+      s.expect = 'Рывок после треугольника обычно короткий и быстрый, примерно на ширину треугольника (стр. 57).';
+      s.invalid = { price: P[5].p, text: 'Обновление конца E — треугольник не завершён' };
+    }
+    return s;
+  }
+
+  /** Все сценарии, которые заканчиваются последним подтверждённым пивотом. */
+  function scenarios(pivots, ctx) {
+    const out = [];
+    const n = pivots.length;
+    const take = (k) => pivots.slice(n - k);
+    for (const k of [2, 3, 4, 5, 6]) {
+      if (n < k) continue;
+      const P = take(k);
+      const e = evalImpulse(P, ctx);
+      if (e.ok) out.push(impulseScenario(P, e, ctx));
+    }
+    for (const k of [3, 4]) {
+      if (n < k) continue;
+      const P = take(k);
+      const e = evalABC(P, ctx);
+      if (e.ok) out.push(abcScenario(P, e, ctx));
+    }
+    for (const k of [5, 6]) {
+      if (n < k) continue;
+      const P = take(k);
+      const e = evalTriangle(P, ctx);
+      if (e.ok) out.push(triScenario(P, e, ctx));
+    }
+    out.sort((a, b) => b.score - a.score || b.points.length - a.points.length);
+    return out;
+  }
+
+  // ---------------------------------------------------------------- trade plans
+  function tradePlan(s, entry, cfg) {
+    const set = cfg.setups;
+    const buf = cfg.stopBufPct / 100;
+    const P = s.points;
+    let setup = null, side = 0, stop = null, target = null;
+    if (s.family === 'impulse' && !s.diag && s.status === 'w3' && set.w3) {
+      if (s.r2 < cfg.w2min || s.r2 > cfg.w2max) return null;
+      setup = 'w3'; side = s.dir; stop = P[0].p; target = s.targets[1].price;
+    } else if (s.family === 'impulse' && !s.diag && s.status === 'w5' && set.w5) {
+      if (s.r4 > 0.5) return null;
+      setup = 'w5'; side = s.dir; stop = P[4].p;
+      target = null;
+      for (const t of s.targets) {
+        const rr = side * (t.price - entry) / Math.abs(entry - stop);
+        if (rr >= cfg.minRR) { target = t.price; break; }
+      }
+      if (target == null) return null;
+    } else if (s.family === 'abc' && s.status === 'done' && set.abc) {
+      setup = 'abc'; side = -s.dir; stop = P[3].p; target = s.targets[0].price;
+    } else if (s.family === 'triangle' && s.status === 'done' && set.tri) {
+      setup = 'tri'; side = -s.dir; stop = P[5].p; target = s.targets[0].price;
+    } else if (s.family === 'impulse' && s.status === 'done' && set.counter) {
+      setup = 'counter'; side = -s.dir; stop = P[5].p; target = s.targets[0].price;
+    }
+    if (!setup) return null;
+    stop = side > 0 ? stop * (1 - buf) : stop * (1 + buf);
+    const risk = side * (entry - stop);
+    const reward = side * (target - entry);
+    if (risk <= 0 || reward <= 0) return null;
+    const rr = reward / risk;
+    if (rr < cfg.minRR) return null;
+    return { setup, name: SETUP_NAMES[setup], side, entry, stop, target, rr, score: s.score, scenario: s.title };
+  }
+
+  function bestPlan(list, entry, cfg) {
+    for (const s of list) {
+      if (s.score < cfg.minScore) continue;
+      const p = tradePlan(s, entry, cfg);
+      if (p) return p;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------- analyze
+  function analyze(bars, opts) {
+    const cfg = Object.assign({}, DEFAULTS, opts || {});
+    cfg.setups = Object.assign({}, DEFAULTS.setups, (opts && opts.setups) || {});
+    const thr = cfg.swingPct / 100;
+    const main = zigzag(bars, thr);
+    const sub = zigzag(bars, thr * cfg.subRatio);
+    const ctx = makeCtx(cfg, bars, sub.pivots);
+    const list = scenarios(main.pivots, ctx);
+    const last = bars[bars.length - 1];
+    const lastPivot = main.pivots[main.pivots.length - 1];
+    let plan = null;
+    if (lastPivot) {
+      const confBar = bars[lastPivot.c];
+      plan = bestPlan(list, confBar.c, cfg);
+      if (plan) {
+        plan.signalBar = lastPivot.c;
+        plan.age = bars.length - 1 - lastPivot.c;
+        const movedPast = plan.side * (last.c - plan.target) >= 0 || plan.side * (last.c - plan.stop) <= 0;
+        plan.state = movedPast ? 'expired' : plan.age === 0 ? 'new' : 'active';
+        plan.rrNow = plan.side * (plan.target - last.c) / Math.abs(last.c - plan.stop);
+      }
+    }
+    const evs = sortEvents(cfg.events);
+    const lastT = last.t;
+    const upcoming = evs.filter((e) => e.t > lastT).slice(0, 5);
+    if (plan && cfg.eventFilter) {
+      const ev = eventAhead(evs, lastT, cfg.eventDays);
+      if (ev) plan.eventBlock = ev;
+    }
+    return { cfg, pivots: main.pivots, pending: main.pending, subPivots: sub.pivots, scenarios: list, plan, upcoming };
+  }
+
+  // ---------------------------------------------------------------- events
+  /** Ближайшее событие в интервале (t, t + days]; события отсортированы по времени. */
+  function eventAhead(evs, t, days) {
+    let lo = 0, hi = evs.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (evs[m].t <= t) lo = m + 1; else hi = m; }
+    const e = evs[lo];
+    return e && e.t <= t + days * 86400000 ? e : null;
+  }
+  const sortEvents = (list) => (list || []).filter((e) => e && isFinite(e.t)).slice().sort((a, b) => a.t - b.t);
+
+  // ---------------------------------------------------------------- backtest
+  function backtest(bars, opts) {
+    const cfg = Object.assign({}, DEFAULTS, opts || {});
+    cfg.setups = Object.assign({}, DEFAULTS.setups, (opts && opts.setups) || {});
+    const thr = cfg.swingPct / 100;
+    const zz = new Zigzag(thr), zs = new Zigzag(thr * cfg.subRatio);
+    const ctx = makeCtx(cfg, bars, zs.pivots);
+    const fee = cfg.feePct / 100, slip = cfg.slipPct / 100;
+    const trades = [];
+    const eq = new Array(bars.length).fill(1);
+    let equity = 1, pos = null, pendingSig = null, closedByEvent = 0;
+    const evs = sortEvents(cfg.events), blocked = [];
+
+    const close = (i, px, reason) => {
+      const gross = pos.side * (px - pos.entry) / pos.entry;
+      const net = gross - 2 * fee - 2 * slip;
+      const ret = pos.frac * net;
+      equity *= 1 + ret;
+      trades.push(Object.assign({}, pos, { iExit: i, exit: px, reason, R: pos.side * (px - pos.entry) / Math.abs(pos.entry - pos.stop), ret, bars: i - pos.iEntry }));
+      pos = null;
+    };
+
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      // 1) вход по сигналу прошлого бара — по цене открытия
+      if (pendingSig && !pos) {
+        const s = pendingSig; pendingSig = null;
+        const e = b.o;
+        const ok = s.side * (e - s.stop) > 0 && s.side * (s.target - e) > 0;
+        if (ok) {
+          const stopPct = Math.abs(e - s.stop) / e;
+          const frac = Math.min(cfg.riskPct / 100 / stopPct, cfg.maxLev);
+          pos = Object.assign({}, s, { iEntry: i, entry: e, frac, rrReal: s.side * (s.target - e) / Math.abs(e - s.stop) });
+        }
+      }
+      // 2) сопровождение позиции: стоп проверяется первым (консервативно)
+      if (pos) {
+        if (pos.side > 0) {
+          if (b.l <= pos.stop) close(i, Math.min(b.o, pos.stop), 'стоп');
+          else if (b.h >= pos.target) close(i, Math.max(b.o, pos.target), 'цель');
+        } else {
+          if (b.h >= pos.stop) close(i, Math.max(b.o, pos.stop), 'стоп');
+          else if (b.l <= pos.target) close(i, Math.min(b.o, pos.target), 'цель');
+        }
+        if (pos && i - pos.iEntry >= cfg.maxHold) close(i, b.c, 'время');
+        // закрытие накануне события (по цене закрытия текущего бара)
+        if (pos && cfg.eventClose && evs.length) { const ev = eventAhead(evs, b.t, 1); if (ev) { close(i, b.c, 'перед событием'); closedByEvent++; } }
+      }
+      // 3) новые пивоты — только по данным до бара i включительно
+      zs.push(b, i);
+      const piv = zz.push(b, i);
+      if (piv && !pos && !pendingSig && i < bars.length - 1) {
+        const list = scenarios(zz.pivots, ctx);
+        const plan = bestPlan(list, b.c, cfg);
+        if (plan) {
+          const ev = cfg.eventFilter && evs.length ? eventAhead(evs, b.t, cfg.eventDays) : null;
+          if (ev) blocked.push({ i, setup: plan.setup, event: ev });
+          else pendingSig = Object.assign(plan, { iSignal: i });
+        }
+      }
+      eq[i] = pos ? equity * (1 + pos.frac * (pos.side * (b.c - pos.entry) / pos.entry)) : equity;
+    }
+    if (pos) close(bars.length - 1, bars[bars.length - 1].c, 'конец данных');
+    eq[bars.length - 1] = equity;
+    const st = stats(trades, eq, bars);
+    st.blocked = blocked.length; st.closedByEvent = closedByEvent;
+    return { trades, equity: eq, stats: st, blocked, cfg };
+  }
+
+  function stats(trades, eq, bars) {
+    const n = trades.length;
+    const wins = trades.filter((t) => t.ret > 0);
+    const losses = trades.filter((t) => t.ret <= 0);
+    const gp = wins.reduce((s, t) => s + t.ret, 0);
+    const gl = -losses.reduce((s, t) => s + t.ret, 0);
+    let peak = -Infinity, mdd = 0;
+    for (const e of eq) { peak = Math.max(peak, e); mdd = Math.max(mdd, 1 - e / peak); }
+    let streak = 0, worst = 0;
+    for (const t of trades) { streak = t.ret <= 0 ? streak + 1 : 0; worst = Math.max(worst, streak); }
+    const avgR = n ? trades.reduce((s, t) => s + t.R, 0) / n : 0;
+    const bySetup = {};
+    for (const t of trades) {
+      const b = bySetup[t.setup] || (bySetup[t.setup] = { n: 0, wins: 0, R: 0, ret: 1 });
+      b.n++; if (t.ret > 0) b.wins++; b.R += t.R; b.ret *= 1 + t.ret;
+    }
+    return {
+      trades: n,
+      winRate: n ? wins.length / n : 0,
+      avgR,
+      profitFactor: gl > 0 ? gp / gl : wins.length ? Infinity : 0,
+      totalReturn: eq[eq.length - 1] - 1,
+      maxDD: mdd,
+      worstStreak: worst,
+      buyHold: bars.length ? bars[bars.length - 1].c / bars[0].c - 1 : 0,
+      bySetup
+    };
+  }
+
+  function sweep(bars, opts, swings) {
+    return swings.map((s) => {
+      const r = backtest(bars, Object.assign({}, opts, { swingPct: s }));
+      return Object.assign({ swingPct: s }, r.stats);
+    });
+  }
+
+  // ---------------------------------------------------------------- data
+  function parseDate(s, s2) {
+    s = String(s).trim().replace(/^"|"$/g, '');
+    if (s2) s = s + ' ' + String(s2).trim();
+    if (/^\d{9,13}$/.test(s)) { const n = +s; return n > 1e11 ? n : n * 1000; }
+    let m;
+    if ((m = s.match(/^(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})(?:[ T]?(\d{1,2}):?(\d{2})(?::?(\d{2}))?)?/)))
+      return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    if ((m = s.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/))) {
+      let y = +m[3]; if (y < 100) y += 2000;
+      return Date.UTC(y, +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    }
+    const t = Date.parse(s);
+    return isNaN(t) ? null : t;
+  }
+
+  /**
+   * Понимает выгрузки Финама/MOEX (<DATE>;<TIME>;<OPEN>…), MetaTrader, TradingView, Yahoo
+   * и простые CSV «дата,open,high,low,close[,volume]». Разделители: , ; таб.
+   */
+  function parseCSV(text) {
+    const raw = String(text).replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim());
+    if (!raw.some(Boolean)) throw new Error('Файл пустой');
+    const sample = raw.filter(Boolean).slice(0, 60).join('\n');
+    const delim = [';', '\t', ','].map((d) => [d, sample.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+    // Пропускаем преамбулу (у Мосбиржи ISS это имя блока «candles») и берём первый блок таблицы
+    const s0 = raw.findIndex((l) => l.split(delim).length >= 5);
+    if (s0 < 0) throw new Error('Не найдено строк с котировками: нужны столбцы даты, open, high, low, close');
+    const lines = [];
+    for (let k = s0; k < raw.length; k++) {
+      const l = raw[k];
+      if (!l) { if (lines.length > 1) break; continue; }
+      if (l.split(delim).length < 5) break;
+      lines.push(l);
+    }
+    const first = lines[0];
+    const split = (l) => l.split(delim).map((x) => x.trim().replace(/^"|"$/g, ''));
+    let header = split(first).map((h) => h.toLowerCase().replace(/[<>]/g, ''));
+    const hasHeader = header.some((h) => /[a-zа-я]/.test(h) && !/^\d/.test(h));
+    let idx = {};
+    const find = (...names) => header.findIndex((h) => names.some((n) => h === n || h.startsWith(n)));
+    if (hasHeader) {
+      idx.date = find('date', 'datetime', 'time', 'timestamp', 'дата', 'begin', 'open time', 'opentime');
+      idx.time = header.findIndex((h, k) => k !== idx.date && (h === 'time' || h === 'время'));
+      idx.o = find('open', 'откр'); idx.h = find('high', 'макс'); idx.l = find('low', 'мин');
+      idx.c = header.findIndex((h) => h === 'close' || h === 'закр' || h.startsWith('close') && !h.includes('adj') || h.startsWith('закр'));
+      if (idx.c < 0) idx.c = find('adj close', 'price', 'цена', 'last');
+      idx.v = find('vol', 'объем', 'объём', 'volume');
+      if (idx.o === idx.date) idx.o = header.findIndex((h, k) => k !== idx.date && h.startsWith('open'));
+    } else {
+      const f0 = split(first);
+      const k = f0.length;
+      const isDate = (s) => /^\d{4}[-.\/]\d{2}[-.\/]\d{2}/.test(s) || /^\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4}/.test(s);
+      // 8 цифр подряд считаем датой ГГГГММДД только если это правдоподобная дата (иначе это объём)
+      const isYmd = (s) => /^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/.test(s);
+      let di = f0.findIndex(isDate);
+      if (di < 0) di = f0.findIndex(isYmd);
+      if (di >= 4) {
+        // Мосбиржа ISS без заголовка: open;close;high;low;value;volume;begin;end
+        idx = { date: di, time: -1, o: 0, c: 1, h: 2, l: 3, v: k >= 6 ? 5 : -1 };
+      } else if (k >= 7) idx = { date: 0, time: 1, o: 2, h: 3, l: 4, c: 5, v: 6 };
+      else if (k === 6) idx = { date: 0, time: -1, o: 1, h: 2, l: 3, c: 4, v: 5 };
+      else if (k === 5) idx = { date: 0, time: -1, o: 1, h: 2, l: 3, c: 4, v: -1 };
+      else throw new Error('Не удалось распознать столбцы: нужны дата, open, high, low, close');
+      // время может быть во втором столбце при 7+ колонках
+      if (di < 4 && k >= 7 && !/^\d{1,2}:\d{2}/.test(split(first)[1])) idx = { date: 0, time: -1, o: 1, h: 2, l: 3, c: 4, v: 5 };
+    }
+    if ([idx.o, idx.h, idx.l, idx.c].some((x) => x == null || x < 0)) throw new Error('Не найдены столбцы open/high/low/close');
+    const num = (x) => parseFloat(String(x).replace(/\s/g, '').replace(',', '.'));
+    const bars = [];
+    for (let r = hasHeader ? 1 : 0; r < lines.length; r++) {
+      const c = split(lines[r]);
+      const o = num(c[idx.o]), h = num(c[idx.h]), l = num(c[idx.l]), cl = num(c[idx.c]);
+      if (![o, h, l, cl].every(isFinite) || cl <= 0) continue;
+      const t = idx.date >= 0 ? parseDate(c[idx.date], idx.time >= 0 ? c[idx.time] : null) : r;
+      bars.push({ t: t == null ? r : t, o, h: Math.max(h, o, cl), l: Math.min(l, o, cl), c: cl, v: idx.v >= 0 ? num(c[idx.v]) || 0 : 0 });
+    }
+    if (bars.length > 2 && bars[0].t > bars[bars.length - 1].t) bars.reverse();
+    // Защита от перепутанных столбцов: у настоящих свечей размах бара мал относительно цены
+    if (bars.length >= 5) {
+      const r = bars.map((b) => (b.h - b.l) / b.c).sort((a, b) => a - b);
+      if (r[r.length >> 1] > 0.5) throw new Error('столбцы цен распознаны неверно: размах свечей больше 50% цены. Нужен порядок дата, open, high, low, close или файл с заголовками');
+    }
+    return bars;
+  }
+
+  /** Склеивает несколько выгрузок (например, страницы по 500 свечей с Мосбиржи), убирает повторы. */
+  function mergeBars(lists) {
+    const map = new Map();
+    for (const l of lists) for (const b of l) map.set(b.t, b);
+    const out = Array.from(map.values()).sort((a, b) => a.t - b.t);
+    if (out.length < 30) throw new Error(`Слишком мало свечей (${out.length}), нужно хотя бы 30. Если файл с Мосбиржи пустой — проверьте тикер и дату начала`);
+    return out;
+  }
+
+  /**
+   * Проверка набора файлов перед склейкой: одна ли это бумага, нет ли пропусков.
+   * Возвращает { errors: [], warnings: [] }. names — имена файлов для сообщений.
+   */
+  function checkFiles(lists, names) {
+    const res = { errors: [], warnings: [] };
+    const items = lists.map((l, k) => ({ l, name: (names && names[k]) || `файл ${k + 1}` })).filter((x) => x.l.length).sort((a, b) => a.l[0].t - b.l[0].t);
+    const all = [].concat(...items.map((x) => x.l)).map((b) => b.t).sort((a, b) => a - b);
+    const gaps = []; for (let i = 1; i < all.length; i++) if (all[i] > all[i - 1]) gaps.push(all[i] - all[i - 1]);
+    gaps.sort((a, b) => a - b);
+    const step = gaps.length ? gaps[gaps.length >> 1] : 86400000;
+    const fp = (x) => x.toLocaleString('ru-RU', { maximumFractionDigits: 4 });
+    const day = (t) => new Date(t).toISOString().slice(0, 10).split('-').reverse().join('.');
+    for (let k = 1; k < items.length; k++) {
+      const A = items[k - 1], B = items[k];
+      const mapA = new Map(A.l.map((b) => [b.t, b.c]));
+      let same = 0, diff = 0;
+      for (const b of B.l) if (mapA.has(b.t)) { const c = mapA.get(b.t); if (Math.abs(c - b.c) / c > 0.005) diff++; else same++; }
+      if (diff > 0 && diff >= same) {
+        res.errors.push(`«${A.name}» и «${B.name}» пересекаются по датам, но цены в них разные. Похоже, это разные бумаги. Загрузите файлы одного тикера.`);
+        continue;
+      }
+      if (same + diff > 0) continue;
+      const a = A.l[A.l.length - 1], b = B.l[0];
+      const jump = b.o / a.c - 1;
+      if (Math.abs(jump) > 0.2) res.warnings.push(`Между «${A.name}» и «${B.name}» цена прыгает с ${fp(a.c)} до ${fp(b.o)} (${(jump * 100).toFixed(0)}%). Проверьте, что это одна и та же бумага.`);
+      if (b.t - a.t > Math.max(step * 15, 6 * 86400000)) res.warnings.push(`Нет свечей с ${day(a.t)} по ${day(b.t)}. Возможно, не скачана одна из частей.`);
+    }
+    return res;
+  }
+
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function gauss(r) { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+
+  /**
+   * Учебные данные. mode='waves' — ряд, собранный из волн Эллиотта с шумом;
+   * mode='random' — случайное блуждание без структуры (контрольная проверка).
+   */
+  function synth(o) {
+    o = Object.assign({ n: 1500, seed: 11, mode: 'waves', start: 100, noise: 0.006 }, o || {});
+    const r = rng(o.seed);
+    const pick = (arr) => arr[Math.floor(r() * arr.length)];
+    const jit = (x, k) => x * (1 + (r() - 0.5) * 2 * k);
+    const logp = [];
+    if (o.mode === 'random') {
+      let x = Math.log(o.start);
+      for (let i = 0; i < o.n + 1; i++) { logp.push(x); x += gauss(r) * 0.014; }
+    } else {
+      // набор опорных точек: импульс 5 волн + коррекция 3 волны, направление чаще вверх
+      const piv = [Math.log(o.start)];
+      const dur = [];
+      let x = piv[0];
+      const leg = (size, dir) => { x += dir * size; piv.push(x); dur.push(Math.max(4, Math.round(size / 0.009 * jit(1, 0.35)))); };
+      while (dur.reduce((s, d) => s + d, 0) < o.n) {
+        const dir = r() < 0.72 ? 1 : -1;
+        const w1 = jit(0.11, 0.35);
+        const r2 = pick([0.5, 0.618, 0.55, 0.65]) * jit(1, 0.12);
+        const ext = pick([1.618, 1.618, 2.0, 2.618]);
+        const w3 = w1 * ext * jit(1, 0.08);
+        const r4 = (r2 > 0.55 ? pick([0.236, 0.3, 0.382]) : pick([0.382, 0.5])) * jit(1, 0.12);
+        const w5 = w1 * pick([1, 0.618, 1, 0.8]) * jit(1, 0.1);
+        leg(w1, dir); leg(w1 * r2, -dir); leg(w3, dir); leg(w3 * r4, -dir); leg(w5, dir);
+        const tot = w1 - w1 * r2 + w3 - w3 * r4 + w5;
+        const A = tot * pick([0.3, 0.382, 0.25]) * jit(1, 0.15);
+        const B = A * pick([0.5, 0.618, 0.786, 0.95]);
+        const C = A * pick([1, 1, 1.618, 0.618]) * jit(1, 0.08);
+        leg(A, -dir); leg(B, dir); leg(C, -dir);
+      }
+      let k = 0;
+      for (let s = 0; s < dur.length && logp.length < o.n + 1; s++) {
+        const a = piv[s], b = piv[s + 1], K = dur[s];
+        // броуновский мост между опорными точками
+        const W = [0];
+        for (let j = 1; j <= K; j++) W.push(W[j - 1] + gauss(r) * o.noise);
+        for (let j = 0; j < K && logp.length < o.n + 1; j++) logp.push(a + (b - a) * j / K + (W[j] - (j / K) * W[K]));
+        k += K;
+      }
+    }
+    const bars = [];
+    let t = Date.UTC(2021, 0, 4);
+    for (let i = 1; i < logp.length; i++) {
+      const o2 = Math.exp(logp[i - 1]), c = Math.exp(logp[i]);
+      const wig = Math.abs(gauss(r)) * 0.004;
+      const h = Math.max(o2, c) * (1 + wig * r()), l = Math.min(o2, c) * (1 - wig * r());
+      const v = Math.round(1e5 * Math.exp(gauss(r) * 0.3) * (1 + Math.abs(logp[i] - logp[i - 1]) * 40));
+      bars.push({ t, o: o2, h, l, c, v });
+      t += 86400000;
+      const wd = new Date(t).getUTCDay();
+      if (wd === 6) t += 2 * 86400000; else if (wd === 0) t += 86400000;
+    }
+    return bars;
+  }
+
+  const EW = { DEFAULTS, SETUP_NAMES, Zigzag, zigzag, evalImpulse, evalABC, evalTriangle, scenarios, analyze, backtest, sweep, parseCSV, mergeBars, checkFiles, synth, tradePlan };
+  if (typeof module !== 'undefined' && module.exports) module.exports = EW;
+  else root.EW = EW;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+  const FILE_SEP = '\n#==== следующий файл ====#\n';
+
+  // ------------------------------------------------------------ state
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('ew-settings') || 'null') || {}; } catch (e) { return {}; } })();
+  const cfg = Object.assign({}, EW.DEFAULTS, saved.cfg || {});
+  cfg.setups = Object.assign({}, EW.DEFAULTS.setups, (saved.cfg && saved.cfg.setups) || {});
+  const S = {
+    src: saved.src || 'waves', seed: saved.seed || 11, bars: null, name: '', csvText: null, csvNames: null, tickerSrc: '', check: null,
+    an: null, bt: null, sweep: null, sel: 0, view: null, hover: null, capital: saved.capital || 100000,
+    tab: 'bt', show: Object.assign({ zz: true, sub: false, tg: true, plan: true, tr: true }, saved.show || {})
+  };
+  function persist() {
+    try {
+      localStorage.setItem('ew-settings', JSON.stringify({ cfg: Object.assign({}, cfg, { events: undefined }), src: S.src === 'csv' && !S.csvText ? 'waves' : S.src, seed: S.seed, capital: S.capital, show: S.show }));
+      if (S.src === 'csv' && S.csvText && S.csvText.length < 1.5e6) { localStorage.setItem('ew-csv', S.csvText); localStorage.setItem('ew-csvname', S.name); localStorage.setItem('ew-csvmeta', JSON.stringify({ names: S.csvNames, tickerSrc: S.tickerSrc })); }
+    } catch (e) { /* хранилище недоступно — работаем без него */ }
+  }
+
+  // ------------------------------------------------------------ format
+  let dec = 2;
+  const fmtP = (p) => p == null || !isFinite(p) ? '—' : p.toLocaleString('ru-RU', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  function setDecimals(bars) {
+    const m = bars[bars.length - 1].c;
+    dec = m >= 1000 ? 1 : m >= 10 ? 2 : m >= 1 ? 3 : m >= 0.01 ? 5 : 8;
+  }
+  let intraday = false;
+  const fmtD = (t) => {
+    if (typeof t !== 'number' || t < 1e9) return '#' + t;
+    const d = new Date(t);
+    const p = (x) => String(x).padStart(2, '0');
+    const s = `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
+    return intraday ? `${s} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : s;
+  };
+  const pctS = (x, sign) => (x == null || !isFinite(x)) ? '—' : (sign && x > 0 ? '+' : '') + (x * 100).toFixed(1).replace('.', ',') + '%';
+  const f2 = (x) => !isFinite(x) ? '∞' : x.toFixed(2).replace('.', ',');
+
+  // ------------------------------------------------------------ data
+  function loadData() {
+    $('#err') && $('#err').remove();
+    if (S.src === 'csv') {
+      if (!S.csvText) {
+        try {
+          S.csvText = localStorage.getItem('ew-csv'); S.name = localStorage.getItem('ew-csvname') || 'CSV';
+          const m = JSON.parse(localStorage.getItem('ew-csvmeta') || 'null') || {};
+          S.csvNames = m.names || null; S.tickerSrc = m.tickerSrc || '';
+        } catch (e) { S.csvText = null; }
+      }
+      if (!S.csvText) { S.src = 'waves'; $('#src').value = 'waves'; return loadData(); }
+      try {
+        const lists = S.csvText.split(FILE_SEP).map(EW.parseCSV);
+        S.check = EW.checkFiles(lists, S.csvNames);
+        S.bars = EW.mergeBars(lists);
+      }
+      catch (e) { showErr(e.message); S.src = 'waves'; $('#src').value = 'waves'; S.csvText = null; S.check = null; return loadData(); }
+    } else {
+      S.bars = EW.synth({ n: 1600, seed: S.seed, mode: S.src });
+      S.name = (S.src === 'waves' ? 'Учебный ряд с волнами' : 'Случайное блуждание') + ` · вариант ${S.seed}`;
+    }
+    setDecimals(S.bars);
+    const b = S.bars;
+    const gaps = []; for (let i = 1; i < Math.min(b.length, 60); i++) gaps.push(b[i].t - b[i - 1].t);
+    gaps.sort((a, c) => a - c);
+    intraday = b[0].t > 1e9 && gaps.length && gaps[gaps.length >> 1] < 86400000 * 0.9;
+    $('#dsname').textContent = `${S.name} · ${b.length} баров · ${fmtD(b[0].t)} — ${fmtD(b[b.length - 1].t)}`;
+    S.stepMs = gaps.length ? gaps[gaps.length >> 1] : 86400000;
+    renderCheck(S.stepMs);
+    const tic = S.src === 'csv' ? (S.tickerSrc ? currentTicker() : '') : '';
+    S.chartTitle = S.src === 'csv' ? `${tic || 'Бумага не указана'} · ${tfName(S.stepMs)}` : (S.src === 'waves' ? 'Учебный ряд с волнами' : 'Случайное блуждание');
+    resetChartState();
+    resetView();
+  }
+  function tfName(ms) {
+    if (!ms) return '';
+    if (ms < 3600000) return `${Math.round(ms / 60000)} мин`;
+    if (ms < 86400000 * 0.9) return `${Math.round(ms / 3600000)} ч`;
+    if (ms < 86400000 * 4) return '1 день';
+    return '1 неделя';
+  }
+  /** Имя бумаги из имён файлов: GAZP_1.csv, GAZP (2).csv, GAZP-часть3.csv → GAZP. */
+  function tickerFromNames(names) {
+    if (!names || !names.length) return null;
+    const stems = names.map((n) => n.replace(/\.(csv|txt)$/i, '').replace(/\s*\(\d+\)$/, '').replace(/[_\-\s]*(часть|part)\s*\d+$/i, '').replace(/[_\-\s]+\d{1,2}$/, '').trim().toUpperCase());
+    const u = Array.from(new Set(stems));
+    return u.length === 1 && u[0] && u[0] !== 'CANDLES' && /^[A-ZА-Я0-9_.\-]{1,24}$/.test(u[0]) ? u[0] : null;
+  }
+  function renderCheck(stepMs) {
+    const el = $('#datacheck');
+    if (S.src !== 'csv') { el.hidden = true; return; }
+    const b = S.bars, last = b[b.length - 1];
+    const tic = (S.name.split(' · ')[0] || '').trim();
+    const known = S.tickerSrc === 'file' || S.tickerSrc === 'links';
+    const srcTxt = S.tickerSrc === 'file' ? 'Тикер взят из имени файлов' : S.tickerSrc === 'links' ? 'Тикер взят из настроек ссылок: в самих файлах Мосбиржи его нет' : 'Тикер неизвестен: переименуйте файлы, например GAZP_1.csv';
+    const ch = S.check || { errors: [], warnings: [] };
+    const warn = ch.warnings.map((w) => `<li>${esc(w)}</li>`).join('');
+    const moex = known && /^[A-ZА-Я0-9_\-]{2,20}$/i.test(tic) ? `<a href="https://www.moex.com/ru/issue.aspx?code=${encodeURIComponent(tic)}" target="_blank" rel="noopener">странице ${esc(tic)} на moex.com</a>` : 'сайте биржи';
+    el.innerHTML = `
+      <div class="eyebrow">Проверка загруженных котировок</div>
+      <div class="ckrow">
+        <div><span>Бумага</span><b>${known ? esc(tic) : '—'}</b></div>
+        <div><span>Таймфрейм</span><b>${tfName(stepMs) || '—'}</b></div>
+        <div><span>Свечей</span><b>${b.length}</b></div>
+        <div><span>Период</span><b>${fmtD(b[0].t)} — ${fmtD(last.t)}</b></div>
+        <div><span>Последнее закрытие</span><b>${fmtP(last.c)}</b></div>
+      </div>
+      <p class="small">${esc(srcTxt)}. Чтобы убедиться, что это нужная бумага, сверьте последнее закрытие ${fmtP(last.c)} за ${fmtD(last.t)} с ценой в приложении брокера или на ${moex}. Цена должна совпасть.</p>
+      ${warn ? `<ul class="ckwarn">${warn}</ul>` : '<p class="small ok">Файлы согласуются: даты идут подряд, цены на стыках без скачков.</p>'}`;
+    el.hidden = false;
+  }
+  function showErr(msg) {
+    const p = document.createElement('p'); p.className = 'err'; p.id = 'err'; p.textContent = 'Не удалось загрузить: ' + msg + (S.bars ? ' На графике остались прежние данные.' : '');
+    $('.bar').appendChild(p);
+  }
+  function autoSwing() {
+    const b = S.bars, k = Math.min(300, b.length), r = [];
+    for (let i = b.length - k; i < b.length; i++) r.push((b[i].h - b[i].l) / b[i].c);
+    r.sort((a, c) => a - c);
+    const med = r[r.length >> 1] * 100;
+    return Math.min(20, Math.max(0.3, Math.round(med * 2.5 * 10) / 10));
+  }
+
+  // ------------------------------------------------------------ compute
+  let timer = null;
+  function schedule() { clearTimeout(timer); timer = setTimeout(recompute, 120); }
+  // ------------------------------------------------------------ события
+  const SRC = {
+    cbr: 'https://cbr.ru/dkp/cal_mp/',
+    sber: 'https://investmint.ru/sber/divs/',
+    gazp: 'https://investmint.ru/gazp/divs/',
+    gazpRep: 'https://investmint.ru/gazp/reports/',
+    sberRep: 'https://investmint.ru/sber/reports/'
+  };
+  const CBR = ['2024-02-16', '2024-03-22', '2024-04-26', '2024-06-07', '2024-07-26', '2024-09-13', '2024-10-25', '2024-12-20',
+    '2025-02-14', '2025-03-21', '2025-04-25', '2025-06-06', '2025-07-25', '2025-09-12', '2025-10-24', '2025-12-19',
+    '2026-02-13', '2026-03-20', '2026-04-24', '2026-06-19', '2026-07-24', '2026-09-11', '2026-10-23', '2026-12-18',
+    '2027-02-12', '2027-03-19', '2027-04-30', '2027-06-11', '2027-07-30', '2027-09-10', '2027-10-22', '2027-12-17'];
+  const BUILTIN = [
+    ...CBR.map((d) => ({ d, hm: '13:30', type: 'cbr', title: 'Банк России: решение по ключевой ставке', src: SRC.cbr })),
+    { d: '2024-07-11', type: 'div', tickers: ['SBER', 'SBERP'], title: 'Сбер: дивидендный гэп, 33,3 ₽ (последний день покупки 10.07)', src: SRC.sber },
+    { d: '2025-07-18', type: 'div', tickers: ['SBER', 'SBERP'], title: 'Сбер: дивидендный гэп, 34,84 ₽ (последний день покупки 17.07)', src: SRC.sber },
+    { d: '2026-07-18', type: 'div', tickers: ['SBER', 'SBERP'], title: 'Сбер: дивидендный гэп, 37,64 ₽ (последний день покупки 17.07)', src: SRC.sber },
+    { d: '2025-05-22', type: 'corp', tickers: ['GAZP'], title: 'Газпром: совет директоров рекомендовал не платить дивиденды за 2024 год', src: SRC.gazp },
+    { d: '2026-05-20', type: 'corp', tickers: ['GAZP'], title: 'Газпром: совет директоров не рекомендовал дивиденды за 2025 год', src: SRC.gazp },
+    { d: '2026-06-29', type: 'corp', tickers: ['GAZP'], title: 'Газпром: собрание акционеров не утвердило дивиденды за 2025 год', src: SRC.gazp },
+    { d: '2026-10-29', type: 'report', tickers: ['GAZP'], title: 'Газпром: РСБУ за 9 месяцев 2026 (ожидается)', src: SRC.gazpRep },
+    { d: '2026-10-31', type: 'report', tickers: ['SBER', 'SBERP'], title: 'Сбер: МСФО за 9 месяцев 2026 (ожидается, дату уточните)', src: SRC.sberRep }
+  ];
+  const EV_TYPE = { cbr: ['ЦБ', 'Ставка ЦБ'], div: ['Див', 'Дивиденды'], corp: ['Нов', 'Новость компании'], report: ['Отч', 'Отчётность'], own: ['Моё', 'Моё событие'] };
+  const evPrefs = (() => { try { return JSON.parse(localStorage.getItem('ew-events') || 'null') || {}; } catch (e) { return {}; } })();
+  S.evBuiltin = evPrefs.builtin !== false;
+  S.evOwnText = evPrefs.own || '';
+  function saveEvPrefs() { try { localStorage.setItem('ew-events', JSON.stringify({ builtin: S.evBuiltin, own: S.evOwnText })); } catch (e) { /* без хранилища */ } }
+  const dayT = (d, hm) => { const [y, m, dd] = d.split('-').map(Number); const [h, mi] = (hm || '00:00').split(':').map(Number); return Date.UTC(y, m - 1, dd, h - (hm ? 3 : 0), mi); };
+  function parseOwn(text) {
+    const out = [], bad = [];
+    String(text || '').split(/\r?\n/).forEach((line) => {
+      const l = line.trim(); if (!l) return;
+      let m = l.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})\s*[—–-]?\s*(.*)$/);
+      let d = null, title = '';
+      if (m) { d = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; title = m[4]; }
+      else if ((m = l.match(/^(\d{4})-(\d{2})-(\d{2})\s*[—–-]?\s*(.*)$/))) { d = `${m[1]}-${m[2]}-${m[3]}`; title = m[4]; }
+      if (d && !isNaN(Date.parse(d))) out.push({ d, type: 'own', title: title || 'Моё событие' }); else bad.push(l);
+    });
+    return { list: out, bad };
+  }
+  function currentTicker() {
+    if (S.src !== 'csv' || !S.tickerSrc) return '';
+    return (S.name.split(' · ')[0] || '').trim().toUpperCase();
+  }
+  /** События, которые относятся к загруженной бумаге. На учебных рядах событий нет. */
+  function activeEvents() {
+    if (S.src !== 'csv') return [];
+    const tic = currentTicker();
+    const list = [];
+    if (S.evBuiltin) for (const e of BUILTIN) if (!e.tickers || e.tickers.includes(tic)) list.push(e);
+    list.push(...parseOwn(S.evOwnText).list);
+    return list.map((e) => Object.assign({ t: dayT(e.d, e.hm) }, e)).sort((a, b) => a.t - b.t);
+  }
+
+  function recompute() {
+    cfg.events = activeEvents();
+    S.an = EW.analyze(S.bars, cfg);
+    S.bt = EW.backtest(S.bars, cfg);
+    // для сравнения: те же настройки с противоположным правилом событий
+    const anyRule = cfg.eventFilter || cfg.eventClose;
+    S.btCmp = cfg.events.length ? EW.backtest(S.bars, Object.assign({}, cfg, anyRule ? { eventFilter: false, eventClose: false } : { eventFilter: true, eventClose: true })) : null;
+    const base = cfg.swingPct;
+    const grid = [0.5, 0.7, 0.85, 1, 1.25, 1.5, 2].map((k) => Math.round(base * k * 10) / 10);
+    S.sweep = EW.sweep(S.bars, cfg, Array.from(new Set(grid)));
+    S.sel = 0;
+    renderAll();
+    persist();
+  }
+  function renderMini() {
+    const st = S.bt.stats;
+    $('#mini').innerHTML = `
+      <div><span>Сделок</span><b>${st.trades}</b></div>
+      <div><span>Прибыльных</span><b>${Math.round(st.winRate * 100)}%</b></div>
+      <div><span>Средний R</span><b class="${cls(st.avgR)}">${f2(st.avgR)}</b></div>
+      <div><span>Доходность</span><b class="${cls(st.totalReturn)}">${pctS(st.totalReturn, true)}</b></div>
+      <div><span>Просадка</span><b>${pctS(-st.maxDD)}</b></div>
+      <a href="#tab-bt" id="mini-more">Бэктест подробно ↓</a>`;
+    $('#mini-more').onclick = (e) => { e.preventDefault(); S.tab = 'bt'; renderTab(); $('.area-tabs').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  }
+  function renderAll() { renderPlan(); renderScenario(); renderAlts(); renderMini(); renderTab(); draw(); }
+
+  // ------------------------------------------------------------ side panels
+  const lastClose = () => S.bars[S.bars.length - 1].c;
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function upcomingHtml() {
+    const up = (S.an.upcoming || []).slice(0, 3);
+    if (!up.length) return '';
+    const lastT = S.bars[S.bars.length - 1].t;
+    const rows = up.map((e) => { const dd = Math.round((dayT(e.d) - Math.floor(lastT / 86400000) * 86400000) / 86400000); return `<li><span class="evtag ev-${e.type}">${EV_TYPE[e.type][0]}</span><span>${fmtD(dayT(e.d))} · через ${dd} дн. — ${esc(e.title)}</span></li>`; }).join('');
+    return `<div><div class="eyebrow" style="margin-bottom:4px">Ближайшие события</div><ul class="evlist">${rows}</ul></div>`;
+  }
+  function renderPlan() {
+    const el = $('#plan'), p = S.an.plan;
+    if (!p || p.state === 'expired') {
+      const why = p ? 'Последний сигнал уже отработал: цена дошла до цели или стопа.' : 'Подходящего сетапа сейчас нет: последняя волновая структура не даёт входа с нужной оценкой и соотношением прибыль/риск.';
+      el.innerHTML = `<div class="eyebrow">Торговый план</div><span class="pill wait">Ждать</span><p class="expect">${why} Следите за сценарием ниже: сигнал появится, когда подтвердится следующий разворот.</p>${upcomingHtml()}`;
+      return;
+    }
+    const evWarn = p.eventBlock ? `<div class="inval"><b>Не входить по правилу событий.</b><br>${fmtD(dayT(p.eventBlock.d))}: ${esc(p.eventBlock.title)}. До события меньше ${cfg.eventDays} дн.</div>` : '';
+    const long = p.side > 0;
+    const units = Math.abs(p.entry - p.stop) > 0 ? Math.floor((S.capital * cfg.riskPct / 100) / Math.abs(p.entry - p.stop)) : 0;
+    const when = p.state === 'new' ? 'Сигнал на последнем баре' : `Сигнал ${p.age} бар. назад, цена ещё между стопом и целью`;
+    el.innerHTML = `
+      <div class="eyebrow">Торговый план</div>
+      <div class="row"><span class="pill ${long ? 'long' : 'short'}">${long ? '▲ Покупка' : '▼ Продажа'}</span><span class="small">${esc(p.name)} · ${when}</span></div>
+      <div class="kv">
+        <div><span>Вход</span><b>${fmtP(p.entry)}</b></div>
+        <div><span>Стоп</span><b>${fmtP(p.stop)}</b></div>
+        <div><span>Цель</span><b>${fmtP(p.target)}</b></div>
+        <div><span>Прибыль/риск</span><b>${f2(p.rr)}</b></div>
+        <div><span>Сейчас П/Р</span><b>${f2(p.rrNow)}</b></div>
+        <div><span>Объём</span><b>${units.toLocaleString('ru-RU')}</b></div>
+      </div>
+      <p class="small">Объём — сколько единиц купить, чтобы при стопе потерять ${String(cfg.riskPct).replace('.', ',')}% от капитала ${S.capital.toLocaleString('ru-RU')}. Основание: ${esc(p.scenario)}.</p>
+      ${evWarn}${upcomingHtml()}
+      <button type="button" id="copyplan">Скопировать план</button>`;
+    $('#copyplan').onclick = (ev) => {
+      const txt = `${long ? 'Покупка' : 'Продажа'} — ${p.name}\nВход ${fmtP(p.entry)}, стоп ${fmtP(p.stop)}, цель ${fmtP(p.target)}, П/Р ${f2(p.rr)}\n${p.scenario}`;
+      const b = ev.currentTarget;
+      const done = () => { b.textContent = 'Скопировано'; setTimeout(() => (b.textContent = 'Скопировать план'), 1500); };
+      try { navigator.clipboard.writeText(txt).then(done, () => { b.textContent = 'Скопируйте вручную'; }); } catch (e) { b.textContent = 'Скопируйте вручную'; }
+    };
+  }
+
+  function curScn() { return S.an && S.an.scenarios[S.sel]; }
+
+  function renderScenario() {
+    const el = $('#scn'), s = curScn();
+    if (!s) {
+      el.innerHTML = '<div class="eyebrow">Предпочтительный подсчёт</div><p class="expect">Разворотов пока слишком мало для подсчёта. Уменьшите порог разворота или загрузите более длинную историю.</p>';
+      return;
+    }
+    const c = lastClose();
+    const lv = s.targets.map((t) => `<div><span>${esc(t.label)}</span><span class="p">${fmtP(t.price)}</span><span class="d">${pctS(t.price / c - 1, true)}</span></div>`).join('');
+    const rules = s.rules.map((r) => `<li><span class="${r.ok ? 'ok' : 'bad'}">${r.ok ? '✓' : '✗'}</span><span>${esc(r.text)} <span class="ref">${esc(r.ref)}</span></span></li>`).join('');
+    const notes = s.notes.map((n) => `<li><span class="n">${n.s > 0 ? '+' : n.s < 0 ? '−' : '•'}</span><span>${esc(n.t)}</span></li>`).join('');
+    el.innerHTML = `
+      <div class="eyebrow">${S.sel === 0 ? 'Предпочтительный подсчёт' : 'Альтернативный подсчёт №' + S.sel}</div>
+      <h2>${esc(s.title)}</h2>
+      <div class="conf"><span>Соответствие нормам</span><div class="meter"><i style="width:${s.score}%"></i></div><span class="num">${Math.round(s.score)}/100</span></div>
+      <p class="expect">${esc(s.expect)}</p>
+      ${s.targets.length ? `<div><div class="eyebrow" style="margin-bottom:4px">Уровни</div><div class="levels">${lv}</div></div>` : ''}
+      ${s.invalid ? `<div class="inval"><b>Отмена подсчёта: ${fmtP(s.invalid.price)}</b><br>${esc(s.invalid.text)}</div>` : ''}
+      ${rules ? `<div><div class="eyebrow" style="margin-bottom:4px">Правила</div><ul class="list">${rules}</ul></div>` : ''}
+      ${notes ? `<div><div class="eyebrow" style="margin-bottom:4px">Нормы</div><ul class="list">${notes}</ul></div>` : ''}`;
+  }
+
+  function renderAlts() {
+    const el = $('#alts');
+    const list = S.an.scenarios.slice(0, 6);
+    if (!list.length) { el.innerHTML = '<p class="small">Нет подсчётов, удовлетворяющих правилам.</p>'; return; }
+    el.innerHTML = list.map((s, k) => `<button type="button" class="alt" data-k="${k}" aria-pressed="${k === S.sel}"><span>${esc(s.title)}</span><span class="s">${Math.round(s.score)}</span></button>`).join('');
+    $$('#alts .alt').forEach((b) => (b.onclick = () => { S.sel = +b.dataset.k; renderScenario(); renderAlts(); fitScenario(); draw(); }));
+  }
+
+  // ------------------------------------------------------------ tabs
+  function renderTab() {
+    $$('.tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === S.tab));
+    $$('.pane').forEach((p) => (p.hidden = p.dataset.pane !== S.tab));
+    if (S.tab === 'bt') renderBT();
+    if (S.tab === 'tr') renderTrades();
+    if (S.tab === 'sw') renderSweep();
+    if (S.tab === 'ev') renderEvents();
+  }
+  function cls(x) { return x > 0 ? 'pos' : x < 0 ? 'neg' : ''; }
+  function renderBT() {
+    const st = S.bt.stats, el = $('[data-pane="bt"]');
+    let cmp = '';
+    if (S.btCmp) {
+      const on = (cfg.eventFilter || cfg.eventClose) ? S.bt.stats : S.btCmp.stats, off = (cfg.eventFilter || cfg.eventClose) ? S.btCmp.stats : S.bt.stats;
+      const row = (n, x) => `<tr><td class="l lbl">${n}</td><td>${x.trades}</td><td>${Math.round(x.winRate * 100)}%</td><td class="${cls(x.avgR)}">${f2(x.avgR)}</td><td class="${cls(x.totalReturn)}">${pctS(x.totalReturn, true)}</td><td>${pctS(-x.maxDD)}</td></tr>`;
+      cmp = `<div><div class="eyebrow" style="margin-bottom:6px">Влияние событий (${cfg.events.length} в календаре)</div>
+        <div class="tablewrap"><table><thead><tr><th class="l">Вариант</th><th>Сделок</th><th>Приб.</th><th>Ср. R</th><th>Доход</th><th>Просадка</th></tr></thead><tbody>
+        ${row('Без учёта событий', off)}${row(`Не входить за ${cfg.eventDays} дн.${(cfg.eventFilter || cfg.eventClose) ? (cfg.eventClose ? ' + закрывать накануне' : '') : ' + закрывать накануне'}`, on)}</tbody></table></div>
+        <p class="small">Пропущено сигналов из-за событий: ${on.blocked || 0}, закрыто позиций накануне: ${on.closedByEvent || 0}. Правила настраиваются на вкладке «События». При малом числе сделок разница может быть случайной.</p></div>`;
+    }
+    const by = Object.entries(st.bySetup).map(([k, v]) => `<tr><td class="l">${EW.SETUP_NAMES[k]}</td><td>${v.n}</td><td>${Math.round(v.wins / v.n * 100)}%</td><td class="${cls(v.R)}">${f2(v.R / v.n)}</td><td class="${cls(v.ret - 1)}">${pctS(v.ret - 1, true)}</td></tr>`).join('');
+    el.innerHTML = `
+      <div class="stats">
+        <div class="stat"><span>Сделок</span><b>${st.trades}</b></div>
+        <div class="stat"><span>Прибыльных</span><b>${Math.round(st.winRate * 100)}%</b></div>
+        <div class="stat"><span>Средний R</span><b class="${cls(st.avgR)}">${f2(st.avgR)}</b></div>
+        <div class="stat"><span>Профит-фактор</span><b>${f2(st.profitFactor)}</b></div>
+        <div class="stat"><span>Доходность</span><b class="${cls(st.totalReturn)}">${pctS(st.totalReturn, true)}</b></div>
+        <div class="stat"><span>Макс. просадка</span><b>${pctS(-st.maxDD)}</b></div>
+        <div class="stat"><span>Купил и держал</span><b class="${cls(st.buyHold)}">${pctS(st.buyHold, true)}</b></div>
+        <div class="stat"><span>Убытков подряд</span><b>${st.worstStreak}</b></div>
+      </div>
+      ${cmp}
+      <canvas id="eq" aria-label="Кривая капитала"></canvas>
+      <p class="small"><span class="sw" style="background:var(--wave)"></span> Капитал стратегии при риске ${String(cfg.riskPct).replace('.', ',')}% на сделку &nbsp; <span class="sw" style="background:var(--muted)"></span> Купил и держал. R — результат сделки в единицах риска: −1 означает выбитый стоп.</p>
+      ${by ? `<div class="tablewrap"><table><thead><tr><th class="l">Сетап</th><th>Сделок</th><th>Прибыльных</th><th>Средний R</th><th>Доходность</th></tr></thead><tbody>${by}</tbody></table></div>` : '<p class="note">На этих данных и настройках сделок не было. Попробуйте уменьшить порог разворота, минимальную оценку или минимальное соотношение прибыль/риск.</p>'}
+      ${S.src === 'waves' ? '<p class="note">Учебный ряд собран из волн Эллиотта, поэтому сетапы на нём работают лучше, чем на реальном рынке. Он нужен, чтобы увидеть, как советник размечает волны. Оценивать стратегию нужно на своих котировках.</p>' : ''}
+      ${S.src === 'random' ? '<p class="note">В случайном блуждании нет волновой структуры. Средний R около нуля здесь — признак того, что бэктест честный и не подглядывает в будущее.</p>' : ''}`;
+    drawEquity();
+  }
+  function renderTrades() {
+    const el = $('[data-pane="tr"]'), t = S.bt.trades;
+    if (!t.length) { el.innerHTML = '<p class="note">Сделок нет.</p>'; return; }
+    const rows = t.map((x, k) => `<tr data-k="${k}"><td>${k + 1}</td><td class="l">${EW.SETUP_NAMES[x.setup]}</td><td class="l ${x.side > 0 ? 'pos' : 'neg'}">${x.side > 0 ? 'Покупка' : 'Продажа'}</td><td>${fmtD(S.bars[x.iEntry].t)}</td><td>${fmtP(x.entry)}</td><td>${fmtP(x.stop)}</td><td>${fmtP(x.target)}</td><td>${fmtD(S.bars[x.iExit].t)}</td><td>${fmtP(x.exit)}</td><td class="l">${x.reason}</td><td class="${cls(x.R)}">${f2(x.R)}</td><td class="${cls(x.ret)}">${pctS(x.ret, true)}</td></tr>`).join('');
+    el.innerHTML = `<p class="small">Нажмите на сделку, чтобы показать её на графике.</p><div class="tablewrap"><table><thead><tr><th>#</th><th class="l">Сетап</th><th class="l">Сторона</th><th>Вход</th><th>Цена</th><th>Стоп</th><th>Цель</th><th>Выход</th><th>Цена</th><th class="l">Причина</th><th>R</th><th>К капиталу</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    $$('[data-pane="tr"] tbody tr').forEach((r) => (r.onclick = () => {
+      const x = t[+r.dataset.k];
+      const span = Math.max(80, (x.iExit - x.iSignal) * 3);
+      const mid = (x.iSignal + x.iExit) / 2;
+      S.view = { start: mid - span / 2, end: mid + span / 2 };
+      S.show.tr = true; $('#lg-tr').checked = true;
+      draw();
+      $('#chart').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+  }
+  function renderSweep() {
+    const el = $('[data-pane="sw"]');
+    const rows = S.sweep.map((r) => `<tr${Math.abs(r.swingPct - cfg.swingPct) < 1e-9 ? ' style="font-weight:600"' : ''}><td>${String(r.swingPct).replace('.', ',')}%</td><td>${r.trades}</td><td>${Math.round(r.winRate * 100)}%</td><td class="${cls(r.avgR)}">${f2(r.avgR)}</td><td>${f2(r.profitFactor)}</td><td class="${cls(r.totalReturn)}">${pctS(r.totalReturn, true)}</td><td>${pctS(-r.maxDD)}</td></tr>`).join('');
+    const pos = S.sweep.filter((r) => r.trades >= 5 && r.avgR > 0).length;
+    el.innerHTML = `<p class="small">Те же настройки при разных порогах разворота (разная степень волн). Если прибыль есть только при одном пороге — скорее всего, это случайность.</p>
+      <div class="tablewrap"><table><thead><tr><th>Порог</th><th>Сделок</th><th>Прибыльных</th><th>Средний R</th><th>Профит-фактор</th><th>Доходность</th><th>Просадка</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="note">Положительный средний R при ${pos} из ${S.sweep.length} порогов (учтены варианты от 5 сделок).</p>`;
+  }
+
+  function renderEvents() {
+    $('#ev-filter').checked = !!cfg.eventFilter; $('#ev-close').checked = !!cfg.eventClose;
+    $('#ev-days').value = cfg.eventDays; $('#ev-builtin').checked = S.evBuiltin;
+    if (document.activeElement !== $('#ev-own')) $('#ev-own').value = S.evOwnText;
+    const own = parseOwn(S.evOwnText);
+    $('#ev-own-msg').textContent = own.bad.length ? `Не понял строки: ${own.bad.slice(0, 3).join(' | ')}. Формат: 23.10.2026 Описание.` : 'По одному событию в строке: дата и описание. Действуют для любой загруженной бумаги.';
+    $('#ev-own-msg').className = own.bad.length ? 'small warnline' : 'small';
+    const tic = currentTicker();
+    let note = '';
+    if (S.src !== 'csv') note = '<p class="note">События применяются только к настоящим котировкам. Загрузите CSV, чтобы проверить их влияние.</p>';
+    else if (!tic) note = '<p class="note">Тикер загруженной бумаги неизвестен, поэтому применяются только общие события (ЦБ) и ваши. Переименуйте файлы, например GAZP_1.csv, чтобы подключились дивиденды и новости компании.</p>';
+    else note = `<p class="small">Бумага: <b>${esc(tic)}</b>. Учитываются заседания ЦБ, события ${esc(tic)} из встроенного календаря и ваши события. Даты ЦБ — по календарю Банка России, дивиденды и новости — по investmint.ru. Отчёты с пометкой «ожидается» могут сдвинуться.</p>`;
+    $('#ev-note').innerHTML = note;
+    const list = (S.src === 'csv' ? activeEvents() : []).slice().reverse();
+    const lastT = S.bars[S.bars.length - 1].t;
+    $('#ev-table').innerHTML = list.length ? `<div class="tablewrap"><table><thead><tr><th class="l">Дата</th><th class="l">Тип</th><th class="l">Событие</th><th class="l">Источник</th></tr></thead><tbody>${list.map((e) => `<tr class="${e.t > lastT ? 'future' : ''}"><td class="l mono">${fmtD(dayT(e.d))}</td><td class="l"><span class="evtag ev-${e.type}">${EV_TYPE[e.type][0]}</span> ${EV_TYPE[e.type][1]}</td><td class="l wrap">${esc(e.title)}</td><td class="l">${e.src ? `<a href="${e.src}" target="_blank" rel="noopener">открыть</a>` : 'вы'}</td></tr>`).join('')}</tbody></table></div>` : '';
+  }
+  $('#ev-filter').onchange = (e) => { cfg.eventFilter = e.target.checked; schedule(); };
+  $('#ev-close').onchange = (e) => { cfg.eventClose = e.target.checked; schedule(); };
+  $('#ev-days').onchange = (e) => { const x = parseInt(e.target.value, 10); if (x > 0) { cfg.eventDays = x; schedule(); } };
+  $('#ev-builtin').onchange = (e) => { S.evBuiltin = e.target.checked; saveEvPrefs(); schedule(); };
+  let ownTimer = null;
+  $('#ev-own').oninput = (e) => { S.evOwnText = e.target.value; saveEvPrefs(); clearTimeout(ownTimer); ownTimer = setTimeout(recompute, 500); };
+
+  // ------------------------------------------------------------ chart
+  const cv = $('#chart');
+  let tok = {};
+  function readTokens() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['paper', 'sheet', 'ink', 'muted', 'rule', 'wave', 'target', 'up', 'down', 'zone', 'wave-soft']) tok[k] = cs.getPropertyValue('--' + k).trim();
+    tok.fData = cs.getPropertyValue('--font-data').trim();
+    tok.fBody = cs.getPropertyValue('--font-body').trim();
+  }
+  function resetView() {
+    const n = S.bars.length;
+    const w = cv.clientWidth || 800;
+    const want = Math.max(60, Math.min(n, Math.round(w / 5)));
+    S.view = { start: n - want, end: n + Math.round(want * 0.12) };
+  }
+  function resetChartState() { S.yMan = null; S.pick = null; const c = $('#cinfo'); if (c) c.hidden = true; }
+  function fitScenario() {
+    const s = curScn(); if (!s) return;
+    const i0 = s.points[0].i, n = S.bars.length;
+    if (i0 < S.view.start + 2) { const span = Math.max(60, n - i0 + 20); S.view = { start: i0 - span * 0.1, end: n + span * 0.12 }; }
+  }
+  /** Раздвигает подписи по вертикали, чтобы они не наезжали друг на друга. */
+  function spread(items, gap) {
+    const a = items.filter((it) => isFinite(it.y)).sort((p, q) => p.y - q.y);
+    for (let k = 1; k < a.length; k++) if (a[k].y - a[k - 1].y < gap) a[k].y = a[k - 1].y + gap;
+    return a;
+  }
+  function niceStep(raw) {
+    const e = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / e;
+    return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * e;
+  }
+  function draw() {
+    if (!S.bars) return;
+    readTokens();
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = tok.sheet; g.fillRect(0, 0, W, H);
+    const padR = 72, padB = 24, padT = 12;
+    const pw = W - padR, ph = H - padB - padT;
+    const bars = S.bars, n = bars.length, v = S.view;
+    const span = v.end - v.start, bw = pw / span;
+    const i0 = Math.max(0, Math.floor(v.start)), i1 = Math.min(n - 1, Math.ceil(v.end));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i <= i1; i++) { lo = Math.min(lo, bars[i].l); hi = Math.max(hi, bars[i].h); }
+    if (!isFinite(lo)) { lo = bars[n - 1].l; hi = bars[n - 1].h; }
+    const s = curScn(), plan = S.an.plan && S.an.plan.state !== 'expired' ? S.an.plan : null;
+    const extra = [];
+    if (s && S.show.tg && i1 >= n - 1) { s.targets.forEach((t) => extra.push(t.price)); if (s.invalid) extra.push(s.invalid.price); }
+    if (plan && S.show.plan && i1 >= n - 1) extra.push(plan.stop, plan.target);
+    const rng = hi - lo;
+    for (const p of extra) if (p > lo - rng * 0.8 && p < hi + rng * 0.8) { lo = Math.min(lo, p); hi = Math.max(hi, p); }
+    const log = cfg.scale !== 'linear';
+    const T = log ? (p) => Math.log(p) : (p) => p;
+    let yMin = T(lo), yMax = T(hi);
+    const padY = (yMax - yMin) * (0.04 + 28 / ph) || 1; yMin -= padY; yMax += padY;
+    // ручной масштаб цены (после перетаскивания графика по вертикали или шкалы цен)
+    if (S.yMan) { yMin = S.yMan.lo; yMax = S.yMan.hi; }
+    S.geo = { pw, ph, padT, padR, yMin, yMax, bw, start: v.start, H };
+    const y = (p) => padT + (yMax - T(p)) / (yMax - yMin) * ph;
+    const yF = (fv) => padT + (yMax - (log ? fv : fv)) / (yMax - yMin) * ph; // значение уже в шкале движка
+    const x = (i) => (i - v.start + 0.5) * bw;
+    const invY = (py) => { const t = yMax - (py - padT) / ph * (yMax - yMin); return log ? Math.exp(t) : t; };
+
+    // сетка цены
+    g.font = `11px ${tok.fData}`; g.textBaseline = 'middle';
+    const pLo = invY(padT + ph), pHi = invY(padT);
+    const step = niceStep((pHi - pLo) / Math.max(3, Math.floor(ph / 60)));
+    g.strokeStyle = tok.rule; g.lineWidth = 1; g.fillStyle = tok.muted;
+    for (let p = Math.ceil(pLo / step) * step; p <= pHi; p += step) {
+      const yy = Math.round(y(p)) + 0.5;
+      g.beginPath(); g.moveTo(0, yy); g.lineTo(pw, yy); g.stroke();
+      g.fillText(fmtP(p), pw + 6, yy);
+    }
+    // сетка времени
+    const tStep = Math.max(1, niceStep(Math.max(1, 110 / bw)));
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    for (let i = Math.ceil(Math.max(0, v.start) / tStep) * tStep; i <= Math.min(n - 1, v.end); i += tStep) {
+      const xx = Math.round(x(i)) + 0.5;
+      g.beginPath(); g.moveTo(xx, padT); g.lineTo(xx, padT + ph); g.stroke();
+      g.fillText(fmtD(bars[i].t), xx, padT + ph + 6);
+    }
+    g.textAlign = 'left';
+    g.save(); g.beginPath(); g.rect(0, 0, pw, padT + ph); g.clip();
+
+    // зона и цели
+    const lastI = n - 1;
+    if (s && S.show.tg) {
+      const xs = x(s.points[s.points.length - 1].i);
+      if (s.zone) {
+        const ya = y(s.zone[0]), yb = y(s.zone[1]);
+        g.fillStyle = tok.zone; g.fillRect(xs, Math.min(ya, yb), pw - xs, Math.abs(ya - yb));
+      }
+      // канал (стр. 78–79)
+      if (s.channel) {
+        const ch = s.channel; const xe = v.end;
+        const line = (ix, iv) => { g.beginPath(); g.moveTo(x(ix), yF(iv)); g.lineTo(x(xe), yF(iv + ch.slope * (xe - ix))); g.stroke(); };
+        g.strokeStyle = tok.wave; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.lineWidth = 1;
+        line(ch.a.i, ch.a.v); line(ch.c.i, ch.c.v);
+        g.setLineDash([]); g.globalAlpha = 1;
+      }
+      g.setLineDash([5, 4]); g.lineWidth = 1;
+      s.targets.forEach((t) => {
+        const yy = y(t.price); g.strokeStyle = tok.target;
+        g.beginPath(); g.moveTo(xs, yy); g.lineTo(pw, yy); g.stroke();
+      });
+      if (s.invalid) { g.strokeStyle = tok.down; const yy = y(s.invalid.price); g.beginPath(); g.moveTo(x(s.points[0].i), yy); g.lineTo(pw, yy); g.stroke(); }
+      g.setLineDash([]);
+      g.font = `11px ${tok.fBody}`; g.textBaseline = 'bottom'; g.textAlign = 'right';
+      const lbls = s.targets.map((t) => ({ y: y(t.price) - 2, t: t.label, c: tok.target }));
+      if (s.invalid) lbls.push({ y: y(s.invalid.price) - 2, t: 'Отмена подсчёта', c: tok.down });
+      spread(lbls, 13).forEach((l) => { g.fillStyle = l.c; g.fillText(l.t, pw - 6, l.y); });
+      g.textAlign = 'left';
+    }
+    // план сделки
+    if (plan && S.show.plan) {
+      const xs = x(plan.signalBar);
+      const lines = [[plan.entry, tok.wave, 'Вход'], [plan.stop, tok.down, 'Стоп'], [plan.target, tok.up, 'Цель']];
+      g.lineWidth = 1.5; g.font = `600 11px ${tok.fBody}`; g.textBaseline = 'top';
+      for (const [p, c, l] of lines) { const yy = y(p); g.strokeStyle = c; g.beginPath(); g.moveTo(xs, yy); g.lineTo(pw, yy); g.stroke(); g.fillStyle = c; g.fillText(l, xs + 4, yy + 2); }
+    }
+
+    // события: вертикальные линии с метками
+    if (cfg.events && cfg.events.length) {
+      const stepT = n > 1 ? (bars[n - 1].t - bars[Math.max(0, n - 30)].t) / Math.min(29, n - 1) : 86400000;
+      const evX = (t) => {
+        if (t > bars[n - 1].t) return x(n - 1 + (t - bars[n - 1].t) / stepT);
+        let lo = 0, hi = n - 1;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (bars[m].t < t) lo = m + 1; else hi = m; }
+        return x(lo);
+      };
+      const colorOf = { cbr: tok.wave, div: tok.down, corp: tok.target, report: tok.target, own: tok.ink };
+      g.font = `600 10px ${tok.fBody}`; g.textBaseline = 'top'; g.textAlign = 'center';
+      let lastX = -1e9, row = 0;
+      for (const e of cfg.events) {
+        const xx = evX(e.t); if (xx < -10 || xx > pw + 10) continue;
+        row = xx - lastX < 26 ? (row + 1) % 2 : 0; lastX = xx;
+        g.strokeStyle = colorOf[e.type]; g.globalAlpha = 0.5; g.setLineDash([2, 3]); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(Math.round(xx) + 0.5, padT + 16); g.lineTo(Math.round(xx) + 0.5, padT + ph); g.stroke();
+        g.setLineDash([]); g.globalAlpha = 1;
+        g.fillStyle = colorOf[e.type]; g.fillText(EV_TYPE[e.type][0], xx, padT + 2 + row * 11);
+      }
+      g.textAlign = 'left';
+    }
+    // свечи
+    const bodyW = Math.max(1, Math.min(14, bw * 0.66));
+    for (let i = i0; i <= i1; i++) {
+      const b = bars[i], up = b.c >= b.o, xx = x(i);
+      g.strokeStyle = g.fillStyle = up ? tok.up : tok.down;
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(Math.round(xx) + 0.5, y(b.h)); g.lineTo(Math.round(xx) + 0.5, y(b.l)); g.stroke();
+      if (bw >= 3) {
+        const yo = y(b.o), yc = y(b.c), top = Math.min(yo, yc), hgt = Math.max(1, Math.abs(yo - yc));
+        if (up) { g.fillStyle = tok.sheet; g.fillRect(xx - bodyW / 2, top, bodyW, hgt); g.strokeRect(xx - bodyW / 2 + 0.5, top + 0.5, bodyW - 1, Math.max(0, hgt - 1)); }
+        else g.fillRect(xx - bodyW / 2, top, bodyW, hgt);
+      }
+    }
+
+    // зигзаги
+    const poly = (pts, color, width, dash, alpha) => {
+      if (pts.length < 2) return;
+      g.strokeStyle = color; g.lineWidth = width; g.setLineDash(dash || []); g.globalAlpha = alpha || 1;
+      g.beginPath(); pts.forEach((p, k) => (k ? g.lineTo(x(p.i), y(p.p)) : g.moveTo(x(p.i), y(p.p)))); g.stroke();
+      g.setLineDash([]); g.globalAlpha = 1;
+    };
+    if (S.show.sub) poly(S.an.subPivots, tok.muted, 1, [], 0.45);
+    if (S.show.zz) {
+      poly(S.an.pivots, tok.muted, 1.4, [], 0.85);
+      const lp = S.an.pivots[S.an.pivots.length - 1];
+      if (lp && S.an.pending) poly([lp, S.an.pending], tok.muted, 1.2, [3, 3], 0.85);
+    }
+    // сделки бэктеста
+    if (S.show.tr && S.bt) {
+      for (const t of S.bt.trades) {
+        if (t.iExit < v.start || t.iEntry > v.end) continue;
+        const good = t.ret > 0, c = good ? tok.up : tok.down;
+        g.strokeStyle = c; g.setLineDash([2, 2]); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(x(t.iEntry), y(t.entry)); g.lineTo(x(t.iExit), y(t.exit)); g.stroke(); g.setLineDash([]);
+        const xe = x(t.iEntry), ye = y(t.entry), sz = 6;
+        g.fillStyle = t.side > 0 ? tok.up : tok.down;
+        g.beginPath();
+        if (t.side > 0) { g.moveTo(xe, ye + 2); g.lineTo(xe - sz, ye + sz + 6); g.lineTo(xe + sz, ye + sz + 6); }
+        else { g.moveTo(xe, ye - 2); g.lineTo(xe - sz, ye - sz - 6); g.lineTo(xe + sz, ye - sz - 6); }
+        g.closePath(); g.fill();
+        const xx = x(t.iExit), yx = y(t.exit);
+        g.strokeStyle = c; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(xx - 4, yx - 4); g.lineTo(xx + 4, yx + 4); g.moveTo(xx + 4, yx - 4); g.lineTo(xx - 4, yx + 4); g.stroke();
+      }
+    }
+    // волновая разметка выбранного сценария
+    if (s) {
+      poly(s.points, tok.wave, 2.4);
+      g.font = `600 12px ${tok.fData}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      s.points.forEach((p, k) => {
+        const isHigh = k + 1 < s.points.length ? p.p > s.points[k + 1].p : p.p > s.points[k - 1].p;
+        const px = x(p.i), py = y(p.p) + (isHigh ? -16 : 16);
+        g.beginPath(); g.arc(px, py, 10, 0, Math.PI * 2);
+        g.fillStyle = tok.sheet; g.fill();
+        g.strokeStyle = tok.wave; g.lineWidth = 1.5; g.globalAlpha = p.label === '0' ? 0.5 : 1; g.stroke();
+        g.fillStyle = tok.wave; g.fillText(p.label, px, py + 0.5); g.globalAlpha = 1;
+      });
+      g.textAlign = 'left';
+    }
+    g.restore();
+
+    // ярлыки на шкале цены
+    const tag = (p, bg, fg, yy) => {
+      if (yy == null) yy = y(p);
+      if (yy < padT || yy > padT + ph) return;
+      g.fillStyle = bg; g.fillRect(pw + 1, yy - 9, padR - 2, 18);
+      g.fillStyle = fg; g.font = `11px ${tok.fData}`; g.textBaseline = 'middle'; g.fillText(fmtP(p), pw + 6, yy);
+    };
+    const tags = [{ y: y(bars[lastI].c), p: bars[lastI].c, bg: tok.ink }];
+    if (s && S.show.tg) s.targets.forEach((t) => tags.push({ y: y(t.price), p: t.price, bg: tok.target }));
+    spread(tags, 19).forEach((t) => tag(t.p, t.bg, tok.sheet, t.y));
+
+    // выбранная свеча
+    if (S.pick != null && S.pick >= i0 && S.pick <= i1) {
+      const xx = x(S.pick);
+      g.fillStyle = tok['wave-soft']; g.fillRect(xx - Math.max(4, bw / 2), padT, Math.max(8, bw), ph);
+      g.strokeStyle = tok.wave; g.lineWidth = 1; g.strokeRect(xx - Math.max(4, bw / 2) + 0.5, padT + 0.5, Math.max(8, bw) - 1, ph - 1);
+    }
+    // название бумаги на графике
+    g.font = `600 15px ${tok.fBody}`; g.textBaseline = 'top'; g.textAlign = 'left';
+    const ttl = S.chartTitle || '';
+    if (ttl) {
+      const tw = g.measureText(ttl).width;
+      g.fillStyle = tok.sheet; g.globalAlpha = 0.85; g.fillRect(8, padT + 14, tw + 14, 24); g.globalAlpha = 1;
+      g.fillStyle = tok.ink; g.fillText(ttl, 15, padT + 18);
+    }
+    if (S.yMan) {
+      g.font = `11px ${tok.fBody}`; g.fillStyle = tok.muted;
+      g.fillText('Ручной масштаб цены · двойной щелчок по шкале цен — авто', 15, padT + 42);
+    }
+    // перекрестие
+    if (S.hover && S.hover.x < pw && S.hover.y < padT + ph) {
+      const hi2 = Math.round(v.start + S.hover.x / bw - 0.5);
+      g.strokeStyle = tok.muted; g.setLineDash([3, 3]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(S.hover.x, padT); g.lineTo(S.hover.x, padT + ph); g.moveTo(0, S.hover.y); g.lineTo(pw, S.hover.y); g.stroke(); g.setLineDash([]);
+      tag(invY(S.hover.y), tok.muted, tok.sheet);
+      if (hi2 >= 0 && hi2 < n) {
+        const b = bars[hi2];
+        const txt = `${fmtD(b.t)}  О ${fmtP(b.o)}  М ${fmtP(b.h)}  Н ${fmtP(b.l)}  З ${fmtP(b.c)}  ${pctS(b.c / (hi2 ? bars[hi2 - 1].c : b.o) - 1, true)}`;
+        g.font = `11px ${tok.fData}`; g.textBaseline = 'top';
+        const w = g.measureText(txt).width;
+        const ty = padT + ph - 28;
+        g.fillStyle = tok.sheet; g.globalAlpha = 0.9; g.fillRect(8, ty, w + 14, 20); g.globalAlpha = 1;
+        g.fillStyle = tok.ink; g.fillText(txt, 15, ty + 4);
+      }
+    }
+  }
+
+  function drawEquity() {
+    const c = $('#eq'); if (!c) return;
+    readTokens();
+    const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = tok.paper; g.fillRect(0, 0, W, H);
+    const eq = S.bt.equity, b = S.bars, n = eq.length;
+    const bh = b.map((x) => x.c / b[0].c);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) { lo = Math.min(lo, eq[i], bh[i]); hi = Math.max(hi, eq[i], bh[i]); }
+    const L = 8, R = 58, T = 10, B = 22, pw = W - L - R, ph = H - T - B;
+    const lg = Math.log;
+    const yv = (val) => T + (lg(hi) - lg(val)) / (lg(hi) - lg(lo) || 1) * ph;
+    const xv = (i) => L + i / (n - 1) * pw;
+    g.font = `11px ${tok.fData}`; g.textBaseline = 'middle'; g.strokeStyle = tok.rule; g.fillStyle = tok.muted; g.lineWidth = 1;
+    const ticks = [lo, Math.sqrt(lo * hi), hi, 1].filter((t, k, a) => a.indexOf(t) === k);
+    for (const t of ticks) { const yy = Math.round(yv(t)) + 0.5; g.beginPath(); g.moveTo(L, yy); g.lineTo(L + pw, yy); g.stroke(); g.fillText(pctS(t - 1, true), L + pw + 6, yy); }
+    g.textBaseline = 'top'; g.fillText(fmtD(b[0].t), L, T + ph + 6); g.textAlign = 'right'; g.fillText(fmtD(b[n - 1].t), L + pw, T + ph + 6); g.textAlign = 'left';
+    const line = (arr, col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); arr.forEach((val, i) => (i ? g.lineTo(xv(i), yv(val)) : g.moveTo(xv(i), yv(val)))); g.stroke(); };
+    line(bh, tok.muted, 1);
+    // заливка под кривой стратегии
+    g.beginPath(); eq.forEach((val, i) => (i ? g.lineTo(xv(i), yv(val)) : g.moveTo(xv(i), yv(val)))); g.lineTo(xv(n - 1), yv(1)); g.lineTo(xv(0), yv(1)); g.closePath();
+    g.fillStyle = tok['wave-soft']; g.fill();
+    line(eq, tok.wave, 2);
+    g.fillStyle = tok.wave; g.beginPath(); g.arc(xv(n - 1), yv(eq[n - 1]), 3.5, 0, Math.PI * 2); g.fill();
+  }
+
+  // ------------------------------------------------------------ interaction
+  function zoom(f, anchorX) {
+    const v = S.view, span = v.end - v.start, pw = cv.clientWidth - 72;
+    const ax = anchorX == null ? pw * 0.85 : anchorX;
+    const at = v.start + ax / pw * span;
+    let ns = Math.min(Math.max(20, span * f), S.bars.length + 80);
+    S.view = { start: at - (at - v.start) * ns / span, end: at + (v.end - at) * ns / span };
+    clampView(); draw();
+  }
+  function clampView() {
+    const v = S.view, n = S.bars.length, span = v.end - v.start;
+    if (v.end > n + span * 0.6) { v.end = n + span * 0.6; v.start = v.end - span; }
+    if (v.start < -span * 0.3) { v.start = -span * 0.3; v.end = v.start + span; }
+  }
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX - r.left); }, { passive: false });
+  // Управление графиком:
+  //  поле графика — перетаскивание во все стороны; шкала цен — растянуть/сжать по вертикали;
+  //  шкала дат — растянуть/сжать по горизонтали; щелчок по свече — карточка свечи;
+  //  колесо — масштаб по времени; два пальца — щипок.
+  let drag = null, pinch = null, raf = 0, multi = false;
+  const ptrs = new Map();
+  const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+  const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const zoneAt = (pt) => { const G = S.geo; if (!G) return 'plot'; if (pt.x > G.pw) return 'y'; if (pt.y > G.padT + G.ph) return 'x'; return 'plot'; };
+  const startDrag = (pt) => {
+    const G = S.geo || {};
+    drag = { x: pt.x, y: pt.y, x0: pt.x, y0: pt.y, t0: performance.now(), moved: false, zone: zoneAt(pt), v: Object.assign({}, S.view), y0min: G.yMin, y0max: G.yMax };
+  };
+  const startPinch = () => {
+    const [a, b] = Array.from(ptrs.values());
+    pinch = { d: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), mx: (a.x + b.x) / 2, v: Object.assign({}, S.view) };
+    drag = null; multi = true;
+  };
+  cv.addEventListener('pointerdown', (e) => {
+    const pt = local(e);
+    ptrs.set(e.pointerId, pt);
+    try { cv.setPointerCapture(e.pointerId); } catch (er) { /* не критично */ }
+    if (e.pointerType !== 'mouse') S.hover = null;
+    if (ptrs.size >= 2) startPinch(); else startDrag(pt);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    const pt = local(e);
+    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, pt);
+    const G = S.geo || { pw: cv.clientWidth - 72, ph: cv.clientHeight - 36 };
+    const pw = G.pw;
+    if (e.pointerType === 'mouse') {
+      S.hover = pt;
+      if (!drag) { const z = zoneAt(pt); cv.style.cursor = z === 'y' ? 'ns-resize' : z === 'x' ? 'ew-resize' : 'crosshair'; }
+    }
+    if (pinch && ptrs.size >= 2) {
+      const [a, b] = Array.from(ptrs.values());
+      const d = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), mx = (a.x + b.x) / 2;
+      const span0 = pinch.v.end - pinch.v.start;
+      const span = Math.min(Math.max(15, span0 * pinch.d / d), S.bars.length + 80);
+      const at = pinch.v.start + (pinch.mx / pw) * span0; // бар, который был под пальцами в начале щипка
+      const st = at - (mx / pw) * span;
+      S.view = { start: st, end: st + span }; clampView();
+    } else if (drag) {
+      const dx = pt.x - drag.x0, dy = pt.y - drag.y0;
+      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (drag.moved) {
+        const span0 = drag.v.end - drag.v.start;
+        if (drag.zone === 'plot') {
+          if (e.pointerType === 'mouse') cv.style.cursor = 'grabbing';
+          const d = dx / (pw / span0);
+          S.view = { start: drag.v.start - d, end: drag.v.end - d }; clampView();
+          if (Math.abs(dy) > 2 || S.yMan) {
+            const r = drag.y0max - drag.y0min, sh = dy / G.ph * r;
+            S.yMan = { lo: drag.y0min + sh, hi: drag.y0max + sh };
+          }
+        } else if (drag.zone === 'y') {
+          // вниз — сжать, вверх — растянуть (как в терминалах)
+          const r0 = drag.y0max - drag.y0min, c = (drag.y0max + drag.y0min) / 2;
+          const r = r0 * Math.exp(dy * 0.006);
+          S.yMan = { lo: c - r / 2, hi: c + r / 2 };
+        } else if (drag.zone === 'x') {
+          // вправо — растянуть (меньше свечей), влево — сжать (больше свечей); правый край на месте
+          const span = Math.min(Math.max(15, span0 * Math.exp(-dx * 0.005)), S.bars.length + 80);
+          S.view = { start: drag.v.end - span, end: drag.v.end }; clampView();
+        }
+      }
+    }
+    redraw();
+  });
+  function pickCandle(pt) {
+    const G = S.geo; if (!G) return;
+    const i = Math.round(G.start + pt.x / G.bw - 0.5);
+    if (i < 0 || i >= S.bars.length) { S.pick = null; renderCandle(); return; }
+    S.pick = S.pick === i ? null : i;
+    renderCandle();
+  }
+  const release = (e) => {
+    const pt = local(e);
+    if (drag && !drag.moved && !multi && drag.zone === 'plot' && ptrs.size === 1 && performance.now() - drag.t0 < 500) pickCandle(pt);
+    ptrs.delete(e.pointerId);
+    if (ptrs.size >= 2) startPinch();
+    else { pinch = null; if (ptrs.size === 1) startDrag(Array.from(ptrs.values())[0]); else { drag = null; multi = false; } }
+    if (e.pointerType === 'mouse') cv.style.cursor = zoneAt(pt) === 'y' ? 'ns-resize' : zoneAt(pt) === 'x' ? 'ew-resize' : 'crosshair';
+    redraw();
+  };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', (e) => { ptrs.delete(e.pointerId); drag = null; pinch = null; if (!ptrs.size) multi = false; });
+  cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { S.hover = null; redraw(); } });
+  cv.addEventListener('dblclick', (e) => {
+    const z = zoneAt(local(e));
+    if (z === 'y') S.yMan = null; else { resetView(); S.yMan = null; }
+    draw();
+  });
+  // ---- карточка свечи
+  function renderCandle() {
+    const el = $('#cinfo');
+    if (S.pick == null || !S.bars[S.pick]) { el.hidden = true; draw(); return; }
+    const b = S.bars[S.pick], prev = S.bars[S.pick - 1];
+    const d = new Date(b.t);
+    const wd = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'][d.getUTCDay()];
+    const p2 = (x) => String(x).padStart(2, '0');
+    const step = S.stepMs || 86400000;
+    let when;
+    if (intraday) {
+      const e2 = new Date(b.t + step);
+      when = `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}, ${wd}<br>открытие ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}, закрытие ${p2(e2.getUTCHours())}:${p2(e2.getUTCMinutes())}`;
+    } else {
+      when = `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}, ${wd}`;
+    }
+    const chg = prev ? b.c / prev.c - 1 : b.c / b.o - 1;
+    const up = b.c >= b.o;
+    el.innerHTML = `
+      <div class="ci-head"><b>${esc(S.chartTitle || '')}</b><button type="button" id="cinfo-x" aria-label="Закрыть">×</button></div>
+      <div class="ci-when">${when}</div>
+      <div class="ci-grid">
+        <span>Открытие</span><b>${fmtP(b.o)}</b>
+        <span>Закрытие</span><b class="${up ? 'pos' : 'neg'}">${fmtP(b.c)}</b>
+        <span>Максимум</span><b>${fmtP(b.h)}</b>
+        <span>Минимум</span><b>${fmtP(b.l)}</b>
+        <span>Изменение</span><b class="${chg > 0 ? 'pos' : chg < 0 ? 'neg' : ''}">${pctS(chg, true)}</b>
+        <span>Размах</span><b>${fmtP(b.h - b.l)} (${pctS((b.h - b.l) / b.l)})</b>
+        ${b.v ? `<span>Объём</span><b>${Math.round(b.v).toLocaleString('ru-RU')}</b>` : ''}
+      </div>
+      <div class="ci-note">Изменение — к закрытию предыдущей свечи. Свеча ${up ? 'растущая' : 'падающая'}.</div>`;
+    el.hidden = false;
+    $('#cinfo-x').onclick = () => { S.pick = null; renderCandle(); };
+    draw();
+  }
+  $('#zin').onclick = () => zoom(1 / 1.4);
+  $('#zout').onclick = () => zoom(1.4);
+  $('#zreset').onclick = () => { resetView(); S.yMan = null; draw(); };
+  $('#yauto').onclick = () => { S.yMan = null; draw(); };
+  new ResizeObserver(() => { draw(); if (S.tab === 'bt') drawEquity(); }).observe(cv);
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { draw(); drawEquity(); });
+  new MutationObserver(() => { draw(); drawEquity(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ------------------------------------------------------------ controls
+  function syncControls() {
+    $('#src').value = S.src;
+    $('#swing').value = cfg.swingPct; $('#swingN').value = cfg.swingPct;
+    $('#sc-log').setAttribute('aria-pressed', cfg.scale !== 'linear');
+    $('#sc-lin').setAttribute('aria-pressed', cfg.scale === 'linear');
+    for (const k of ['minScore', 'minRR', 'riskPct', 'maxLev', 'feePct', 'slipPct', 'maxHold']) $('#' + k).value = cfg[k];
+    $('#capital').value = S.capital;
+    $('#reseed').hidden = S.src === 'csv';
+    for (const k of ['zz', 'sub', 'tg', 'plan', 'tr']) $('#lg-' + k).checked = !!S.show[k];
+  }
+  $('#setups').innerHTML = Object.entries(EW.SETUP_NAMES).map(([k, name]) => `<label><input type="checkbox" id="st-${k}" ${cfg.setups[k] ? 'checked' : ''}> ${name}</label>`).join('');
+  Object.keys(EW.SETUP_NAMES).forEach((k) => ($('#st-' + k).onchange = (e) => { cfg.setups[k] = e.target.checked; schedule(); }));
+  $('#src').onchange = (e) => {
+    if (e.target.value === 'csv') {
+      let has = !!S.csvText; try { has = has || !!localStorage.getItem('ew-csv'); } catch (er) { /* нет хранилища */ }
+      if (!has) { $('#file').click(); e.target.value = S.src; return; }
+    }
+    S.src = e.target.value; loadData(); syncControls(); recompute();
+  };
+  $('#reseed').onclick = () => { S.seed = S.seed % 997 + 1 + Math.floor(Math.random() * 50); loadData(); recompute(); };
+  $('#file').onchange = (e) => {
+    const files = Array.from(e.target.files || []); if (!files.length) return;
+    const read = (f) => new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result)); rd.onerror = () => rej(new Error('файл ' + f.name + ' не открылся')); rd.readAsText(f); });
+    Promise.all(files.map(read)).then((texts) => {
+      $('#err') && $('#err').remove();
+      // пустые страницы с Мосбиржи (за последней свечой) просто пропускаем
+      const okIdx = texts.map((t, k) => { try { return EW.parseCSV(t).length > 0 ? k : -1; } catch (er) { return -1; } }).filter((k) => k >= 0);
+      const empty = texts.every((t) => !/\d/.test(t));
+      if (empty) { showErr(`в ${texts.length > 1 ? 'файлах' : 'файле'} нет ни одной свечи: биржа вернула пустой ответ. Обычно так бывает, когда тикер не найден на выбранном рынке (например, акция выбрана в «Фондах» или тикер набран русскими буквами), или когда за выбранный период у бумаги нет торгов. Проверьте строку «Ссылки ведут на» в блоке Мосбиржи, нажмите «Проверить тикер на moex.com» и скачайте заново. Начните с таймфрейма «1 день».`); return; }
+      if (!okIdx.length) { try { EW.parseCSV(texts[0]); } catch (er) { showErr(er.message); return; } showErr('в файлах нет свечей'); return; }
+      const good = okIdx.map((k) => texts[k]), names = okIdx.map((k) => files[k].name);
+      const lists = good.map(EW.parseCSV);
+      const chk = EW.checkFiles(lists, names);
+      if (chk.errors.length) { showErr(chk.errors[0]); return; }
+      try { EW.mergeBars(lists); } catch (er) { showErr(er.message); return; }
+      S.csvText = good.join(FILE_SEP); S.csvNames = names;
+      const tic = tickerFromNames(names);
+      const fromMoex = names.every((n) => /^candles/i.test(n)) && S.moexLabel;
+      if (tic) { S.tickerSrc = 'file'; S.name = `${tic} · ${names.length > 1 ? names.length + ' файла' : names[0]}`; }
+      else if (fromMoex) { S.tickerSrc = 'links'; S.name = S.moexLabel; }
+      else { S.tickerSrc = ''; S.name = names.length > 1 ? `${names[0].replace(/\.(csv|txt)$/i, '')} + ещё ${names.length - 1}` : names[0].replace(/\.(csv|txt)$/i, ''); }
+      S.src = 'csv';
+      loadData(); cfg.swingPct = autoSwing(); syncControls(); recompute();
+    }, (er) => showErr(er.message));
+    e.target.value = '';
+  };
+  const setSwing = (val) => { const x = Math.min(20, Math.max(0.3, +val || cfg.swingPct)); cfg.swingPct = Math.round(x * 10) / 10; $('#swing').value = cfg.swingPct; $('#swingN').value = cfg.swingPct; schedule(); };
+  $('#swing').oninput = (e) => setSwing(e.target.value);
+  $('#swingN').onchange = (e) => setSwing(e.target.value);
+  $('#auto').onclick = () => setSwing(autoSwing());
+  $('#swinghelpbtn').onclick = () => { const h = $('#swinghelp'); h.hidden = !h.hidden; $('#swinghelpbtn').setAttribute('aria-expanded', String(!h.hidden)); $('#swinghelpbtn').textContent = h.hidden ? 'Что это?' : 'Скрыть'; };
+  $('#sc-log').onclick = () => { cfg.scale = 'log'; S.yMan = null; syncControls(); schedule(); };
+  $('#sc-lin').onclick = () => { cfg.scale = 'linear'; S.yMan = null; syncControls(); schedule(); };
+  for (const k of ['minScore', 'minRR', 'riskPct', 'maxLev', 'feePct', 'slipPct', 'maxHold']) $('#' + k).onchange = (e) => { const x = parseFloat(e.target.value); if (isFinite(x)) { cfg[k] = x; schedule(); } };
+  $('#capital').onchange = (e) => { const x = parseFloat(e.target.value); if (isFinite(x) && x >= 0) { S.capital = x; renderPlan(); persist(); } };
+  for (const k of ['zz', 'sub', 'tg', 'plan', 'tr']) $('#lg-' + k).onchange = (e) => { S.show[k] = e.target.checked; draw(); persist(); };
+  $$('.tabs button').forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; renderTab(); }));
+
+  // ------------------------------------------------------------ Мосбиржа (ISS)
+  const MX = {
+    shares: { path: 'engines/stock/markets/shares/boards/TQBR/securities/', ex: 'SBER', name: 'акции' },
+    etf: { path: 'engines/stock/markets/shares/boards/TQTF/securities/', ex: 'TMOS', name: 'фонд' },
+    index: { path: 'engines/stock/markets/index/securities/', ex: 'IMOEX', name: 'индекс' },
+    fut: { path: 'engines/futures/markets/forts/securities/', ex: 'SiZ6', name: 'фьючерс' },
+    cur: { path: 'engines/currency/markets/selt/boards/CETS/securities/', ex: 'CNYRUB_TOM', name: 'валюта' }
+  };
+  const IV = { 24: { per: 1, name: '1 день', back: 730 }, 60: { per: 16, name: '1 час', back: 120 }, 10: { per: 96, name: '10 минут', back: 21 }, 7: { per: 0.2, name: '1 неделя', back: 3650 } };
+  const isoDay = (d) => d.toISOString().slice(0, 10);
+  function mxDefaultFrom() { $('#mx-from').value = isoDay(new Date(Date.now() - IV[$('#mx-iv').value].back * 86400000)); }
+  function mxLinks() {
+    const m = MX[$('#mx-mkt').value], iv = $('#mx-iv').value;
+    // Кириллица, похожая на латиницу (ГАЗП набран в русской раскладке, «Р» вместо «P»), — частая причина пустых файлов
+    const LAT = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X', У: 'Y', а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', х: 'x', у: 'y' };
+    const raw = ($('#mx-tic').value || m.ex).replace(/\s+/g, '');
+    const fixed = raw.replace(/[А-Яа-я]/g, (ch) => LAT[ch] || ch);
+    const tic = fixed;
+    const tick = $('#mx-mkt').value === 'fut' || $('#mx-mkt').value === 'cur' ? tic : tic.toUpperCase();
+    const bad = /[^A-Za-z0-9_.\-]/.test(tick);
+    const from = $('#mx-from').value || isoDay(new Date(Date.now() - 730 * 86400000));
+    const days = Math.max(1, (Date.now() - Date.parse(from)) / 86400000);
+    const est = days * 5 / 7 * IV[iv].per;
+    const pages = Math.max(1, Math.ceil(est / 500));
+    const shown = Math.min(pages, 20);
+    S.moexLabel = `${tick} · ${IV[iv].name} · Мосбиржа`;
+    const mname = $('#mx-mkt').selectedOptions[0].textContent;
+    const fromRu = from.split('-').reverse().join('.');
+    let html = `<p class="small mxsum">Ссылки ведут на: <b>${esc(tick)}</b> · ${esc(mname)} · ${IV[iv].name} · с ${fromRu}</p>` +
+      `<p class="small mxsum"><a class="mxcheck" href="https://www.moex.com/ru/issue.aspx?code=${encodeURIComponent(tick)}" target="_blank" rel="noopener">Проверить тикер ${esc(tick)} на moex.com ↗</a></p>`;
+    if (raw !== fixed) html += `<p class="small warnline">В тикере были русские буквы, заменил их на латинские: ${esc(raw)} → ${esc(tick)}.</p>`;
+    if (bad) { html += `<p class="small warnline">Тикер пишется латиницей без пробелов, например GAZP или SBER. Исправьте поле «Тикер».</p>`; $('#mx-links').innerHTML = html; return; }
+    for (let k = 0; k < shown; k++) {
+      const url = `https://iss.moex.com/iss/${m.path}${encodeURIComponent(tick)}/candles.csv?from=${from}&interval=${iv}&start=${k * 500}&iss.meta=off&iss.only=candles`;
+      html += `<a class="part" href="${url}" target="_blank" rel="noopener">Часть ${k + 1}</a>`;
+    }
+    if (pages > shown) html += `<span class="small">Нужно около ${pages} частей. Выберите дату начала позже, 20 частей обычно хватает для анализа.</span>`;
+    else html += `<span class="small">≈ ${Math.round(est).toLocaleString('ru-RU')} свечей (примерная оценка)</span>`;
+    if (est < 300) {
+      const msk = new Date(Date.now() + 3 * 3600000);
+      const hm = `${String(msk.getUTCHours()).padStart(2, '0')}:${String(msk.getUTCMinutes()).padStart(2, '0')}`;
+      const today = from >= isoDay(msk);
+      html += `<p class="small warnline">Для волнового анализа нужно хотя бы 300 свечей, лучше 500–1000. Начните раньше: для таймфрейма «${IV[iv].name}» подойдёт дата ${isoDay(new Date(Date.now() - IV[iv].back * 86400000)).split('-').reverse().join('.')}. <button type="button" id="mx-fixdate">Поставить эту дату</button>${today ? ` Сейчас в Москве ${hm}: сегодняшние свечи появляются только по ходу торгов и с задержкой 15 минут.` : ''}</p>`;
+    }
+    $('#mx-links').innerHTML = html;
+    $$('#mx-links a.part').forEach((a) => a.addEventListener('click', () => a.classList.add('seen')));
+    const fx = $('#mx-fixdate'); if (fx) fx.onclick = () => { mxDefaultFrom(); mxLinks(); };
+  }
+  $('#mx-mkt').onchange = () => { $('#mx-tic').value = MX[$('#mx-mkt').value].ex; mxLinks(); };
+  $('#mx-iv').onchange = () => { mxDefaultFrom(); mxLinks(); };
+  $('#mx-tic').oninput = mxLinks;
+  $('#mx-from').onchange = mxLinks;
+  mxDefaultFrom(); mxLinks();
+
+  window.EW_view = () => Object.assign({}, S.view, { yMan: S.yMan, pick: S.pick }); // для проверки управления
+  // ------------------------------------------------------------ start
+  loadData();
+  syncControls();
+  recompute();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { draw(); drawEquity(); });
+})();
+</script>

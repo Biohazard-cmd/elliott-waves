@@ -1,0 +1,24 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3000);
+  await p.click('#viewBtn'); await p.click('#trOpen'); await p.fill('#trDate', '2026-08-20'); await p.click('#trGo');
+  await p.waitForFunction(() => !document.querySelector('#trBar').hidden, null, { timeout: 30000 });
+  for (let k = 0; k < 30; k++) await p.click('#trSB');
+  const H = () => p.evaluate(() => document.querySelector('#chartWrap').offsetHeight);
+  console.log('высота графика', await H());
+  await p.click('#trPl'); await p.waitForTimeout(300);
+  console.log('план:', (await p.evaluate(() => document.querySelector('#pop').innerText)).slice(0, 300).replace(/\\n/g, ' | '));
+  await p.click('#trS1'); await p.waitForTimeout(300);
+  console.log('после +1 план открыт:', await p.evaluate(() => !document.querySelector('#pop').hidden));
+  await p.screenshot({ path: 'shots/290-plan.png' });
+  await p.click('#trPl'); await p.waitForTimeout(200);
+  // тянем панель тренажёра вверх за строку с датой
+  const bb = await (await p.$('#trBar .inf')).boundingBox();
+  await p.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await p.mouse.down(); for (let k = 1; k <= 10; k++) await p.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2 - k * 25); await p.mouse.up(); await p.waitForTimeout(500);
+  console.log('после протяжки вверх', await H());
+  await p.click('#trX'); await p.waitForTimeout(600); console.log('после ✕', await H(), await p.evaluate(() => document.querySelector('#trX').className));
+  await p.screenshot({ path: 'shots/291-x.png' });
+  await p.click('#trX'); await p.waitForTimeout(600); console.log('после второго ✕', await H(), 'итоги:', await p.evaluate(() => !!document.querySelector('#trResume')));
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

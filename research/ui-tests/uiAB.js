@@ -1,0 +1,14 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(2500);
+  await p.evaluate(() => { const now = Date.now(), old = { maxBars: 2000, riskPct: 1, longOnly: true, swingMult: 1, addMarket: true, addRunner: true, stopW2: true, localBars: 5 };
+    const mk = (key, name) => ({ key, name, cfg: Object.assign({}, old), cash: 50000, dep: 100000, mm: 0, pos: key === 'd_aggr' ? [{ id: 'SBER_TQBR', ticker: 'SBER', lot: 10, qty: 100, entry: 280, entryT: now - 86400000 * 5, stop0: 270, stop: 270, cost: 28000 }] : [], closed: [], hist: [{ t: now, eq: 100000, dep: 100000 }], px: {}, seen: {}, pend: {}, skipped: 0 });
+    window.EWData.vaccSet({ on: true, startAt: now - 86400000 * 10, mmRate: 13, top: 50, flows: [], lastAccrue: now, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный')] }); });
+  await p.click('#jrnBtn'); await p.waitForTimeout(300); await p.click('[data-jtab="robot"]'); await p.waitForTimeout(500);
+  console.log('кнопка:', !!(await p.$('#vUpd')), await p.evaluate(() => (document.querySelector('#jrnBody .note') || {}).innerText));
+  await p.click('#vUpd'); await p.waitForTimeout(300);
+  console.log(await p.evaluate(() => { const V = window.EWData.vaccGet(); return V.accs.map((a) => a.name + ': AO=' + a.cfg.addAO + ' дол=' + a.cfg.addPyramid + ' старые=' + !!a.cfgPrev + ' legacy=' + a.pos.map((q) => q.legacy).join()).join(' | '); }));
+  console.log('кнопка после:', !!(await p.$('#vUpd')), await p.evaluate(() => document.querySelector('#vMsg').innerText));
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

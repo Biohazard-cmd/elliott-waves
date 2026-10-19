@@ -1,0 +1,20 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3000);
+  await p.click('#viewBtn'); await p.click('#trOpen'); await p.fill('#trDate', '2026-07-21'); await p.click('#trGo');
+  await p.waitForFunction(() => !document.querySelector('#trBar').hidden, null, { timeout: 30000 });
+  await p.click('#trB'); for (let k = 0; k < 12; k++) await p.click('#trSB');
+  await p.click('#trSl'); for (let k = 0; k < 8; k++) await p.click('#trSB');   // продажа закрывает? нет — откроет шорт
+  await p.click('#trB'); for (let k = 0; k < 10; k++) await p.click('#trSB');
+  await p.click('#trLy'); await p.waitForTimeout(300);
+  console.log('слои:', await p.evaluate(() => [...document.querySelectorAll('#pop [data-mys],#pop [data-ph="leash"],#pop [data-ph="my"]')].length));
+  await p.click('#pop [data-mys="sh|star"]'); await p.waitForTimeout(200); await p.click('#pop [data-mys="c|#f5d742"]'); await p.waitForTimeout(200);
+  await p.screenshot({ path: 'shots/340-mylayers.png' });
+  await p.click('#trLy'); await p.waitForTimeout(300);
+  for (let k = 0; k < 10; k++) await p.click('#trSB');
+  await p.click('[data-pcl]'); await p.waitForTimeout(200); for (let k = 0; k < 6; k++) await p.click('#trSB');
+  await p.evaluate(() => { window.__view.barW = 6; window.__view.x0 = window.__view.x0 + 40; window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(400);
+  await p.screenshot({ path: 'shots/341-mychart.png', clip: { x: 0, y: 100, width: 390, height: 420 } });
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

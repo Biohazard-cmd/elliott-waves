@@ -1,0 +1,13 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3000);
+  await p.click('#viewBtn'); await p.click('#trOpen'); await p.fill('#trDate', '2026-07-14'); await p.click('#trGo');
+  await p.waitForFunction(() => !document.querySelector('#trBar').hidden, null, { timeout: 30000 });
+  await p.click('#trSB'); await p.waitForTimeout(300);
+  await p.click('details[data-keep="trExpHelp"] summary'); await p.waitForTimeout(200);
+  await p.click('#trSB'); await p.waitForTimeout(400);
+  console.log('открыто после свечи:', await p.evaluate(() => document.querySelector('details[data-keep="trExpHelp"]').open));
+  const el = await p.$('details[data-keep="trExpHelp"]'); await el.scrollIntoViewIfNeeded(); await p.screenshot({ path: 'shots/260-exp.png' });
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);

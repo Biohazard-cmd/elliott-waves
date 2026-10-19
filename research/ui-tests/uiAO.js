@@ -1,0 +1,10 @@
+const base = require('fs').readFileSync('ui19.js', 'utf8');
+const head = base.slice(0, base.indexOf("  await p.goto("));
+const tail = `  await p.addInitScript(() => { const s = JSON.parse(localStorage.getItem('ew2.settings') || '{}'); if (s.cfg && !s.__be) { s.cfg.beMode = 'auto'; s.cfg.beRule = 'atr'; s.__be = 1; localStorage.setItem('ew2.settings', JSON.stringify(s)); } });
+  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html') + ''); await p.waitForTimeout(3500);
+  const t = await p.textContent('#panel');
+  console.log('доп.:', (t.match(/доп\\.:[^\\n]{0,160}/) || [''])[0]);
+  console.log('итог БУ:', (t.match(/Безубыток включён[^.]*\\./) || ['нет'])[0], '| выходов «безубыток» в таблице:', (t.match(/безубыток/g) || []).length);
+  console.log(errs.length ? errs.join('\\n') : 'ошибок нет'); await b.close();
+})();`;
+eval(head + tail);
