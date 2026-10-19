@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Виджет на главном экране: бумаги с 🔔 и роботы. Текст и цвета приходят из приложения (WidgetProvider). -->
+<!-- Виджет на главном экране: заголовок и листаемый список (бумаги с 🔔 и роботы). Строки даёт WidgetService. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/wroot"
     android:layout_width="match_parent"
@@ -15,12 +15,24 @@
         android:ellipsize="end"
         android:textSize="12sp"
         android:textColor="#8d98a6" />
-    <TextView
-        android:id="@+id/wbody"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:lineSpacingExtra="2dp"
-        android:textSize="14sp"
-        android:textColor="#e8ecf1" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp">
+        <ListView
+            android:id="@+id/wlist"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@null"
+            android:dividerHeight="0dp"
+            android:scrollbars="vertical" />
+        <TextView
+            android:id="@+id/wempty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:textSize="14sp"
+            android:textColor="#e8ecf1"
+            android:text="Включите 🔔 у бумаг в приложении — здесь появятся их фаза и сигналы." />
+    </FrameLayout>
 </LinearLayout>

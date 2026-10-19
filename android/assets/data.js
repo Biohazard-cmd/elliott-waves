@@ -602,23 +602,28 @@
       const A = root.Android; if (!A || !A.widgetUpdate) return;
       const s = settings(), col = store.get('wcolors', null) || { bg: '#14181e', ink: '#e8ecf1', mut: '#8d98a6', pos: '#3fbf7f', neg: '#ef5b5b' };
       const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-      const rows = [], seen = {};
+      // порядок по важности: сигналы ▲/▼ → роботы → остальные фазы → «не ясна»; список в виджете листается.
+      // У строки бумаги — что открыть по нажатию (как у уведомлений: { id, ticker, name, classCode, tf })
+      const sig = [], other = [], unclear = [], robots = [], seen = {};
+      const short = (ph) => { const t = String(ph || '').replace('Фаза: ', ''), m = t.match(/, идёт волна (\S+)/);
+        return m ? (/вверх/.test(t) ? '↑ ' : /вниз/.test(t) ? '↓ ' : '') + 'идёт волна ' + m[1] : t.split(' — ')[0]; };
       for (const w of s.watch || []) {
         const key = w.wid || (w.ticker + '.' + w.tf); if (seen[key]) continue; seen[key] = 1;
         const r = store.get('last.' + key, null); if (!r) continue;
-        const what = r.plan ? `<font color="${r.plan === 'ПОКУПКА' ? col.pos : col.neg}"><b>${r.plan === 'ПОКУПКА' ? '▲' : '▼'} ${r.plan}</b></font>` : `<font color="${col.mut}">${esc(String(r.phase || '').replace('Фаза: ', '').split(' — ')[0])}</font>`;
-        rows.push(`<b>${esc(w.ticker)}</b> ${esc((TF[w.tf] || {}).name || w.tf)}${r.px ? ' · ' + esc(r.px) : ''} · ${what}`);
-        if (rows.length >= 6) break;
+        const head = `<b>${esc(w.ticker)}</b> ${esc((TF[w.tf] || {}).name || w.tf)}${r.px ? ' · ' + esc(r.px) : ''} · `;
+        const open = JSON.stringify({ id: w.id, ticker: w.ticker, name: w.name || w.ticker, classCode: w.classCode || 'TQBR', tf: w.tf });
+        if (r.plan) sig.push({ h: head + `<font color="${r.plan === 'ПОКУПКА' ? col.pos : col.neg}"><b>${r.plan === 'ПОКУПКА' ? '▲' : '▼'} ${r.plan}</b></font>`, o: open });
+        else (/не ясна/.test(r.phase || '') ? unclear : other).push({ h: head + `<font color="${col.mut}">${esc(short(r.phase))}</font>`, o: open });
       }
       const V = vaccGet();
       if (V && V.on) for (const a of V.accs || []) {
         const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
-        rows.push(`🤖 ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`);
+        robots.push({ h: `🤖 ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
+      const list = sig.concat(robots, other, unclear);
       const t = store.get('lastcheck', 0), d = new Date(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
       const title = 'Волны Эллиотта · ' + (t ? 'проверено ' + p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : 'ещё не проверялось');
-      const html = rows.length ? rows.join('<br>') : 'Включите 🔔 у бумаг в приложении — здесь появятся их фаза и сигналы.';
-      A.widgetUpdate(JSON.stringify({ title, html, bg: col.bg, ink: col.ink, mut: col.mut }));
+      A.widgetUpdate(JSON.stringify({ title, rows: list.map((x) => x.h), opens: list.map((x) => x.o), bg: col.bg, ink: col.ink, mut: col.mut }));
     } catch (e) { /* виджет — не главное, проверку не ломаем */ }
   }
 

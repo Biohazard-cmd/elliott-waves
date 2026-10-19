@@ -27,7 +27,8 @@ const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../
     window.EWData.store.set('last.SBER.1d', { at: Date.now(), phase: 'Фаза: импульс — идёт волна 3', plan: 'ПОКУПКА', px: '287.30' });
     window.EWData.store.set('last.OZON.1h', { at: Date.now(), phase: 'Фаза: не ясна — подсчёт слабый', plan: '', px: '3800' });
     window.EWData.widgetPush(); delete window.Android; return got; });
-  console.log('виджет:', wj.replace(/<[^>]+>/g, ''), '| токен в данных:', /t\\.GOOD/.test(wj) ? 'ЕСТЬ!' : 'нет');
+  { const o = JSON.parse(wj); console.log('виджет, строки по порядку:', o.rows.map((r) => r.replace(/<[^>]+>/g, '')).join(' | '), '· открывают:', o.opens.map((x) => x ? JSON.parse(x).ticker + ' ' + JSON.parse(x).tf : '—').join(', ')); }
+  console.log('виджет:', wj.replace(/<[^>]+>/g, '').slice(0, 60), '| токен в данных:', /t\\.GOOD/.test(wj) ? 'ЕСТЬ!' : 'нет');
   // дивергенция на волне 5: ищем подсчёт с волной 5 у других бумаг
   let dvN = 0;
   for (const tk of ['OZON', 'CHMF', 'GMKN', 'NVTK']) {

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- строка списка в виджете -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wrow"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp"
+    android:textSize="14sp"
+    android:textColor="#e8ecf1" />
