@@ -46,6 +46,12 @@
     addPhaseExit: false,
     addFlipExit: false,
     addDiv5Exit: false,   // исследование: выход после завершённой волны 5 по сделке, если AO 5/34 на ней слабее, чем на волне 3 ('div'), или всегда ('all')   // дополнение: выход, когда основной подсчёт стал импульсом против сделки
+    // исследование (равноудалённый канал, research/chan5.js) — только для сетапа «Вход в волну 5»:
+    addChan4: 'none',     // вход, только если конец волны 4 у линии канала: 'book' — параллель через 2 к линии 1-3; 'video' — середина канала 0-2 / параллель через 3; 'video0' — линия 0-2
+    chan4Tol: 0.5,        // допуск касания линии, в ATR на свече конца волны 4
+    addChanFib: false,    // ещё и откат волны 4 = 0,382 ± 0,1 от волны 3
+    chan5Target: 'none',  // цель — наклонная линия: 'book' — параллель через 3 к линии 2-4; 'video' — верх канала 0-2 через 3
+    stopW5: 'w4',         // стоп входа в волну 5: 'w4' — за концом волны 4, 'w1' — за вершиной волны 1 (граница по правилу книги)
     addRunner: false,     // дополнение: у цели не закрывать, а перевести стоп в безубыток и вести под локальными минимумами
     complexCorr: true,    // по книге: волна 2/4 может быть расширенным флэтом (показ в подсчёте)
     addComplexTrade: false, // дополнение: входить по подсчёту со сложной волной 2/4
@@ -491,24 +497,46 @@
   }
 
   // ---------- торговый план по сценарию ----------
-  Ctx.prototype.makePlan = function (s, entry) {
+  // равноудалённый канал по импульсу 0-1-2-3-4 (линии в шкале подсчёта s.v): где ждать конец волны 4 и цель волны 5
+  Ctx.prototype.chanLine = function (s, mode, forW5) {
+    const I = s.idx, v = s.v;
+    if (mode === 'book') return forW5
+      ? { i1: I[3], v1: v[3], i2: I[3] + (I[4] - I[2]), v2: v[3] + (v[4] - v[2]) }
+      : { i1: I[2], v1: v[2], i2: I[2] + (I[3] - I[1]), v2: v[2] + (v[3] - v[1]) };
+    const off = v[3] - lineAt(I[0], v[0], I[2], v[2], I[3]), k = forW5 ? 1 : mode === 'video' ? 0.5 : 0;
+    return { i1: I[0], v1: v[0] + off * k, i2: I[2], v2: v[2] + off * k };
+  };
+  Ctx.prototype.chanAt = function (ln, i) { return this.Gv(lineAt(ln.i1, ln.v1, ln.i2, ln.v2, i)); };
+  Ctx.prototype.chan4OK = function (s) {
+    const c = this.cfg;
+    if (c.addChanFib && Math.abs(s.r4 - 0.382) > 0.1) return false;
+    if (!c.addChan4 || c.addChan4 === 'none') return true;
+    const i4 = s.idx[4];
+    return Math.abs(s.px[4] - this.chanAt(this.chanLine(s, c.addChan4, false), i4)) <= c.chan4Tol * this.atr()[i4];
+  };
+
+  Ctx.prototype.makePlan = function (s, entry, iNow) {
     const c = this.cfg;
     if (s.noPlan) return null;
     const { tg } = this.scenTargets(s);
     const nt = tg.length;
-    let setup = -1, side = 0, stop = 0, target = 0;
+    let setup = -1, side = 0, stop = 0, target = 0, tLine = null;
     if (s.fam === 0 && !s.diag && s.n === 3 && c.setups.w3) {
       if (s.r2 < this.w2Min || s.r2 > this.w2Max) return null;
       setup = 0; side = s.dir; stop = c.stopW2 ? s.px[2] : s.px[0];
       target = c.targetMode === 'near' ? tg[0] : tg[1];
     } else if (s.fam === 0 && !s.diag && s.n === 5 && c.setups.w5) {
       if (s.r4 > this.w4Max) return null;
-      setup = 1; side = s.dir; stop = s.px[4];
+      if (!this.chan4OK(s)) return null;
+      setup = 1; side = s.dir; stop = c.stopW5 === 'w1' ? s.px[1] : s.px[4];
       const risk0 = Math.abs(entry - stop);
       if (risk0 <= 0) return null;
-      let found = false;
-      for (let k = 0; k < nt; k++) { if (side * (tg[k] - entry) / risk0 > this.minRR) { target = tg[k]; found = true; break; } }
-      if (!found) return null;
+      if (c.chan5Target && c.chan5Target !== 'none') { tLine = this.chanLine(s, c.chan5Target, true); target = this.chanAt(tLine, iNow == null ? this.N - 1 : iNow); }
+      else {
+        let found = false;
+        for (let k = 0; k < nt; k++) { if (side * (tg[k] - entry) / risk0 > this.minRR) { target = tg[k]; found = true; break; } }
+        if (!found) return null;
+      }
     } else if (s.fam === 1 && s.n === 4 && c.setups.abc) { setup = 2; side = -s.dir; stop = s.px[3]; target = tg[0]; }
     else if (s.fam === 2 && s.n === 6 && c.setups.tri) { setup = 3; side = -s.dir; stop = s.px[5]; target = tg[0]; }
     else if (s.fam === 0 && s.n === 6 && c.setupCounter) { setup = 4; side = -s.dir; stop = s.px[5]; target = tg[0]; }
@@ -521,7 +549,7 @@
     if (risk <= 0 || reward <= 0) return null;
     const rr = reward / risk;
     if (rr < this.minRR) return null;
-    return { setup, side, entry, stop, target, rr, score: s.score, notgt: c.targetMode === 'none', sigBar: -1, scen: -1, w1: setup === 0 ? [s.px[0], s.px[1]] : null };
+    return { setup, side, entry, stop, target, rr, score: s.score, notgt: c.targetMode === 'none', sigBar: -1, scen: -1, w1: setup === 0 ? [s.px[0], s.px[1]] : null, tLine };
   };
 
   // ---------- тренд старшей степени (стр. 34) или по средней ----------
@@ -694,7 +722,7 @@
         const e = O[i];
         if (!cur && sig.side * (e - sig.stop) > 0 && sig.side * (sig.target - e) > 0) {
           frac = Math.min(c.riskPct / 100 / (Math.abs(e - sig.stop) / e), c.maxLev);
-          cur = { setup: sig.setup, side: sig.side, iSig: sigBar, iEntry: i, entry: e, stop: sig.stop, stop0: sig.stop, target: sig.target, notgt: sig.notgt, i0: sig.i0, cnt: sig.cnt, moves: 0, best: e, path: [] };
+          cur = { setup: sig.setup, side: sig.side, iSig: sigBar, iEntry: i, entry: e, stop: sig.stop, stop0: sig.stop, target: sig.target, notgt: sig.notgt, i0: sig.i0, cnt: sig.cnt, moves: 0, best: e, path: [], tLine: sig.tLine };
           // уровень доливки по Вильямсу: волна 3 прошла 110% волны 1 (подтверждение, что третья волна настоящая)
           if (sig.w1) { const lv = sig.w1[1] + sig.side * 0.1 * Math.abs(sig.w1[1] - sig.w1[0]); if (sig.side * (lv - e) > 0) cur.addLvl = lv; }
           phaseExit = false; flipExit = false;
@@ -702,6 +730,7 @@
       }
       if (cur) {
         let reason = -1, px = 0;
+        if (cur.tLine && !cur.notgt) cur.target = this.chanAt(cur.tLine, i);   // цель по наклонной линии канала
         if (phaseExit) { px = O[i]; reason = 5; }
         else if (flipExit) { px = O[i]; reason = cur.divExit ? 9 : 6; }
         else if (cur.side > 0) {
@@ -791,7 +820,7 @@
         const sc = this.buildScenarios(mp);
         for (const s of sc) {
           if (s.score < c.minScore) continue;
-          const pl = this.makePlan(s, C[i]);
+          const pl = this.makePlan(s, C[i], i);
           if (pl && this.trendOK(pl.side, tr[i]) && this.marketOK(pl.side, this.T[i]) && this.aoOK(pl.side, i)) { sig = pl; sig.i0 = s.idx[0]; sig.cnt = keep ? snapCount(s) : null; sigBar = i; hasSig = true; break; }
         }
       }
@@ -823,7 +852,7 @@
       for (let k = 0; k < this.scen.length; k++) {
         const s = this.scen[k];
         if (s.score < c.minScore) continue;
-        const pl = this.makePlan(s, entry);
+        const pl = this.makePlan(s, entry, lp.c);
         if (pl && this.trendOK(pl.side, this.trend[lp.c]) && this.marketOK(pl.side, this.T[lp.c]) && this.aoOK(pl.side, lp.c)) { pl.scen = k; pl.sigBar = lp.c; this.plan = pl; break; }
       }
     }
