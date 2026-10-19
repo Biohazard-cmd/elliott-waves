@@ -20,7 +20,7 @@ function evalCfg(over, opt={}){
   }
   return {R,n,w,h1,h2,pos,yr,su,hold,per,all};
 }
-function line(name,r){ return `${name.padEnd(34)} R ${r.R.toFixed(0).padStart(4)} сд ${String(r.n).padStart(4)} ср ${(r.R/r.n).toFixed(3)} приб ${(r.w/r.n*100).toFixed(0)}% плюс ${r.pos}/65 до23 ${r.h1.toFixed(0).padStart(4)} с23 ${r.h2.toFixed(0).padStart(4)}`; }
+function line(name,r){ return `${name.padEnd(34)} R ${r.R.toFixed(0).padStart(4)} сд ${String(r.n).padStart(4)} ср ${(r.R/r.n).toFixed(3)} приб ${(r.w/r.n*100).toFixed(0)}% плюс ${r.pos}/${ser.length} до23 ${r.h1.toFixed(0).padStart(4)} с23 ${r.h2.toFixed(0).padStart(4)}`; }
 module.exports={evalCfg,line,BASE,ser,mkt,E,D,SPLIT};
 if(require.main===module){
   const b=evalCfg({}); console.log(line('база d_long',b));
@@ -33,7 +33,7 @@ if(require.main===module){
 }
 // портфель: капитал общий, риск на сделку riskPct, позиция не больше maxPos капитала, всего в позициях не больше 100% (без плеча)
 function portfolio(r, o={}){
-  const risk=(o.risk||1)/100, maxPos=o.maxPos||0.25, fee=0.0005, slip=0.0002;
+  const risk=(o.risk||1)/100, maxPos=o.maxPos||0.25, fee=o.fee||0.0005, slip=o.slip||0.0002;
   const ev=[]; for(const x of r.all){ const bars=x.bars; ev.push(x); }
   const tr=r.all.map(x=>({id:x.id,tIn:x.T,tOut:x.TOut,side:x.t.side,entry:x.t.entry,stop:x.t.stop0,exit:x.t.exitP})).sort((a,b)=>a.tIn-b.tIn);
   let eq=1, open=[], peak=1, mdd=0, taken=0, skipped=0; const yearEq={}; let sumDist=0, lastT=0, expoT=0, totT=0;
