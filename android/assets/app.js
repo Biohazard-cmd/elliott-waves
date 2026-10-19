@@ -53,6 +53,7 @@
     for (const k of ['bg', 'bg2', 'bg3', 'line', 'ink', 'mut', 'dim', 'hud', 'acc', 'accl']) { if (sk.css[k]) st.setProperty('--' + k, sk.css[k]); else st.removeProperty('--' + k); }
     K = Object.assign({}, CH0, { bg: sk.css.bg || CH0.bg, lbl: sk.css.hud || CH0.lbl }, sk.ch);
     try { if (A && A.setBarColor) A.setBarColor(K.bg); } catch (e) { /* старая сборка без моста */ }
+    D.store.set('wcolors', { bg: K.bg, ink: sk.css.ink || '#e8ecf1', mut: sk.css.mut || '#8d98a6', pos: '#3fbf7f', neg: '#ef5b5b' }); D.widgetPush();
   }
   applySkin();
   const skinPick = () => Object.entries(SKINS).map(([k, x]) => { const c = Object.assign({}, CH0, { bg: x.css.bg || CH0.bg, bg2: x.css.bg2 || '#1b2028' }, x.ch);
@@ -811,6 +812,34 @@
   }
 
   // перерисовка панели (в тренажёре — на каждой свече) не должна сбрасывать прокрутку
+  // правила и нормы книги для подсчёта: ✓ выполнено, ✗ нет, … ещё рано
+  function rulesHtml(s) {
+    const L = E.rulesCheck(s); if (!L.length) return '';
+    const row = (x) => `<div class="rl ${x.ok === false ? (x.rule ? 'neg' : 'warn') : x.ok ? '' : 'mut'}"><b>${x.ok === true ? '✓' : x.ok === false ? '✗' : '…'}</b><span>${esc(x.t.replace(/(\d)\.(\d)/g, '$1' + DEC() + '$2'))}</span></div>`;
+    const rules = L.filter((x) => x.rule), norms = L.filter((x) => !x.rule);
+    return `<div class="rules">${rules.length ? '<div class="small mut">Правила книги (нарушать нельзя):</div>' + rules.map(row).join('') : ''}${norms.length ? '<div class="small mut" style="margin-top:4px">Нормы (обычно так бывает, но не обязательно):</div>' + norms.map(row).join('') : ''}</div>`;
+  }
+  // ослабление импульса на волне 5 (по книге): пик AO 5/34 на волне 5 ниже, чем на волне 3. Только подсказка.
+  function divInfo(s) {
+    if (!s || s.fam !== 0 || s.n < 5 || !an.aoArr) return null;
+    const ao = an.aoArr, d = s.dir, peak = (a, b) => { let m = -Infinity; for (let i = a + 1; i <= b && i < ao.length; i++) if (!isNaN(ao[i])) m = Math.max(m, d * ao[i]); return m; };
+    const p3 = peak(s.idx[2], s.idx[3]), p5 = peak(s.idx[4], s.n >= 6 ? s.idx[5] : an.N - 1);
+    if (!isFinite(p3) || !isFinite(p5)) return null;
+    const done = s.n >= 6;
+    if (p5 < p3) return { cls: 'warn', txt: `Импульс ослаб: AO 5/34 на волне 5 ${done ? 'был' : 'пока'} слабее, чем на волне 3 (${Math.round(p5 / p3 * 100)}%) — по книге так обычно ${done ? 'и заканчивается' : 'заканчивается'} пятая волна. Это подсказка, на сделки не влияет.` };
+    return { cls: 'mut', txt: `Расхождения нет: AO 5/34 на волне 5 ${done ? 'был' : 'пока'} не слабее, чем на волне 3${done ? '' : ' — волна 5 может продолжиться'}. Подсказка, на сделки не влияет.` };
+  }
+  // время по Фибоначчи: когда текущая волна достигла бы 0,618 / 1 / 1,618 длительности соответствующей прошлой волны
+  function fibTime(s) {
+    if (!s) return null;
+    let a = -1, b = -1, st = -1, title = '';
+    if (s.fam === 0 && s.n >= 2 && s.n <= 5) {
+      const ref = { 2: [0, 1, 'волна 2 по длительности волны 1'], 3: [0, 1, 'волна 3 по длительности волны 1'], 4: [1, 2, 'волна 4 по длительности волны 2'], 5: [0, 1, 'волна 5 по длительности волны 1'] }[s.n];
+      a = s.idx[ref[0]]; b = s.idx[ref[1]]; st = s.idx[s.n - 1]; title = ref[2];
+    } else if (s.fam === 1 && s.n === 3) { a = s.idx[0]; b = s.idx[1]; st = s.idx[2]; title = 'волна C по длительности волны A'; }
+    if (st < 0 || b <= a) return null;
+    return { title, pts: [0.618, 1, 1.618].map((r) => { const i = st + Math.round((b - a) * r); return { r: String(r).replace('.', DEC()), i, left: i - (an.N - 1) }; }) };
+  }
   function renderPanel() { const P = $('#panel'), st = P ? P.scrollTop : 0; renderPanel0(); if (P && st) P.scrollTop = st; }
   function renderPanel0() {
     const P = $('#panel');
@@ -858,15 +887,16 @@
     if (altSel >= an.scen.length) altSel = 0;
     const s = curScen(), tgc = curTg(), lastPx = an.bars[an.N - 1].c;
     h += `<div class="card"><h3>Подсчёт волн</h3>`;
-    if (an.scen.length > 1) h += `<div class="row sortb" style="margin-bottom:6px">${an.scen.slice(0, 4).map((x, k) => `<button id="alt${k}" data-alt="${k}" class="${k === altSel ? 'on' : ''}">${k ? 'Альт. ' + k : 'Основной'} · ${x.score.toFixed(0)}</button>`).join('')}</div>`;
+    if (an.scen.length > 1) {
+      const top = an.scen.slice(0, 4), sum = top.reduce((a, x) => a + x.score, 0) || 1;
+      h += `<div class="row sortb" style="margin-bottom:2px">${top.map((x, k) => `<button id="alt${k}" data-alt="${k}" class="${k === altSel ? 'on' : ''}">${k ? 'Альт. ' + k : 'Основной'} ${Math.round(x.score / sum * 100)}%</button>`).join('')}</div>`;
+      h += `<div class="small" style="margin-bottom:6px">Проценты — доля каждого подсчёта по соответствию нормам книги среди этих ${top.length}. Это подсказка, какой вариант правдоподобнее, а не точная вероятность.</div>`;
+    }
     if (s) {
       h += `<div class="big ${altSel ? 'violet' : 'blue'}">${esc(E.scenTitle(s))}</div><div class="small">Соответствие нормам ${s.score.toFixed(0)}/100${tgc && tgc.inv ? ' · отмена подсчёта ' + pr(tgc.inv) + ' (' + spc(tgc.inv / lastPx - 1) + ')' : ''}${altSel ? ' · <span class="violet">альтернативный подсчёт, на графике фиолетовым</span>' : ''}</div>`;
-      if (s.fam === 0 && !s.diag && s.n >= 5) {
-        const fn = (f) => ['резкая', 'боковая', 'треугольник'][f] || 'не видно';
-        const alt = s.f2 < 0 || s.f4 < 0 ? 'форму не видно' : (s.f2 === 0) !== (s.f4 === 0) ? 'есть' : 'нет';
-        h += `<div class="small">Волна 2 ${fn(s.f2)}, 4 ${fn(s.f4)} · чередование: ${alt}</div>`;
-      }
-      if (s.fam === 0 && s.subN > 0) h += `<div class="small">Подволны по книге: ${s.subOk} из ${s.subN} волн</div>`;
+      h += rulesHtml(s);
+      { const dv = divInfo(s); if (dv) h += `<div class="small ${dv.cls}" style="margin-top:4px">${dv.txt}</div>`; }
+      if (S.view.fibT) { const ft = fibTime(s); h += `<div class="small" style="margin-top:4px">⏱ Время по Фибоначчи (сверх книги — в книге время вторично): ${ft ? esc(ft.title) + ' — ' + ft.pts.map((q) => `${q.r} — ${q.left > 0 ? 'через ' + q.left + ' св.' : q.left === 0 ? 'сейчас' : 'уже прошло'}`).join(' · ') : 'для этого подсчёта нет — только для волн 2–5 импульса и волны C'}</div>`; }
       if (tgc && tgc.tg.length) {
         h += `<table style="margin-top:6px"><thead><tr><th>Цель</th><th>Цена</th><th>От текущей</th></tr></thead><tbody>${tgc.tg.map((v, k) => `<tr><td>${esc(tgc.lb[k])}</td><td class="mono">${pr(v)}</td><td class="${v >= lastPx ? 'pos' : 'neg'}">${spc(v / lastPx - 1)}</td></tr>`).join('')}</tbody></table>`;
       }
@@ -934,7 +964,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.35';
+  const APP_VER = '2.36';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1194,7 +1224,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     pop.scrollTop = keepScroll;
     const tro = document.getElementById('trOpen'); if (tro) tro.onclick = () => { popFill = trSetupPop; popBind = trSetupBind; pop.scrollTop = 0; fillPop(); };
     skinBind(pop, fillPop);
-    pop.querySelectorAll('[data-pv]').forEach((b) => { b.onclick = () => { const k = b.dataset.pv; S.view[k] = !S.view[k]; save(); renderChips(); draw(); if (k === 'be') renderPanel(); fillPop(); }; });
+    pop.querySelectorAll('[data-pv]').forEach((b) => { b.onclick = () => { const k = b.dataset.pv; S.view[k] = !S.view[k]; save(); renderChips(); draw(); if (k === 'be' || k === 'fibT') renderPanel(); fillPop(); }; });
     pop.querySelectorAll('[data-pclean]').forEach((b) => { b.onclick = () => { S.view.clean = b.dataset.pclean === '1'; save(); renderChips(); draw(); fillPop(); }; });
     pop.querySelectorAll('[data-mys]').forEach((b) => { b.onclick = () => { const [k, v] = b.dataset.mys.split('|'); S.rmStyle = Object.assign({}, S.rmStyle); S.rmStyle.me = Object.assign({}, rmStyle('me'), k === 'sh' ? { sh: v } : { c: v }); save(); draw(); fillPop(); }; });
     pop.querySelectorAll('[data-ph]').forEach((b) => { b.onclick = () => { const k = b.dataset.ph; S.view.hide = S.view.hide || {}; S.view.hide[k] = !S.view.hide[k]; if (!S.view.hide[k]) S.view.clean = false; save(); draw(); fillPop(); }; });
@@ -1220,7 +1250,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function viewPop() {
     const v = S.view;
     let h = `<button class="pitem pbig" id="trOpen">🎓<span>Тренажёр — прокрутка истории<br><small class="mut">будущее скрыто, свечи растут по минутам, торгуете вы и система</small></span></button><div class="pgrp">На графике</div><div class="seg"><button data-pclean="0" class="${v.clean ? '' : 'on'}">Вся разметка</button><button data-pclean="1" class="${v.clean ? 'on' : ''}">Только сделки</button></div>`;
-    h += [['trades', 'Сделки бэктеста'], ['be', 'Подсказка безубытка (БУ)'], ['channels', 'Каналы тренда']].map(([k, t]) => `<button class="pitem ${v[k] ? 'on' : ''}" data-pv="${k}">${ck(v[k])}${t}</button>`).join('');
+    h += [['trades', 'Сделки бэктеста'], ['be', 'Подсказка безубытка (БУ)'], ['channels', 'Каналы тренда'], ['fibT', '⏱ Время по Фибоначчи (сверх книги)']].map(([k, t]) => `<button class="pitem ${v[k] ? 'on' : ''}" data-pv="${k}">${ck(v[k])}${t}</button>`).join('');
     return h + layersPart(v) + `<div class="pgrp">Оформление</div>` + skinPick();
   }
   // «Мои сделки»: отметки входа/выхода, поводок (пунктир вход → выход) и их вид
@@ -2175,6 +2205,13 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
         const t0 = s.idx[s.n - 1];
         if (!hid.lv) tg.tg.forEach((p, k) => { line([[t0, p], [i1 + 50, p]], 'rgba(240,162,58,.75)', 1, [4, 4]); edgeText(tg.lb[k], p, '#f0a23a'); });
         if (tg.inv && !hid.lv) { line([[s.idx[0], tg.inv], [i1 + 50, tg.inv]], 'rgba(239,91,91,.8)', 1, [4, 4]); edgeText('Отмена подсчёта', tg.inv, '#ef5b5b'); }
+        // время по Фибоначчи (опция, сверх книги): вертикальный пунктир и подпись у нижнего края
+        const ft = S.view.fibT && !hid.cnt ? fibTime(s) : null;
+        if (ft) for (const q of ft.pts) {
+          const x = X(q.i); if (x < 0 || x > pw) continue;
+          ctx.strokeStyle = 'rgba(79,195,247,.6)'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, ph); ctx.stroke(); ctx.setLineDash([]);
+          ctx.font = '10px system-ui, sans-serif'; ctx.fillStyle = '#4fc3f7'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('⏱' + q.r, x, ph - 2); ctx.textAlign = 'left';
+        }
       }
       const p = an.plan;
       if (p && an.planActive && !hid.plan) {
@@ -2880,6 +2917,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <label class="sw"><input type="checkbox" data-a="addSma200" ${c.addSma200 ? 'checked' : ''}><span>Фильтр «SMA200 растёт»<small>Покупка — только если 200-дневная средняя бумаги выше, чем месяц (20 свечей) назад; продажа — наоборот.<em class="hist">Проверка на дневках 65 акций 2019–2026: сделок на 15% меньше, в среднем +0,58 R вместо +0,51, серия стопов 11 вместо 17, просадка счёта 8% вместо 12%, ~26%/год вместо ~25%. Срок 5–60 дней — результат похожий.</em></small></span></label>
       <label class="sw"><input type="checkbox" data-a="addMktFast" ${c.addMktFast ? 'checked' : ''} ${c.addMarket ? '' : 'disabled'}><span>Осторожный режим: рынок выше средней за 50 дней<small>${c.addMarket ? 'Вдобавок к фильтру рынка: покупка — только если индекс всех бумаг выше своей средней за 50 дней. Вместе с SMA200 на дневках: основной — просадка 6% вместо 8%, серия стопов 9, но ~24,5%/год вместо ~26%; агрессивный — просадка 8% вместо 11%, ~36,5%/год вместо ~38%. Для тех, кому важнее спокойствие.' : 'Нужен включённый фильтр «по рынку».'}</small></span></label>
       <label class="sw"><input type="checkbox" id="maTrend" ${c.addTrend === 'ma' ? 'checked' : ''}><span>Тренд по скользящей средней ${c.trendMA}<small>Вместо старшей степени волн</small></span></label>
+      <div class="small" style="margin:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">Подсказки сверх книги</div>
+      <label class="sw"><input type="checkbox" id="fibTime" ${S.view.fibT ? 'checked' : ''}><span>⏱ Время по Фибоначчи<small>На графике голубой пунктир там, где текущая волна достигла бы 0,618, 1 и 1,618 длительности прошлой волны (волна 5 и 3 — по волне 1, волна 4 — по волне 2, волна C — по волне A). В книге время вторично, поэтому это только подсказка: на сделки не влияет. То же — в «Вид ▾».</small></span></label>
       <div class="field" style="margin-top:8px"><label>Перенос стопа в бэктесте</label><select id="exitMode">
         <option value="fixed" ${c.exitMode === 'fixed' ? 'selected' : ''}>Выкл: стоп и цель неподвижны, как в книге</option>
         <option value="sub" ${c.exitMode !== 'fixed' ? 'selected' : ''}>Под локальными минимумами, только в плюс</option></select></div>
@@ -3028,6 +3067,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('#logExp', 'click', exportLog);
     on('#logClr', 'click', () => { D.logClear(); D.log('start', 'лог очищен'); renderSettings(); });
     on('#decSel', 'change', () => { S.decComma = $('#decSel').value === 'comma'; D.setDec(S.decComma); save(); renderHead(); renderChips(); if (an) { renderPanel(); draw(); renderQuote(); } renderSettings(); });
+    on('#fibTime', 'change', () => { S.view.fibT = $('#fibTime').checked; save(); renderPanel(); draw(); });
     on('#divAdj', 'change', () => { S.cfg.divAdj = $('#divAdj').checked; save(); load(false); });
     on('#batBtn', 'click', () => { if (A.openBattery) A.openBattery(); });
     on('#fee', 'change', cfgChange(() => { S.cfg.feePct = Number($('#fee').value) || 0; }));

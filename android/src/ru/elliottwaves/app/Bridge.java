@@ -96,6 +96,13 @@ public class Bridge {
         });
     }
 
+    // виджет на главном экране: json = { title, html, bg, ink, mut } (без токена, сумм и номеров счетов)
+    @JavascriptInterface
+    public void widgetUpdate(String json) {
+        ctx.getSharedPreferences("ew", Context.MODE_PRIVATE).edit().putString("widget", json).apply();
+        try { WidgetProvider.push(ctx); } catch (Exception e) { Log.w("ElliottWaves", "widget: " + e); }
+    }
+
     @JavascriptInterface
     public boolean isBackground() {
         return service != null;

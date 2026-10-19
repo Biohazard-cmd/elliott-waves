@@ -569,7 +569,7 @@
         const ev = events(an, w.ticker, w.tf, s.notify, skey, many ? (w.label || '') : '');
         for (const e of ev) e.open = { id: w.id, ticker: w.ticker, name: w.name, classCode: w.classCode, tf: w.tf };
         all.push(...ev);
-        const lastRec = { at: Date.now(), phase: an.phase.text, plan: an.plan && an.planActive ? (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА') : '' };
+        const lastRec = { at: Date.now(), phase: an.phase.text, plan: an.plan && an.planActive ? (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА') : '', px: done.length ? fmtPrice(done[done.length - 1].c, done) : '' };
         const prevRec = store.get('last.' + skey, null);
         store.set('last.' + skey, lastRec);
         store.set('last.' + w.ticker + '.' + w.tf, lastRec);
@@ -591,7 +591,35 @@
     try { const pe = await checkPrices(s, onLog); for (const e of pe) log('notify', e.title, { text: e.text }); all.push(...pe); }
     catch (e) { if (onLog) onLog('уровни: ' + e.message); store.set('lasterr', { at: Date.now(), msg: 'уровни: ' + e.message }); }
     store.set('lastcheck', Date.now());
+    widgetPush();
     return all;
+  }
+
+  // виджет на главном экране: бумаги с 🔔 (цена, план или фаза из последней проверки) и роботы (позиции, %).
+  // Без токена, сумм и номеров счетов. Цвета — текущей темы (их записывает приложение: store 'wcolors').
+  function widgetPush() {
+    try {
+      const A = root.Android; if (!A || !A.widgetUpdate) return;
+      const s = settings(), col = store.get('wcolors', null) || { bg: '#14181e', ink: '#e8ecf1', mut: '#8d98a6', pos: '#3fbf7f', neg: '#ef5b5b' };
+      const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const rows = [], seen = {};
+      for (const w of s.watch || []) {
+        const key = w.wid || (w.ticker + '.' + w.tf); if (seen[key]) continue; seen[key] = 1;
+        const r = store.get('last.' + key, null); if (!r) continue;
+        const what = r.plan ? `<font color="${r.plan === 'ПОКУПКА' ? col.pos : col.neg}"><b>${r.plan === 'ПОКУПКА' ? '▲' : '▼'} ${r.plan}</b></font>` : `<font color="${col.mut}">${esc(String(r.phase || '').replace('Фаза: ', '').split(' — ')[0])}</font>`;
+        rows.push(`<b>${esc(w.ticker)}</b> ${esc((TF[w.tf] || {}).name || w.tf)}${r.px ? ' · ' + esc(r.px) : ''} · ${what}`);
+        if (rows.length >= 6) break;
+      }
+      const V = vaccGet();
+      if (V && V.on) for (const a of V.accs || []) {
+        const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
+        rows.push(`🤖 ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`);
+      }
+      const t = store.get('lastcheck', 0), d = new Date(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
+      const title = 'Волны Эллиотта · ' + (t ? 'проверено ' + p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : 'ещё не проверялось');
+      const html = rows.length ? rows.join('<br>') : 'Включите 🔔 у бумаг в приложении — здесь появятся их фаза и сигналы.';
+      A.widgetUpdate(JSON.stringify({ title, html, bg: col.bg, ink: col.ink, mut: col.mut }));
+    } catch (e) { /* виджет — не главное, проверку не ломаем */ }
   }
 
   // мои уровни цены и стоп/цель открытых сделок из дневника: смотрим 5-минутки с прошлой проверки
@@ -847,5 +875,5 @@
     return ev;
   }
 
-  root.EWData = { vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

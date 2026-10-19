@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Виджет на главном экране: бумаги с 🔔 и роботы. Текст и цвета приходят из приложения (WidgetProvider). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wroot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="10dp"
+    android:background="#14181e">
+    <TextView
+        android:id="@+id/wtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="#8d98a6" />
+    <TextView
+        android:id="@+id/wbody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:lineSpacingExtra="2dp"
+        android:textSize="14sp"
+        android:textColor="#e8ecf1" />
+</LinearLayout>

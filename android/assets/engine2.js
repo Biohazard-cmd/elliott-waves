@@ -10,7 +10,7 @@
   const SENS_K = [0.6, 0.8, 1.0, 1.25, 1.6];
   const SETUP_NAME = ['Вход в волну 3', 'Вход в волну 5', 'После коррекции A-B-C', 'Рывок из треугольника', 'Против тренда после 5 волн'];
   const SETUP_SHORT = ['W3', 'W5', 'ABC', 'Тр', 'Пр'];
-  const REASON_NAME = ['стоп', 'цель', 'срок вышел', 'конец данных', 'конец недели', 'смена фазы', 'смена подсчёта', 'стоп после цели', 'безубыток'];
+  const REASON_NAME = ['стоп', 'цель', 'срок вышел', 'конец данных', 'конец недели', 'смена фазы', 'смена подсчёта', 'стоп после цели', 'безубыток', 'дивергенция волны 5'];
   const BE_WHY = { r1: 'цена прошла +1R', r2: 'цена прошла +2R', atr: 'цена ушла на N×ATR', ao: 'AO 5/34 повернул против сделки', mkt: 'рынок ушёл ниже своей средней за 50 дней', stall: '20 свечей без движения (меньше +0,5R)', wave: 'волна 3 прошла вершину волны 1, подтвердился первый откат' };
   const FIG_NAME = ['Импульс', 'Клин', 'Зигзаг', 'Флэт', 'Треугольник'];
 
@@ -44,7 +44,8 @@
     setupCounter: false,
     addBreak24: false,
     addPhaseExit: false,
-    addFlipExit: false,   // дополнение: выход, когда основной подсчёт стал импульсом против сделки
+    addFlipExit: false,
+    addDiv5Exit: false,   // исследование: выход после завершённой волны 5 по сделке, если AO 5/34 на ней слабее, чем на волне 3 ('div'), или всегда ('all')   // дополнение: выход, когда основной подсчёт стал импульсом против сделки
     addRunner: false,     // дополнение: у цели не закрывать, а перевести стоп в безубыток и вести под локальными минимумами
     complexCorr: true,    // по книге: волна 2/4 может быть расширенным флэтом (показ в подсчёте)
     addComplexTrade: false, // дополнение: входить по подсчёту со сложной волной 2/4
@@ -429,6 +430,51 @@
     return 'Треугольник завершён: рывок ' + (s.dir > 0 ? 'вниз' : 'вверх');
   }
 
+  // правила и нормы книги для подсчёта — галочками в карточке «Подсчёт волн» (только пояснение, на сделки не влияет).
+  // ok: true — выполнено, false — нет, null — ещё рано; rule: true — правило (нарушать нельзя), false — норма (обычно так бывает)
+  function rulesCheck(s) {
+    const out = [], R = (t, ok) => out.push({ t, ok, rule: true }), G = (t, ok) => out.push({ t, ok, rule: false });
+    const pc = (x) => (x * 100).toFixed(1).replace(/\.0$/, '') + '%', x2 = (x) => x.toFixed(2);
+    const n = s.n, w = s.w || [];
+    if (s.fam === 0) {
+      if (n >= 3) R('Волна 2 не заходит за начало волны 1', true);
+      if (n >= 4) R('Волна 3 уходит дальше конца волны 1', true);
+      if (n >= 6) R('Волна 3 не самая короткая из 1, 3 и 5', !(w[2] < w[0] && w[2] < w[4]));
+      else if (n >= 4) R('Волна 3 не самая короткая из 1, 3 и 5' + (w[2] < w[0] ? ' — значит, волна 5 должна быть короче 3' : ''), null);
+      if (n >= 5) {
+        if (s.diag) R('Волна 4 заходит в зону волны 1 — так бывает только у клина (диагонали)', true);
+        else R('Волна 4 не заходит в зону цены волны 1', true);
+      }
+      if (n >= 3 && !s.cx) G('Волна 2 откатила ' + pc(s.r2) + ' волны 1 (обычно 50–61,8%)', s.r2 >= 0.45 && s.r2 <= 0.68);
+      if (n >= 4) G('Волна 3 = ' + x2(w[2] / w[0]) + ' × волна 1 (обычно 1,618 и больше)', w[2] / w[0] >= 1.382);
+      if (n >= 5 && !s.cx) G('Волна 4 откатила ' + pc(s.r4) + ' волны 3 (обычно 23,6–38,2%)', s.r4 >= 0.2 && s.r4 <= 0.43);
+      if (n >= 5 && !s.diag) {
+        const fm = ['резкая', 'боковая', 'треугольник'];
+        if (s.f2 >= 0 && s.f4 >= 0) G('Чередование: волна 2 ' + fm[s.f2] + ', волна 4 ' + fm[s.f4], (s.f2 === 0) !== (s.f4 === 0));
+        else G('Чередование волн 2 и 4 — форму одной из коррекций не видно', null);
+      }
+      if (n >= 6 && w[2] / w[0] > 1.5) G('Волна 3 растянута — волна 5 обычно ≈ волне 1: сейчас ' + x2(w[4] / w[0]) + ' × волна 1', Math.abs(w[4] / w[0] - 1) < 0.25);
+      if (s.subN > 0) G('Подволны по книге: ' + s.subOk + ' из ' + s.subN + ' (движущие из 5, коррекции из 3)', s.subOk === s.subN);
+      if (s.trunc) G('Волна 5 не дошла до конца волны 3 — «усечение», бывает редко', false);
+    } else if (s.fam === 1) {
+      if (s.kind === 2) {
+        R('Зигзаг: волна B короче волны A (откат ' + pc(s.rB) + ')', true);
+        if (n >= 4) R('Волна C уходит дальше конца волны A', true);
+        G('Волна B откатила ' + pc(s.rB) + ' волны A (обычно 38,2–61,8%)', s.rB >= 0.35 && s.rB <= 0.66);
+      } else {
+        R('Флэт: волна B откатила ' + pc(s.rB) + ' волны A (у флэта — не меньше ~90%)', true);
+        if (s.subtype === 2) G('Волна B вышла за начало A — расширенный флэт, самый частый вид', true);
+      }
+      if (n >= 4) { const rC = Math.abs(s.v[3] - s.v[2]) / s.A, lv = s.kind === 2 ? [0.618, 1, 1.618] : s.subtype === 2 ? [1.618, 2.618] : [1, 1.236];
+        G('Волна C = ' + x2(rC) + ' × волна A (обычно ' + lv.map((x) => String(x).replace('.', ',')).join(', ') + ')', lv.some((x) => Math.abs(rC / x - 1) < 0.1)); }
+    } else {
+      R('Треугольник сужается: каждая волна короче предыдущей той же стороны', true);
+      R('Треугольник стоит в волне 4, B или X — перед ним движение больше его волны A', true);
+      if (s.s[2] > 0) G('Волна C = ' + x2(s.s[2] / s.s[0]) + ' × волна A (обычно около 0,618)', Math.abs(s.s[2] / s.s[0] - 0.618) < 0.15);
+    }
+    return out;
+  }
+
   function pointLabel(s, k) {
     if (s.fam === 0) return String(k);
     if (s.fam === 1) return ['0', 'A', 'B', 'C'][k];
@@ -657,7 +703,7 @@
       if (cur) {
         let reason = -1, px = 0;
         if (phaseExit) { px = O[i]; reason = 5; }
-        else if (flipExit) { px = O[i]; reason = 6; }
+        else if (flipExit) { px = O[i]; reason = cur.divExit ? 9 : 6; }
         else if (cur.side > 0) {
           if (L[i] <= cur.stop) { px = Math.min(O[i], cur.stop); reason = 0; }
           else if (!cur.notgt && H[i] >= cur.target) { px = Math.max(O[i], cur.target); reason = 1; }
@@ -713,6 +759,14 @@
       if (cur && c.addFlipExit && piv && mp[mp.length - 1].c > cur.iSig && i < N - 1) {
         const sc = this.buildScenarios(mp);
         if (sc.length > 0 && this.isFlip(sc[0], cur.side, cur.i0)) { flipExit = true; if (keep) cur.exitCnt = snapCount(sc[0]); }
+      }
+      if (cur && c.addDiv5Exit && !flipExit && !phaseExit && piv && i < N - 1) {
+        const s5 = this.buildScenarios(mp)[0];
+        if (s5 && s5.fam === 0 && !s5.diag && s5.n === 6 && s5.dir === cur.side && s5.idx[5] > cur.iEntry) {
+          let go = c.addDiv5Exit === 'all';
+          if (!go) { const ao = this.aoArr().ao, pk = (a, b) => { let m = -Infinity; for (let j = a + 1; j <= b; j++) if (!isNaN(ao[j])) m = Math.max(m, cur.side * ao[j]); return m; }; go = pk(s5.idx[4], s5.idx[5]) < pk(s5.idx[2], s5.idx[3]); }
+          if (go) { flipExit = true; cur.divExit = true; if (keep) cur.exitCnt = snapCount(s5); }
+        }
       }
       if (cur) this.trailOne(cur, i, spiv, piv, mp, tbuf, keep ? cur.path : null);
       // безубыток (опция «переносить стоп»): условие на закрытии свечи — стоп на вход + комиссии со следующей
@@ -1099,6 +1153,7 @@
       hiTitle: (() => { if (ctx.hiPivots.length < 2) return ''; const s = ctx.buildScenarios(ctx.hiPivots)[0]; return s ? scenTitle(s) : ''; })(),
       hiEnding: open ? ctx.hiEnding(bars.length - 1, open.side) : false,
       smaNow: ctx.smaSlope(bars.length - 1),
+      aoArr: ctx.aoArr().ao,
       aoNow: (() => { const A = ctx.aoArr(), n = bars.length - 1; return { v: A.ao[n], sig: A.sig[n] }; })(),
       figures: figs.figs, figCount: figs.cnt,
       trades: bt.trades, stats: bt.st, sens, shadow, openTrade: open, buyHold: bh,
@@ -1114,7 +1169,7 @@
     for (let i = Math.max(0, t.iEntry); i < ctx.N; i++) if (ctx.beTrig(t, i, st) && t.side * (ctx.C[i] - be) > 0) return { i, be, why: ctx.beWhyText() };
     return null;
   }
-  const API = { BE_WHY, beCheck, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
+  const API = { rulesCheck, BE_WHY, beCheck, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.EW2 = API;
 })(typeof window !== 'undefined' ? window : globalThis);
