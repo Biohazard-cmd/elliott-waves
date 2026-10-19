@@ -2,3 +2,4 @@ android/build/
 node_modules/
 research/ui-tests/shots/*
 !research/ui-tests/shots/.keep
+apk/

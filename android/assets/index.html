@@ -8,6 +8,7 @@
 :root {
   --bg: #14181e; --bg2: #1b2028; --bg3: #232a34; --line: #2e3744; --ink: #e8ecf1; --mut: #8d98a6; --dim: #5f6a78;
   --pos: #3fbf7f; --neg: #ef5b5b; --blue: #5b9cff; --warn: #f0a23a; --gold: #d9b443; --violet: #b07cf0; --teal: #35b8b0;
+  --hud: rgba(20,24,30,.86); --acc: #2b4a7a; --accl: #3f6fb3;
   --r: 10px;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -16,7 +17,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 button { font: inherit; color: inherit; background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 button:active { filter: brightness(1.3); }
-button.on { background: #2b4a7a; border-color: #3f6fb3; }
+button.on { background: var(--acc); border-color: var(--accl); }
 input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
 [hidden] { display: none !important; }
 .mono { font-variant-numeric: tabular-nums; }
@@ -72,7 +73,9 @@ body > header .icon { width: 34px; }
 #chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #quote { position: absolute; left: 8px; top: 6px; font-size: 12px; color: var(--mut); pointer-events: none; text-shadow: 0 0 4px var(--bg); }
 #quote b { color: var(--ink); font-size: 14px; }
-#hud { position: absolute; left: 8px; top: 24px; max-width: calc(100% - 74px); font-size: 11px; line-height: 1.35; background: rgba(20,24,30,.86); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; padding: 3px 7px; color: var(--ink); z-index: 2; }
+#hud { position: absolute; left: 8px; top: 24px; max-width: calc(100% - 74px); font-size: 11px; line-height: 1.35; background: var(--hud); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; padding: 3px 7px; color: var(--ink); z-index: 2; }
+#hud .hudT { float: right; margin: -3px -7px 0 4px; padding: 2px 9px 6px 12px; font-size: 13px; line-height: 1.2; color: var(--mut); }
+#hud.mini { max-width: calc(100% - 74px); }
 #hud > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #hud .h1 { color: var(--mut); }
 #hud > div.lt { white-space: normal; }
@@ -110,7 +113,7 @@ details.trev .small { padding: 2px 0; border-bottom: 1px solid var(--line); }
 #trBar .tin { flex: 1; min-width: 0; padding: 6px 6px; font-size: 13px; }
 #trBar .buy { background: #1f4a33; border-color: #2f7a52; } #trBar .sell { background: #4a1f24; border-color: #7a2f38; }
 body.training #chips { display: none; }
-#viewBtn i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 2px; vertical-align: 1px; }
+#viewBtn i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 1px; vertical-align: 1px; }
 
 /* всплывающие меню: вид графика, таймфрейм */
 #pop .trplan { padding: 4px 6px; max-width: 360px; } #pop .trplan .plan { margin-top: 6px; }
@@ -155,6 +158,14 @@ button:active { transform: translateY(1px); }
 .card { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; margin-bottom: 8px; }
 .card h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
 .card h3 .grow { flex: 1; }
+#nowCard .plan + .big { margin-top: 10px; }
+#nowCard h3 .small { text-transform: none; letter-spacing: 0; font-weight: 400; text-align: right; }
+.sw small .hist { display: block; font-style: normal; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--line); }
+ul.bul { margin: 6px 0 0; padding-left: 18px; } ul.bul li { margin-top: 3px; }
+.skins { display: flex; flex-direction: column; gap: 6px; }
+.skins .pitem, #pop .pitem[data-skin] { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; }
+.skinsw { flex: none; width: 34px; height: 24px; border-radius: 6px; border: 2px solid; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0; }
+.skinsw i { width: 5px; height: 13px; border-radius: 1px; display: block; }
 .big { font-size: 16px; font-weight: 600; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin: 6px 0; }

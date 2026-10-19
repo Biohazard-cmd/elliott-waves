@@ -7,6 +7,7 @@
   const TFK = ['5m', '15m', '1h', '4h', '1d', '1w'];
   const FIG_COLOR = ['#3fbf7f', '#35b8b0', '#f0703a', '#b07cf0', '#d9b443'];
   const FIG_SHORT = ['Имп', 'Клин', 'Зигзаг', 'Флэт', 'Треуг'];
+  const DEV = 'Егор';   // разработчик — показывается в «Настройки → Данные → О приложении»
   const FIG_FULL = ['Импульс', 'Клин (диагональ)', 'Зигзаг', 'Флэт', 'Треугольник'];
 
   let S = D.settings();
@@ -36,6 +37,27 @@
     D.saveSettings(S);
   }
   try { if (A && A.setQuiet) A.setQuiet(!!(S.notify && S.notify.quiet)); } catch (e) { /* старая сборка без моста */ }
+  // ---------- оформление (темы) ----------
+  // Меняются только фон, рамки, текст и цвет свечей. Цвета сигналов (стоп, цель, волны, сделки) во всех темах одни и те же.
+  const SKINS = {
+    night: { name: 'Ночь', note: 'тёмно-синяя, как раньше', css: {}, ch: {} },
+    black: { name: 'Чёрная', note: 'чистый чёрный — бережёт батарею на AMOLED-экранах', css: { bg: '#000000', bg2: '#0c0e11', bg3: '#171b21', line: '#262c35', hud: 'rgba(0,0,0,.84)', acc: '#1f3f6e', accl: '#3a68ab' }, ch: { grid: '#151a20' } },
+    ocean: { name: 'Океан', note: 'глубокий синий', css: { bg: '#0c1726', bg2: '#11203a', bg3: '#182b48', line: '#243c5e', mut: '#8ea3bd', dim: '#5a6f8a', hud: 'rgba(12,23,38,.86)', acc: '#1f4f8a', accl: '#4a86d6' }, ch: { grid: '#162a44', axis: '#7f93ad', tag: '#1f4f8a' } },
+    graphite: { name: 'Графит', note: 'нейтральный серый, свечи бирюзовые и красные', css: { bg: '#1a1a1c', bg2: '#232326', bg3: '#2d2d31', line: '#3a3a3f', mut: '#9a9aa2', dim: '#66666e', hud: 'rgba(26,26,28,.86)', acc: '#3a4252', accl: '#6b7690' }, ch: { grid: '#26262a', axis: '#86868e', up: '#26a69a', dn: '#ef5350', tag: '#4a5262' } },
+    sepia: { name: 'Сепия', note: 'тёплая, мягче для глаз вечером', css: { bg: '#1c1814', bg2: '#25201a', bg3: '#2f2921', line: '#3e352a', ink: '#efe5d6', mut: '#a8998a', dim: '#73675a', hud: 'rgba(28,24,20,.86)', acc: '#5a4526', accl: '#a07a3c' }, ch: { grid: '#2a241d', axis: '#94867a', up: '#7fb069', dn: '#dd6b4d', tag: '#6b5230' } },
+  };
+  const CH0 = { bg: '#14181e', grid: '#222a35', axis: '#7d8896', up: '#3fbf7f', dn: '#ef5b5b', tag: '#2b4a7a', lbl: 'rgba(20,24,30,.8)' };
+  let K = CH0;   // цвета графика текущей темы
+  function applySkin() {
+    const sk = SKINS[S.skin] || SKINS.night, st = document.documentElement.style;
+    for (const k of ['bg', 'bg2', 'bg3', 'line', 'ink', 'mut', 'dim', 'hud', 'acc', 'accl']) { if (sk.css[k]) st.setProperty('--' + k, sk.css[k]); else st.removeProperty('--' + k); }
+    K = Object.assign({}, CH0, { bg: sk.css.bg || CH0.bg, lbl: sk.css.hud || CH0.lbl }, sk.ch);
+    try { if (A && A.setBarColor) A.setBarColor(K.bg); } catch (e) { /* старая сборка без моста */ }
+  }
+  applySkin();
+  const skinPick = () => Object.entries(SKINS).map(([k, x]) => { const c = Object.assign({}, CH0, { bg: x.css.bg || CH0.bg, bg2: x.css.bg2 || '#1b2028' }, x.ch);
+    return `<button class="pitem ${(S.skin || 'night') === k ? 'on' : ''}" data-skin="${k}"><span class="skinsw" style="background:${c.bg};border-color:${c.bg2}"><i style="background:${c.up}"></i><i style="background:${c.dn}"></i></span><span>${x.name}<br><small class="mut">${x.note}</small></span></button>`; }).join('');
+  const skinBind = (root, after) => root.querySelectorAll('[data-skin]').forEach((b) => { b.onclick = () => { S.skin = b.dataset.skin; save(); applySkin(); draw(); if (after) after(); }; });
   let all = [];          // все свечи с биржи, включая формирующуюся
   let an = null;         // результат анализа
   let demo = false;
@@ -206,7 +228,10 @@
     else if (ot) sig = `Система в <b class="${ot.side > 0 ? 'pos' : 'neg'}">${ot.side > 0 ? 'покупке' : 'продаже'}</b> с ${fmtT(an.bars[ot.iEntry].t, S.tf !== '1d' && S.tf !== '1w')} · стоп ${pr(ot.stop)}`;
     else if (fresh) sig = planTxt();
     else sig = '<span class="mut">Сигнала нет — ждём разворот</span>';
-    el.innerHTML = `<div class="h1">${esc(presetLabel().replace(/\s*\(.*\)/, ''))} · ${D.TF[S.tf].name} · <span class="${small ? 'warn' : ''}">порог ${swS}% ${isAuto ? 'авто' : 'ручной'}${tr ? ' ❄' : ''}${small ? ' — мелкий!' : ''}</span></div>
+    const tg = `<span class="hudT" data-hudt aria-label="${S.view.hudMini ? 'Развернуть' : 'Свернуть'}">${S.view.hudMini ? '▾' : '▴'}</span>`;
+    if (S.view.hudMini) { el.innerHTML = tg + `<div>${sig}</div>`; el.classList.add('mini'); el.title = ''; el.hidden = false; return; }
+    el.classList.remove('mini');
+    el.innerHTML = tg + `<div class="h1">${esc(presetLabel().replace(/\s*\(.*\)/, ''))} · ${D.TF[S.tf].name} · <span class="${small ? 'warn' : ''}">порог ${swS}% ${isAuto ? 'авто' : 'ручной'}${tr ? ' ❄' : ''}${small ? ' — мелкий!' : ''}</span></div>
       <div class="${ts.cls}">Тренд ${ts.txt}<span class="mut"> · ${ts.why}</span>${an.aoNow && !isNaN(an.aoNow.v) ? ` <span class="${an.aoNow.v > 0 ? 'pos' : 'neg'}">· AO ${an.aoNow.v > 0 ? '▲' : '▼'}</span>` : ''}${S.tf === '1d' && an.smaNow ? ` <span class="${an.smaNow > 0 ? 'pos' : 'neg'}">· SMA200 ${an.smaNow > 0 ? '↑' : '↓'}</span>` : ''}</div><div>${sig}</div>${lightHtml(fresh ? p : null, ts, small)}`;
     el.title = small ? 'Порог мельче 0.6 от авто (' + ref + '%): сигналы мелкой степени, на проверке 65 бумаг в среднем убыточны' : '';
     el.hidden = false;
@@ -214,7 +239,7 @@
   function trendLine() {
     if (an.trendMode === 'off') return '<span class="mut">Тренд не учитывается: сделки в обе стороны</span>';
     const t = an.trendNow;
-    const dir = t > 0 ? '<span class="pos">только покупки</span>' : t < 0 ? '<span class="neg">только продажи</span>' : '<span class="mut">сделок нет</span>';
+    const dir = t > 0 ? '<span class="pos">только покупки</span>' : t < 0 ? '<span class="neg">только продажи</span>' : '<span class="mut">новых входов нет</span>';
     const src = an.trendMode === 'ma' ? 'по средней ' + S.cfg.trendMA : 'старшая степень волн ' + (an.swing * (S.cfg.trendMult || 3)).toFixed(1).replace('.', DEC()) + '%';
     return 'Тренд → ' + dir + ` <span class="small">(${src})</span>` + (an.hiTitle ? `<div class="small">Старшая степень: ${esc(an.hiTitle)}</div>` : '');
   }
@@ -454,7 +479,10 @@
     if (!V) {
       const cap = Math.round((S.acct && S.acct.total) || S.capital || 300000);
       h += `<div class="card"><h3>Виртуальный счёт робота</h3>
-        <div class="small">Два робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор. Сами выбирают из топ-50 акций по обороту, покупают по сигналам, ведут стоп и выходят — ровно как бэктест, но с этого дня и вперёд. Деньги общие на все бумаги: риск на сделку ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают. Свободные деньги лежат в фонде ликвидности. Пополнения и выводы вашего реального счёта повторяются сами. Дивиденды начисляются за вычетом налога.</div>
+        <div class="small">Два робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор.</div>
+        <ul class="small bul"><li>Сами выбирают из топ-50 акций по обороту, покупают по сигналам, ведут стоп и выходят — ровно как бэктест, но с этого дня и вперёд.</li>
+        <li>Деньги общие на все бумаги: риск на сделку ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
+        <li>Свободные деньги лежат в фонде ликвидности. Пополнения и выводы вашего реального счёта повторяются сами. Дивиденды начисляются за вычетом налога.</li></ul>
         <div class="small" style="margin-top:6px">Про каждую покупку и продажу придёт уведомление — можно повторять в Т-Инвестициях. Сигнал по дневке приходит вечером после закрытия дня: «завтра на открытии купит…».</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div class="field"><label>Стартовый капитал, ₽</label><input type="number" id="vCap" step="1000" min="1000" value="${cap}"></div>
         <div class="field"><label>Ставка ВИМ для расчёта, % годовых</label><input type="number" id="vRate" step="0.5" min="0" value="${S.cfg.cashYield || 13.5}"></div></div>
@@ -473,14 +501,14 @@
       };
       return;
     }
-    const sel = V.accs.find((a) => a.key === S.robotAcc) || V.accs[0];
+    const ra = V.accs.find((a) => a.key === S.robotAcc) || V.accs[0];
     h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${V.lastRun ? fmtT(V.lastRun, true) : 'ещё не было'}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
     // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
     const vimTot = V.accs.filter((a) => !a.manual).reduce((s, a) => s + (a.mm || 0), 0);
     h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual).length)) + ' на робота'}</span></div>`;
     for (const a of V.accs) {
       const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), pl = eq - a.dep, inPos = a.pos.reduce((s, p) => s + p.qty * (a.px[p.id] || p.entry), 0);
-      h += `<div class="card" data-racc="${a.key}" style="${a === sel ? 'border-color:#3f6fb3' : ''};cursor:pointer"><h3><span class="grow">${a.manual ? '✋' : '🤖'} ${esc(a.name)}</span>${eqSpark(a.hist)}</h3>
+      h += `<div class="card" data-racc="${a.key}" style="${a === ra ? 'border-color:#3f6fb3' : ''};cursor:pointer"><h3><span class="grow">${a.manual ? '✋' : '🤖'} ${esc(a.name)}</span>${eqSpark(a.hist)}</h3>
         <div class="kv"><div><small>Капитал</small><b>${rub0(eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
         <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${rub0(a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
         <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${a.manual ? (a.be ? 'ваши позиции: стоп на вход, когда цена уйдёт на 3×ATR (проверка по 5-минуткам)' : 'стопы только ваши') : (a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>
@@ -490,7 +518,7 @@
     if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
     if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
     // ручной счёт: новая сделка по бумаге с графика
-    if (sel.manual) {
+    if (ra.manual) {
       const p = an && an.plan && an.planActive ? an.plan : null, px = all.length ? all[all.length - 1].c : 0;
       h += `<div class="card jform"><h3>Новая виртуальная сделка · ${esc(S.inst.ticker)}</h3>
         <div class="two"><div class="field"><label>Направление</label><select id="mSide"><option value="1" ${!p || p.side > 0 ? 'selected' : ''}>Покупка</option><option value="-1" ${p && p.side < 0 ? 'selected' : ''}>Продажа (шорт)</option></select></div>
@@ -501,19 +529,19 @@
         <div class="small">Бумага — та, что открыта на графике. ${p ? 'Стоп и цель подставлены из плана системы — поменяйте как считаете нужным.' : 'Сигнала системы сейчас нет — стоп и цель задайте сами.'} Стоп и тейк срабатывают в фоне, проверка по 5-минуткам с прошлого хода (раз в час).</div></div>`;
     }
     // подробности выбранного робота
-    const pend = Object.entries(sel.pend || {});
-    if (pend.length) h += `<div class="card"><h3>Ждут открытия · ${esc(sel.name)}</h3>${pend.map(([id, p]) => `<div class="jrow"><b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}<div class="small">сигнал ${fmtT(p.sigT, false)}</div></div>`).join('')}</div>`;
-    h += `<div class="card"><h3>Позиции · ${esc(sel.name)} (${sel.pos.length})</h3>${sel.pos.length ? sel.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
-      const px = sel.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
-      if (sel.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
+    const pend = Object.entries(ra.pend || {});
+    if (pend.length) h += `<div class="card"><h3>Ждут открытия · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow"><b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}<div class="small">сигнал ${fmtT(p.sigT, false)}</div></div>`).join('')}</div>`;
+    h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
+      const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
+      if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
         <div class="small">${fmtT(p.entryT, true)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-top:4px"><div class="field" style="margin:0"><label>Стоп</label><input type="number" step="any" data-mstop="${p.entryT}" value="${p.stop || ''}"></div><div class="field" style="margin:0"><label>Тейк</label><input type="number" step="any" data-mtgt="${p.entryT}" value="${p.target || ''}"></div><button data-msave="${p.entryT}">✓</button></div>
         <div class="row" style="margin-top:4px"><button data-mclose="${p.entryT}">Закрыть по рынку</button><button data-rgo="${esc(p.id)}">На график</button></div></div>`;
       return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc(px / p.entry - 1)}</span></div>
         <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`; }).join('') : '<div class="small">Нет. Робот ждёт сигналов.</div>'}</div>`;
-    const cl = sel.closed.slice(-40).reverse();
-    if (cl.length) { const w = sel.closed.filter((c) => c.pl > 0).length, s1 = sel.closed.reduce((s, c) => s + c.pl, 0);
-      h += `<div class="card"><h3>Закрытые · ${esc(sel.name)} (${sel.closed.length}, прибыльных ${Math.round(w / sel.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${rub0(Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.qty} шт · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${rub0(Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${pr(c.entry)} → ${fmtT(c.exitT, false)} по ${pr(c.exit)}</div></div>`).join('')}</div>`; }
+    const cl = ra.closed.slice(-40).reverse();
+    if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
+      h += `<div class="card"><h3>Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${rub0(Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.qty} шт · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${rub0(Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${pr(c.entry)} → ${fmtT(c.exitT, false)} по ${pr(c.exit)}</div></div>`).join('')}</div>`; }
     h += `<div class="card"><h3>Управление</h3>
       <div class="row"><button id="vRun" ${robotBusy ? 'disabled' : ''}>${robotBusy ? 'Робот думает…' : '⟳ Ход робота сейчас'}</button><button id="vToggle">${V.on ? '⏸ Остановить' : '▶ Продолжить'}</button></div>
       <div class="small" id="vMsg">${esc(robotMsg) || 'Сам робот ходит раз в час вместе с фоновой проверкой (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
@@ -796,6 +824,7 @@
     // 1. фаза, выход, план, открытая сделка
     const ph = an.phase;
     h += `<div class="card" id="nowCard"><h3><span class="grow">Сейчас</span><span class="small">${ad.length ? 'доп.: ' + esc(ad.join(', ')) : 'как по книге'}</span></h3>`;
+    const nowTop = h.length;   // открытая сделка встаёт сюда — первой, над фазой и планом
     h += `<div class="big ${ph.tone}">${esc(ph.text)}</div>`;
     if (an.phaseNext !== 0) h += `<div class="exit">ВЫХОД: закрыть ${an.phaseNext > 0 ? 'продажи' : 'покупки'} — фигура завершена</div>`;
     h += `<div style="margin-top:4px">${trendLine()}</div>`;
@@ -811,6 +840,7 @@
         <div class="small">П/Р ${p.rr.toFixed(2).replace('.', DEC())} · сигнал ${age === 0 ? 'на последней свече' : age + ' св. назад'} (${fmtT(an.bars[p.sigBar].t, true)})</div>${staleLine(p)}${sizeLine(curPx(p), p.stop)}</div>`;
     } else h += `<div class="plan"><span class="mut">ПЛАН: ждать подтверждения следующего разворота</span></div>`;
     if (an.openTrade) {
+      const rest = h.slice(nowTop); h = h.slice(0, nowTop);
       const t = an.openTrade, sh = an.shadow[an.shadow.length - 1], st = sh && sh.steps.length ? sh.steps[sh.steps.length - 1] : null;
       h += `<div class="plan ${t.side > 0 ? 'buy' : 'sell'}"><b>Открытая сделка: ${t.side > 0 ? 'покупка' : 'продажа'} от ${pr(t.entry)}</b> · сейчас <span class="${t.R >= 0 ? 'pos' : 'neg'}">${f2(t.R)} R</span>
         ${t.runner ? `<div class="warn" style="margin-top:4px">Цель ${pr(t.target)} пройдена — держим, стоп ${pr(t.stop)} подтягивать под минимумы</div>` : ''}
@@ -819,6 +849,7 @@
           return `<div class="small ${left <= 14 ? 'warn' : ''}">В сделке ${held} дн. из ${md}${left > 0 ? ' · до предельного срока ' + left + ' дн.' : ' · срок вышел — закрыть'}</div>`; })()}
         ${sizeLine(t.entry, t.stop0, true)}
         <div class="small">Стоп ${pr(t.stop)}${t.moves ? ' (перенесён ' + t.moves + ' раз)' : ''}${t.notgt && !t.runner ? '' : ' · цель ' + pr(t.target)}${st ? ' · <span class="warn">безубыток: стоп можно поднять на ' + pr(st.p) + '</span>' : S.view.be && sh && sh.armPx && !sh.armed ? ' · <span class="mut">подсказка БУ появится после ' + pr(sh.armPx) + '</span>' : ''}</div></div>`;
+      h += rest;
     }
     h += journalPanel();
     h += `</div>`;
@@ -903,7 +934,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.34';
+  const APP_VER = '2.35';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -975,7 +1006,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
   function optBlock() {
     const o = optRes[swKey()];
-    if (!o || !o.grid.some((r) => Math.abs(curSwing() - r.sw) < 1e-9)) return '<div class="small" style="margin-top:4px">«Подобрать» — перебрать 9 порогов на этой истории и поставить самый прибыльный.</div>';
+    if (!o || !o.grid.some((r) => Math.abs(curSwing() - r.sw) < 1e-9)) return '<div class="small" style="margin-top:4px">«Лучший R» и «Макс. %» — перебрать 9 порогов на этой истории и поставить лучший по среднему R или по доходности.</div>';
     const ch = o.check, fR = (r) => `<b class="${r.R >= 0 ? 'pos' : 'neg'}">${f2(r.R)} R</b> (${r.n} сд.)`;
     const better = ch.picked.R > ch.auto.R + 0.5, worse = ch.picked.R < ch.auto.R - 0.5;
     return `<div class="small" style="margin-top:6px">Подобран <b>${o.best.sw.toFixed(2).replace('.', DEC())}%</b>: ${fR(o.best.all)} на всей истории.
@@ -1128,7 +1159,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const v = S.view;
     let h = an ? `<button data-sw="-1">−</button><button id="swChip" class="${curSwing() ? '' : 'on'}" aria-haspopup="true">Порог ${swFmt(an.swing)}%${curSwing() ? '' : ' авто'} ▾</button><button data-sw="1">+</button><span class="chipstat ${an.stats.totalRet >= 0 ? 'pos' : 'neg'}">${spc(an.stats.totalRet)}<small>${an.stats.trades} сд · ${an.stats.trades ? Math.round(an.stats.wins / an.stats.trades * 100) : 0}%</small></span>` : '';
     const dots = v.clean ? '' : FIG_COLOR.map((c, k) => v.figs[k] ? `<i style="background:${c}"></i>` : '').join('');
-    h += `<span class="grow"></span><button id="viewBtn" aria-haspopup="true">Вид${v.clean ? ': сделки' : dots ? ' ' + dots : ''} · 🎓 ▾</button>`;
+    h += `<span class="grow"></span><button id="viewBtn" aria-haspopup="true">Вид${v.clean ? ': сделки' : dots ? ' ' + dots : ''} 🎓▾</button>`;
     $('#chips').innerHTML = h;
     $('#chips').querySelectorAll('button[data-sw]').forEach((b) => {
       const up = Number(b.dataset.sw) > 0;
@@ -1162,6 +1193,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     pop.classList.toggle('wide', popFor === 'trBar');
     pop.scrollTop = keepScroll;
     const tro = document.getElementById('trOpen'); if (tro) tro.onclick = () => { popFill = trSetupPop; popBind = trSetupBind; pop.scrollTop = 0; fillPop(); };
+    skinBind(pop, fillPop);
     pop.querySelectorAll('[data-pv]').forEach((b) => { b.onclick = () => { const k = b.dataset.pv; S.view[k] = !S.view[k]; save(); renderChips(); draw(); if (k === 'be') renderPanel(); fillPop(); }; });
     pop.querySelectorAll('[data-pclean]').forEach((b) => { b.onclick = () => { S.view.clean = b.dataset.pclean === '1'; save(); renderChips(); draw(); fillPop(); }; });
     pop.querySelectorAll('[data-mys]').forEach((b) => { b.onclick = () => { const [k, v] = b.dataset.mys.split('|'); S.rmStyle = Object.assign({}, S.rmStyle); S.rmStyle.me = Object.assign({}, rmStyle('me'), k === 'sh' ? { sh: v } : { c: v }); save(); draw(); fillPop(); }; });
@@ -1189,7 +1221,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const v = S.view;
     let h = `<button class="pitem pbig" id="trOpen">🎓<span>Тренажёр — прокрутка истории<br><small class="mut">будущее скрыто, свечи растут по минутам, торгуете вы и система</small></span></button><div class="pgrp">На графике</div><div class="seg"><button data-pclean="0" class="${v.clean ? '' : 'on'}">Вся разметка</button><button data-pclean="1" class="${v.clean ? 'on' : ''}">Только сделки</button></div>`;
     h += [['trades', 'Сделки бэктеста'], ['be', 'Подсказка безубытка (БУ)'], ['channels', 'Каналы тренда']].map(([k, t]) => `<button class="pitem ${v[k] ? 'on' : ''}" data-pv="${k}">${ck(v[k])}${t}</button>`).join('');
-    return h + layersPart(v);
+    return h + layersPart(v) + `<div class="pgrp">Оформление</div>` + skinPick();
   }
   // «Мои сделки»: отметки входа/выхода, поводок (пунктир вход → выход) и их вид
   function myMarksPart(v, compact) {
@@ -1707,7 +1739,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('trSp', () => setSpd(sp[Math.min(sp.length - 1, si() + 1)]));
     on('trSx', () => setSpd(big.find((v) => v > tr.speed) || big[0]));
   }
-  { const hu = $('#hud'); if (hu) hu.onclick = () => { if (document.body.classList.contains('chartfull')) setPane(0); setTimeout(() => { const c = $('#nowCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 250); }; }
+  { const hu = $('#hud'); if (hu) hu.onclick = (e) => { if (e.target.closest('[data-hudt]')) { S.view.hudMini = !S.view.hudMini; save(); draw(); return; } if (document.body.classList.contains('chartfull')) setPane(0); setTimeout(() => { const c = $('#nowCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 250); }; }
   let trMkt = null;   // рыночная заявка с учётом «Ордер ▾» (задаётся в trRenderBar)
   function renderTrQuick() {
     const q = $('#trQuick'); if (!q) return;
@@ -1960,7 +1992,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     renderChips(); renderHud();
     if (Hh < 40) return;   // график свёрнут — панель на весь экран
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#14181e'; ctx.fillRect(0, 0, W, Hh);
+    ctx.fillStyle = K.bg; ctx.fillRect(0, 0, W, Hh);
     if (!an) return;
     clampView();
     const n = totalBars(), pw = plotW(), ph = Hh - BOTH;
@@ -1997,7 +2029,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     // сетка и шкала цен
     ctx.font = '11px system-ui, sans-serif'; ctx.textBaseline = 'middle';
     const step = niceStep((hi - lo) / 6);
-    ctx.strokeStyle = '#222a35'; ctx.lineWidth = 1; ctx.fillStyle = '#7d8896';
+    ctx.strokeStyle = K.grid; ctx.lineWidth = 1; ctx.fillStyle = K.axis;
     for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) {
       const y = Math.round(Y(p)) + 0.5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke();
@@ -2024,15 +2056,21 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     };
     let offUp = 0, offDn = 0;
     const hudEl = $('#hud'), upTop = hudEl && !hudEl.hidden ? Math.max(38, 24 + hudEl.offsetHeight + 14) : 38;   // подписи «↑ цель» — под табличкой
+    const usedY = [];   // где уже стоят подписи справа: близкие уровни (W4 50% и доливка) не налезают друг на друга
     const edgeText = (s, p, color) => {
       let y = Y(p);
       if (y < 8 || y > ph - 4) {
         // цель за пределами экрана — подпись со стрелкой у верхнего или нижнего края
         const up = y < 8; s = (up ? '↑ ' : '↓ ') + s;
         y = up ? upTop + 13 * offUp++ : ph - 6 - 13 * offDn++;
+      } else {
+        const free = (yy) => yy > 14 && yy < ph && !usedY.some((u) => Math.abs(u - yy) < 13);
+        const dy = [0, 13, -13, 26, -26, 39, -39].find((d) => free(y + d));
+        if (dy != null) y += dy;
       }
+      usedY.push(y);
       s += '  ' + pr(p);
-      ctx.font = '10px system-ui, sans-serif'; const w = ctx.measureText(s).width; ctx.fillStyle = 'rgba(20,24,30,.8)'; ctx.fillRect(pw - w - 8, y - 13, w + 6, 12); ctx.fillStyle = color; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(s, pw - 4, y - 1); ctx.textAlign = 'left'; };
+      ctx.font = '10px system-ui, sans-serif'; const w = ctx.measureText(s).width; ctx.fillStyle = K.lbl; ctx.fillRect(pw - w - 8, y - 13, w + 6, 12); ctx.fillStyle = color; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(s, pw - 4, y - 1); ctx.textAlign = 'left'; };
     const text = (s, i, p, color, align, base, font) => { ctx.font = font || '11px system-ui, sans-serif'; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = base || 'middle'; ctx.fillText(s, X(i), Y(p)); ctx.textAlign = 'left'; };
     // клин (конечная диагональ, стр. 40-43): заливка между линиями 1-3 и 2-4, «выброс» за линию 1-3,
     // цель после завершения — начало клина («по меньшей мере до того уровня, где он начался»).
@@ -2111,7 +2149,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     for (let i = i0; i <= i1; i++) {
       const b = chartBar(i); if (!b) continue;
       const x = X(i), up = b.c >= b.o, forming = i >= an.N;
-      ctx.strokeStyle = ctx.fillStyle = forming ? '#8d98a6' : up ? '#3fbf7f' : '#ef5b5b';
+      ctx.strokeStyle = ctx.fillStyle = forming ? '#8d98a6' : up ? K.up : K.dn;
       ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, Y(b.h)); ctx.lineTo(Math.round(x) + 0.5, Y(b.l)); ctx.lineWidth = 1; ctx.stroke();
       const yo = Y(b.o), yc = Y(b.c);
       if (forming) ctx.strokeRect(x - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yc - yo)));
@@ -2200,7 +2238,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       for (const o of tr ? [] : opsCache[S.inst.id] || []) {   // в тренажёре — без ваших реальных сделок (они из «будущего»)
         const ii = barAt(o.t); if (ii == null) continue;
         const xo = X(ii), yo = Y(o.price), up = o.side > 0;
-        ctx.fillStyle = up ? '#3fbf7f' : '#ef5b5b'; ctx.strokeStyle = '#14181e'; ctx.lineWidth = 1;
+        ctx.fillStyle = up ? '#3fbf7f' : '#ef5b5b'; ctx.strokeStyle = K.bg; ctx.lineWidth = 1;
         ctx.beginPath(); if (up) { ctx.moveTo(xo, yo); ctx.lineTo(xo - 6, yo + 10); ctx.lineTo(xo + 6, yo + 10); } else { ctx.moveTo(xo, yo); ctx.lineTo(xo - 6, yo - 10); ctx.lineTo(xo + 6, yo - 10); } ctx.closePath(); ctx.fill(); ctx.stroke();
       }
       // мои сделки из дневника: фигура входа (вид — «Вид ▾ → Мои сделки»), поводок до выхода или текущей цены
@@ -2247,7 +2285,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     if (last && last.c >= lo && last.c <= hi) {
       const y = Y(last.c);
       ctx.strokeStyle = 'rgba(91,156,255,.5)'; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = '#2b4a7a'; ctx.fillRect(pw, y - 8, AXW, 16); ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = '11px system-ui, sans-serif'; ctx.fillText(pr(last.c), pw + 4, y);
+      ctx.fillStyle = K.tag; ctx.fillRect(pw, y - 8, AXW, 16); ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = '11px system-ui, sans-serif'; ctx.fillText(pr(last.c), pw + 4, y);
     }
   }
   function stepsLine(i0, p0, steps, iEnd, color, w, line) {
@@ -2835,11 +2873,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 <div class="card"><h3>Дополнения <span class="small" style="text-transform:none;letter-spacing:0">по умолчанию выключены</span></h3>
       ${ADD.map(([k, t, d]) => `<label class="sw"><input type="checkbox" data-a="${k}" ${c[k] ? 'checked' : ''}><span>${t}${d ? '<small>' + d + '</small>' : ''}</span></label>`).join('')}
       <div class="small" style="margin:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">По Вильямсу («Торговый хаос»)</div>
-      <label class="sw"><input type="checkbox" data-a="addAO" ${c.addAO ? 'checked' : ''}><span>Фильтр AO 5/34<small>Вход только если осциллятор 5/34 на стороне сделки (покупка — выше нуля). Проверка на дневках 65 акций 2019–2026: сделок на четверть меньше, в среднем +0,54 R вместо +0,45, на общем счёте ~25%/год вместо ~23%. На 1ч не помогает.</small></span></label>
+      <label class="sw"><input type="checkbox" data-a="addAO" ${c.addAO ? 'checked' : ''}><span>Фильтр AO 5/34<small>Вход только если осциллятор 5/34 на стороне сделки (покупка — выше нуля).<em class="hist">Проверка на дневках 65 акций 2019–2026: сделок на четверть меньше, в среднем +0,54 R вместо +0,45, на общем счёте ~25%/год вместо ~23%. На 1ч не помогает.</em></small></span></label>
       ${c.addAO ? `<div class="field"><label>Строгость фильтра AO</label><select id="aoMode"><option value="pos" ${c.aoMode !== 'both' ? 'selected' : ''}>AO на стороне сделки</option><option value="both" ${c.aoMode === 'both' ? 'selected' : ''}>Строже: AO ещё и выше своей средней — сделок вдвое меньше, просадка ниже</option></select></div>` : ''}
-      <label class="sw"><input type="checkbox" data-a="addPyramid" ${c.addPyramid ? 'checked' : ''}><span>Доливка на 110% волны 1<small>Когда волна 3 прошла 110% длины волны 1, докупить ещё на тот же риск; стоп общий — системы. Проверка на дневках: агрессивный набор ~34%/год вместо ~29%, у основного эффект смешанный. Стоп «за вершину волны 1» по Вильямсу проверку не прошёл (прибыль вдвое меньше) — не используется.</small></span></label>
+      <label class="sw"><input type="checkbox" data-a="addPyramid" ${c.addPyramid ? 'checked' : ''}><span>Доливка на 110% волны 1<small>Когда волна 3 прошла 110% длины волны 1, докупить ещё на тот же риск; стоп общий — системы.<em class="hist">Проверка на дневках: агрессивный набор ~34%/год вместо ~29%, у основного эффект смешанный. Стоп «за вершину волны 1» по Вильямсу проверку не прошёл (прибыль вдвое меньше) — не используется.</em></small></span></label>
  <div class="small" style="margin:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">Фильтры тренда</div>
-      <label class="sw"><input type="checkbox" data-a="addSma200" ${c.addSma200 ? 'checked' : ''}><span>Фильтр «SMA200 растёт»<small>Покупка — только если 200-дневная средняя бумаги выше, чем месяц (20 свечей) назад; продажа — наоборот. Проверка на дневках 65 акций 2019–2026: сделок на 15% меньше, в среднем +0,58 R вместо +0,51, серия стопов 11 вместо 17, просадка счёта 8% вместо 12%, ~26%/год вместо ~25%. Срок 5–60 дней — результат похожий.</small></span></label>
+      <label class="sw"><input type="checkbox" data-a="addSma200" ${c.addSma200 ? 'checked' : ''}><span>Фильтр «SMA200 растёт»<small>Покупка — только если 200-дневная средняя бумаги выше, чем месяц (20 свечей) назад; продажа — наоборот.<em class="hist">Проверка на дневках 65 акций 2019–2026: сделок на 15% меньше, в среднем +0,58 R вместо +0,51, серия стопов 11 вместо 17, просадка счёта 8% вместо 12%, ~26%/год вместо ~25%. Срок 5–60 дней — результат похожий.</em></small></span></label>
       <label class="sw"><input type="checkbox" data-a="addMktFast" ${c.addMktFast ? 'checked' : ''} ${c.addMarket ? '' : 'disabled'}><span>Осторожный режим: рынок выше средней за 50 дней<small>${c.addMarket ? 'Вдобавок к фильтру рынка: покупка — только если индекс всех бумаг выше своей средней за 50 дней. Вместе с SMA200 на дневках: основной — просадка 6% вместо 8%, серия стопов 9, но ~24,5%/год вместо ~26%; агрессивный — просадка 8% вместо 11%, ~36,5%/год вместо ~38%. Для тех, кому важнее спокойствие.' : 'Нужен включённый фильтр «по рынку».'}</small></span></label>
       <label class="sw"><input type="checkbox" id="maTrend" ${c.addTrend === 'ma' ? 'checked' : ''}><span>Тренд по скользящей средней ${c.trendMA}<small>Вместо старшей степени волн</small></span></label>
       <div class="field" style="margin-top:8px"><label>Перенос стопа в бэктесте</label><select id="exitMode">
@@ -2915,7 +2953,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <label class="sw"><input type="checkbox" data-n="mine" ${S.notify.mine !== false ? 'checked' : ''}><span>Стоп и цель моих сделок из дневника<small>Когда у открытой записи в дневнике указан стоп или цель, придёт уведомление, если цена до них дошла. Один раз на каждый уровень.</small></span></label>
       <div class="small">Уровни проверяются по 5-минутным свечам с прошлой проверки, так что касание не пропустится, даже если цена потом ушла обратно. Уведомление придёт с задержкой до интервала проверки.</div></div>
 `;
-    if (tab === 'data') h = `<div class="card"><h3>Свечи</h3>
+    if (tab === 'data') h = `<div class="card"><h3>Оформление</h3><div class="skins">${skinPick()}</div><div class="small" style="margin-top:4px">Меняются фон и цвет свечей. Цвета сигналов — стоп, цель, волны, сделки — во всех темах одинаковые. Тему можно сменить и в «Вид ▾» под графиком.</div></div>
+<div class="card"><h3>Свечи</h3>
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div class="field"><label>Дробная часть чисел</label><select id="decSel"><option value="dot" ${S.decComma ? '' : 'selected'}>Точка: 43.54</option><option value="comma" ${S.decComma ? 'selected' : ''}>Запятая: 43,54</option></select></div>
       <label class="sw"><input type="checkbox" id="divAdj" ${c.divAdj !== false ? 'checked' : ''}><span>Учитывать дивиденды<small>Свечи до отсечки уменьшаются на размер дивиденда, чтобы гэп отсечки не считался падением. Так делают терминалы.</small></span></label></div>
@@ -2926,8 +2965,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
         ${L.app.items.concat(L.bg.items).filter((x) => x.k === 'error' || x.k === 'crash').sort((a, b) => b.t - a.t).slice(0, 3).map((x) => `<div class="small mut">${fmtT(x.t, true)} — ${esc(x.m)}</div>`).join('')}`; })()}
       <div class="row" style="margin-top:8px"><button id="logExp">Выгрузить лог</button><button id="logClr">Очистить</button></div>
       <div class="small" id="logRes">Пришлите файл в чат, когда что-то пошло не так или через пару недель работы — по сигналам из лога проверим стратегию «вживую».</div></div>
-<div class="small" style="margin:16px 4px">Версия ${APP_VER} · движок как в индикаторе MT5 2.40 + дополнения приложения</div>`;
+<div class="card"><h3>О приложении</h3><div><b>Волны Эллиотта</b> · версия ${APP_VER}</div><div style="margin-top:4px">Разработчик: <b>${esc(DEV)}</b></div><div class="small" style="margin-top:4px">Анализ по книге Пректера и Фроста «Волновой принцип Эллиотта». Движок как в индикаторе MT5 2.40 + дополнения приложения.</div></div>`;
     $('#setBody').innerHTML = h;
+    skinBind($('#setBody'), renderSettings);
     const sv = $('#setVer'); if (sv) sv.textContent = 'v' + APP_VER;
     renderWatch();
     const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
@@ -3062,7 +3102,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function exportLog() {
     const L = D.logRead(), d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const name = `ew-log-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
-    const doc = { app: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), note: 'Журнал работы: без токена, номеров счетов и сумм.',
+    const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), note: 'Журнал работы: без токена, номеров счетов и сумм.',
       settings: { inst: S.inst.ticker, tf: S.tf, preset: S.preset || '', cfg: S.cfg, swings: S.swings, bgMinutes: S.bgMinutes, notify: S.notify,
         watch: (S.watch || []).map((w) => ({ ticker: w.ticker, tf: w.tf, label: w.label, sw: w.sw })), levels: (S.palerts || []).map((a) => ({ ticker: a.ticker, price: a.price, dir: a.dir, at: a.at })) },
       lastbg: D.store.get('lastbg', null), lasterr: D.store.get('lasterr', null), app: L.app, background: L.bg };

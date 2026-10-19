@@ -1,5 +1,6 @@
 package ru.elliottwaves.app;
 
+import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -54,6 +55,7 @@ public class Bridge {
     private final Context ctx;
     private final CheckService service;
     private final WebView web;
+    private final Activity act;   // окно приложения (у фоновой проверки его нет)
     // ответы — через главный поток, а не web.post(): у фоновой проверки WebView без окна,
     // и web.post() у такого WebView откладывает задачу «до показа на экране», то есть навсегда — проверка зависала на первом запросе
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -62,6 +64,7 @@ public class Bridge {
         this.ctx = ctx.getApplicationContext();
         this.service = service;
         this.web = web;
+        this.act = ctx instanceof Activity ? (Activity) ctx : null;
     }
 
     static void setup(WebView web, Context ctx, CheckService service) {
@@ -80,6 +83,17 @@ public class Bridge {
     @JavascriptInterface
     public String version() {
         return "1";
+    }
+
+    // цвет строки состояния под тему оформления ("#rrggbb")
+    @JavascriptInterface
+    public void setBarColor(final String hex) {
+        final Activity a = act;
+        if (a == null) return;
+        a.runOnUiThread(new Runnable() {
+            @Override
+            public void run() { try { a.getWindow().setStatusBarColor(android.graphics.Color.parseColor(hex)); } catch (Exception e) { /* неверный цвет — оставить как есть */ } }
+        });
     }
 
     @JavascriptInterface
