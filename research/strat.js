@@ -10,7 +10,7 @@ const SPLIT=Date.UTC(2023,0,1);
 function evalCfg(over, opt={}){
   const cfg=Object.assign({},BASE,over); const mk=opt.mkt||mkt;
   let R=0,n=0,w=0,h1=0,h2=0,pos=0; const yr={}, su={}, hold=[]; const per=[]; const all=[];
-  for(const s of ser){
+  for(const s of (opt.ser||ser)){
     const st=E.quickStats(s.bars,Object.assign({},cfg,{mkt:cfg.addMarket?mk:null,maxBars:s.bars.length}),s.P,opt.sw?opt.sw(s):0);
     const bars=s.bars.slice(-st.N); let r=0;
     for(const t of st.trades){ if(t.reason===3) continue; const T=bars[t.iEntry].t; const nr=opt.tr?opt.tr(t,bars):t.NR;

@@ -3,8 +3,8 @@
 const ROOT = require('path').resolve(__dirname, '..');
 const { evalCfg, SPLIT } = require(ROOT + '/research/strat.js');
 
-function portfolio(all, maxPos, key) {
-  const risk = 0.01, fee = 0.0005, slip = 0.0002;
+function portfolio(all, maxPos, key, fee = 0.0005) {
+  const risk = 0.01, slip = 0.0002;
   const tr = all.map((x) => ({ x, tIn: x.T, tOut: x.TOut, side: x.t.side, entry: x.t.entry, stop: x.t.stop0, exit: x.t.exitP, k: key(x) }))
     .sort((a, b) => a.tIn - b.tIn || a.k - b.k);
   const took = new Set();

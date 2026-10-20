@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "ew-mock", "runtimeExecutable": "node", "runtimeArgs": ["research/ui-tests/serve.js"], "port": 8787 }
+  ]
+}

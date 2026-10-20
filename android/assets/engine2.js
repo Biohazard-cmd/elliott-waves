@@ -62,6 +62,7 @@
     sma200Lb: 20,
     addMktFast: false,    // осторожный режим: индекс рынка ещё и выше своей средней за 50 свечей (нужен фильтр рынка)
     aoMode: 'pos',        // 'pos' — AO на стороне сделки; 'both' — ещё и выше своей средней за 5 (строже)
+    weekExit: false,      // «неделя» (2.39): в пятницу по закрытию последней свечи сделку без прибыли закрыть, прибыльную — стоп в безубыток и держать; входы только пн–пт
     addPyramid: false,    // доливка: когда волна 3 прошла 110% волны 1 — докупить ещё на 1% риска со стопом системы
     // бэктест
     riskPct: 1.0, maxLev: 3.0, feePct: 0.05, slipPct: 0.02,
@@ -69,6 +70,8 @@
   };
 
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  // день недели и номер недели по Москве (0 — воскресенье; неделя — с понедельника)
+  const MSK_MS = 3 * 3600000, mskDay = (t) => Math.floor((t + MSK_MS) / 86400000), wkDay = (t) => (mskDay(t) + 4) % 7, wkNo = (t) => Math.floor((mskDay(t) + 3) / 7);
   const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
   function near(x, lv, tol) {
     let best = 0;
@@ -692,7 +695,7 @@
       if (hasSig) {
         hasSig = false;
         const e = O[i];
-        if (!cur && sig.side * (e - sig.stop) > 0 && sig.side * (sig.target - e) > 0) {
+        if (!cur && sig.side * (e - sig.stop) > 0 && sig.side * (sig.target - e) > 0 && !(c.weekExit && wkDay(this.T[i]) % 6 === 0)) {
           frac = Math.min(c.riskPct / 100 / (Math.abs(e - sig.stop) / e), c.maxLev);
           cur = { setup: sig.setup, side: sig.side, iSig: sigBar, iEntry: i, entry: e, stop: sig.stop, stop0: sig.stop, target: sig.target, notgt: sig.notgt, i0: sig.i0, cnt: sig.cnt, moves: 0, best: e, path: [] };
           // уровень доливки по Вильямсу: волна 3 прошла 110% волны 1 (подтверждение, что третья волна настоящая)
@@ -720,6 +723,11 @@
         }
         if (reason < 0 && c.maxHold > 0 && i - cur.iEntry >= c.maxHold) { px = C[i]; reason = 2; }
         if (reason < 0 && c.maxHoldDays > 0 && this.T[i] - this.T[cur.iEntry] >= c.maxHoldDays * 86400000) { px = C[i]; reason = 2; }
+        if (reason < 0 && c.weekExit && this.weekEnd(i)) {
+          const be = this.beLevel(cur);
+          if (cur.side * (C[i] - be) > 0) { cur.wkCarry = (cur.wkCarry || 0) + 1; if (cur.side * (be - cur.stop) > 0) { cur.stop = be; cur.moves++; if (cur.beOn == null) { cur.beOn = i; cur.beLv = be; cur.beWhy = 'пятница, сделка в плюсе — переносим на следующую неделю'; } if (keep) cur.path.push({ bar: i, p: be, be: true }); } }
+          else { px = C[i]; reason = 4; }
+        }
         if (reason < 0 && i === N - 1) { px = C[i]; reason = 3; }
         if (reason >= 0) {
           const net = cur.side * (px - cur.entry) / cur.entry - 2 * fee - 2 * slip;
@@ -920,6 +928,15 @@
     return (this._atr = a);
   };
   // ---------- безубыток: когда «действительно нужно» (проверка 65 бумаг, дневки 2019–2026) ----------
+  // последняя свеча рабочей недели (пт): следующая — уже в другой неделе или в выходные; у последней свечи данных —
+  // если она дотягивает до конца пятничной вечерней сессии (23:50 МСК)
+  Ctx.prototype.weekEnd = function (i) {
+    const T = this.T, t = T[i];
+    if (wkDay(t) % 6 === 0) return false;
+    if (i < T.length - 1) return wkNo(T[i + 1]) !== wkNo(t) || wkDay(T[i + 1]) % 6 === 0;
+    let p = Infinity; for (let k = Math.max(1, i - 20); k <= i; k++) p = Math.min(p, T[k] - T[k - 1]);
+    return wkDay(t) === 5 && t + p > mskDay(t) * 86400000 - MSK_MS + (23 * 60 + 50) * 60000;
+  };
   Ctx.prototype.beLevel = function (t) { const c = this.cfg; return t.entry * (1 + t.side * (2 * c.feePct + 2 * c.slipPct + 0.05) / 100); };
   Ctx.prototype.beWhyText = function () { const r = this.cfg.beRule; return r === 'atr' ? 'цена ушла на ' + (this.cfg.beAtr || 3) + '×ATR' : BE_WHY[r] || ''; };
   Ctx.prototype.mkt50 = function (t) {   // знак: индекс рынка выше (+1) или ниже (−1) своей средней за 50 свечей, 0 — нет данных
