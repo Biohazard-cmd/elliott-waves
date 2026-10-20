@@ -22,5 +22,7 @@ cp build/base.apk build/app-unsigned.apk
 # добавить classes.dex в корень архива: zip, а на Windows без zip — встроенным .NET ZipArchive
 if command -v zip >/dev/null; then (cd build && zip -q -j app-unsigned.apk classes.dex)
 else powershell -NoProfile -Command "Add-Type -A System.IO.Compression.FileSystem; \$z=[IO.Compression.ZipFile]::Open('$(cygpath -w "$PWD/build/app-unsigned.apk")','Update'); [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(\$z,'$(cygpath -w "$PWD/build/classes.dex")','classes.dex'); \$z.Dispose()"; fi
-java -jar $T/uber-apk-signer-1.3.0.jar -a build/app-unsigned.apk -o build/out --allowResign > build/sign.log 2>&1 || (cat build/sign.log; exit 1)
+# подпись — всегда встроенный отладочный ключ uber-apk-signer (SHA-256 1E:08:A9…), вынут в tools/uber-debug.keystore:
+# без --ksDebug подписчик берёт ~/.android/debug.keystore (Android Studio), если он есть, и телефон не ставит обновление
+java -jar $T/uber-apk-signer-1.3.0.jar -a build/app-unsigned.apk -o build/out --allowResign --ksDebug $T/uber-debug.keystore > build/sign.log 2>&1 || (cat build/sign.log; exit 1)
 ls build/out/*.apk
