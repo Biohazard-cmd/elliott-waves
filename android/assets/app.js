@@ -36,6 +36,14 @@
     S.cfgVer = 4;
     D.saveSettings(S);
   }
+  // версия 2.38: фильтр «прибыль/риск ≥ 1,5» (оба набора) и безубыток 3×ATR (агрессивный) — проверка 65 бумаг 2019–2026 (research/combo.js)
+  if ((S.cfgVer || 0) < 5) {
+    S.cfg = S.cfg || {};
+    if (S.preset === 'd_long' || S.preset === 'd_aggr') { S.cfg.addMinRR = true; S.cfg.minRR = 1.5; }
+    if (S.preset === 'd_aggr') Object.assign(S.cfg, { beMode: 'auto', beRule: 'atr', beAtr: 3 });
+    S.cfgVer = 5;
+    D.saveSettings(S);
+  }
   try { if (A && A.setQuiet) A.setQuiet(!!(S.notify && S.notify.quiet)); } catch (e) { /* старая сборка без моста */ }
   // ---------- оформление (темы) ----------
   // Меняются только фон, рамки, текст и цвет свечей. Цвета сигналов (стоп, цель, волны, сделки) во всех темах одни и те же.
@@ -495,7 +503,7 @@
       $('#jrnBody').innerHTML = h; bindJTabs();
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
-        const mk = (key, name) => ({ key, name, cfg: robotCfg(key), cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
+        const mk = (key, name) => ({ key, name, cfg: robotCfg(key), be: key === 'd_aggr', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
         D.vaccSet({ on: true, startAt: now, mmRate: rate, top: 50, flows: [], lastAccrue: now, realStart: S.acct ? S.acct.total : null, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный'), Object.assign(mk('manual', 'мой (вручную)'), { manual: true, cfg: {} })] });
         D.log('robot', 'запущены: капитал ' + cap2 + ' ₽, фонд ' + rate + '%');
         ensureBg(); runRobot();
@@ -548,7 +556,7 @@
       <div class="small" id="vMsg">${esc(robotMsg) || 'Сам робот ходит раз в час вместе с фоновой проверкой (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
       <div class="field" style="margin-top:10px"><label>Пополнить (+) или вывести (−) вручную, ₽ — если деньги не через этот счёт</label><div class="row"><input type="number" id="vFlow" step="1000" style="flex:1"><button id="vFlowOk">Внести</button></div></div>
       ${V.accs.some((a) => a.manual) ? '' : '<div class="row" style="margin-top:6px"><button id="vAddMan">➕ Добавить мой ручной счёт</button></div>'}
-      ${(() => { const old = V.accs.filter((a) => !a.manual && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${old.some((a) => !a.cfg.addSma200) ? 'фильтр «SMA200 растёт»' : ''}${old.some((a) => !a.cfg.addAO) ? ', фильтр AO 5/34' : ''}${old.some((a) => a.key === 'd_aggr' && !a.cfg.addPyramid) ? ', доливка на 110% волны 1' : ''}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
+      ${(() => { const old = V.accs.filter((a) => !a.manual && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${[old.some((a) => !a.cfg.addSma200) && 'фильтр «SMA200 растёт»', old.some((a) => !a.cfg.addAO) && 'фильтр AO 5/34', old.some((a) => a.key === 'd_aggr' && !a.cfg.addPyramid) && 'доливка на 110% волны 1', old.some((a) => !a.cfg.addMinRR) && 'фильтр «прибыль/риск не меньше 1,5»', old.some((a) => a.key === 'd_aggr' && !a.be) && 'у агрессивного — безубыток 3×ATR'].filter(Boolean).join(', ') || 'обновлённые параметры'}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
       <div class="row" style="margin-top:8px"><button id="vCsv">⬇ Отчёт CSV</button><button id="vJson">⬇ JSON</button></div>
       <div class="small" id="vExpRes">Все сделки роботов и ваши виртуальные: открытые и закрытые, вход, стоп, цель, выход, причина, ₽, дивиденды, доливки, плюс итоги по каждому счёту. CSV — открыть в таблице; JSON — прислать на разбор.</div>
       <div class="row" style="margin-top:6px"><button id="vReset">${robotArm === 'reset' ? 'Точно стереть? Нажмите ещё раз' : 'Сбросить роботов'}</button></div></div>`;
@@ -573,7 +581,8 @@
         const nc = robotCfg(a.key); if (JSON.stringify(a.cfg) === JSON.stringify(nc)) continue;
         if (a.pos.length) { a.cfgPrev = a.cfgPrev || a.cfg; a.pos.forEach((p) => { p.legacy = true; }); }
         a.cfg = nc; n++;
-        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
+        if (a.key === 'd_aggr') a.be = true;   // 2.38: безубыток 3×ATR — часть агрессивного набора (кнопка 🛡 по-прежнему выключает)
+        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1', nc.addMinRR && 'П/Р ≥ ' + nc.minRR, a.key === 'd_aggr' && 'безубыток 3×ATR'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
       }
       D.vaccSet(W); robotMsg = n ? 'Настройки обновлены у ' + n + ' робота(ов). Новые сделки — по новым правилам.' : ''; renderRobot();
     };
@@ -964,7 +973,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.37';
+  const APP_VER = '2.38';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -2029,7 +2038,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const i0 = Math.max(0, Math.floor(view.x0)), i1 = Math.min(n - 1, Math.ceil(view.x0 + view.bars()));
     if (i1 < i0) return;
     let lo = Infinity, hi = -Infinity;
-    for (let i = i0; i <= i1; i++) { const b = chartBar(i); if (b) { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); } }
+    // длинный хвост одной свечи (утренний аукцион, «прострел») не сжимает весь график:
+    // хвост в шкале учитываем не дальше 4 обычных размахов свечи от её тела, остальное уходит за край
+    const rg = []; for (let i = i0; i <= i1; i++) { const b = chartBar(i); if (b) rg.push(b.h - b.l); }
+    rg.sort((a, b) => a - b); const cap = 4 * (rg[rg.length >> 1] || 0);
+    for (let i = i0; i <= i1; i++) { const b = chartBar(i); if (b) { lo = Math.min(lo, cap > 0 ? Math.max(b.l, Math.min(b.o, b.c) - cap) : b.l); hi = Math.max(hi, cap > 0 ? Math.min(b.h, Math.max(b.o, b.c) + cap) : b.h); } }
     if (sel >= 0) { const t = an.trades[sel]; lo = Math.min(lo, t.stop0, t.target || lo); hi = Math.max(hi, t.stop0, t.target || hi); }
     else if (!tr && !S.view.clean && i1 >= an.N - 2) {
       // у правого края — показать план и цели, но не сжимать свечи больше чем вдвое
@@ -2831,8 +2844,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // ---------- готовые настройки (проверка: 65 акций Мосбиржи, чистый R после комиссии) ----------
   const W3ABC = { w3: true, w5: false, abc: true, tri: true };
   const PRESETS = [
-    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true }, '2019–2026: +212 R, 368 сделок, в среднем +0,58 R. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда: на общем счёте ~26%/год, просадка ~8%, самая длинная серия стопов 11. Сделка обычно 1–3 месяца, не дольше 6.'],
-    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true }, '2019–2026: +816 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34 и «SMA200 растёт», доливка, когда волна 3 прошла 110% волны 1 (Вильямс). На общем счёте ~38%/год против ~26% у основного, просадка ~11%. Сделка не дольше 6 месяцев. Цена: прибыльна только каждая третья сделка, серии стопов до ~23 подряд.'],
+    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true, addMinRR: true, minRR: 1.5 }, '2019–2026: +200 R, 304 сделки, в среднем +0,66 R. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда, «прибыль/риск не меньше 1,5» (Кеннеди) — сделки со слишком близкой целью: на общем счёте ~29%/год, просадка ~8%, убыточных подряд не больше 11. Сделка обычно 1–3 месяца, не дольше 6.'],
+    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: +698 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34, «SMA200 растёт» и «прибыль/риск не меньше 1,5», доливка, когда волна 3 прошла 110% волны 1 (Вильямс), стоп в безубыток, когда цена ушла на 3×ATR. На общем счёте ~40%/год против ~29% у основного, просадка ~10%. Сделка не дольше 6 месяцев. Прибыльна примерно каждая вторая сделка (46%), убыточных подряд до ~12.'],
     ['d_both', 'Дневки · с шортом', '1d', { longOnly: false, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182 }, 'Сделка не дольше 6 месяцев. 2019–2026: +266 R, 973 сделки, +0,27 R, 55 из 65.'],
     ['h4_long', '4 часа · покупки', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: true }, '2025–2026: +19 R, 550 сделок — около нуля. Лучше для уточнения входа по дневкам.'],
     ['h4_short', '4 часа · продажи', '4h', { longOnly: false, shortOnly: true, swingMult: 1.5, addMarket: true, addRunner: false, addFlipExit: true, addStruct: true }, '2025–2026: +51 R, 444 сделки, +0,12 R, 41 из 65. Проверено только на падающем рынке.'],

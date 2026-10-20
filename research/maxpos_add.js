@@ -27,6 +27,8 @@ function portfolio(all, maxPos, key) {
   return { cagr: Math.pow(eq, 1 / yrs) - 1, mdd, taken, skipped, addT, addS, st };
 }
 
+module.exports = { portfolio };
+if (require.main !== module) return;
 let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
 const pct = (v) => (v * 100).toFixed(1).padStart(5);
 const r = evalCfg({ addAO: true, addSma200: true, maxHoldDays: 182, stopW2: true, localBars: 5, addPyramid: true },
