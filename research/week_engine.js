@@ -11,7 +11,11 @@ const pct = (v) => (v * 100).toFixed(1).padStart(5);
 const EX = process.env.EXTRA ? JSON.parse(process.env.EXTRA) : {};   // EXTRA='{"beAtr":2.5}' — соседние настройки
 for (const fee of (process.env.FEES || '0.05,0.3').split(',').map(Number)) {
   const r = evalCfg(Object.assign({ feePct: fee }, H4W, EX), { ser, mkt, tr: (t, bars) => { t.wdIn = wd(bars[t.iEntry].t); t.wdOut = wd(bars[Math.min(t.iExit, bars.length - 1)].t); return t.NR; } });
-  const all = r.all.map((x, i) => Object.assign(x, { i }));
+  // BORROW=15 — плата за шорт, % годовых от позиции (за каждый календарный день удержания): ухудшаем цену выхода шорта
+  const BOR = Number(process.env.BORROW || 0) / 100;
+  const all = r.all.map((x, i) => { const days = (x.TOut - x.T) / 864e5, t = x.t.side < 0 && BOR ? Object.assign({}, x.t, { exitP: x.t.exitP + x.t.entry * BOR * days / 365 }) : x.t; return Object.assign(x, { i, t, nr: x.t.side < 0 && BOR ? x.nr - x.t.entry * BOR * days / 365 / Math.abs(x.t.entry - x.t.stop0) : x.nr }); });
+  const sh = all.filter((x) => x.t.side < 0), lg = all.filter((x) => x.t.side > 0);
+  if (sh.length) console.log(`  покупок ${lg.length} (ср.R ${(lg.reduce((a, x) => a + x.nr, 0) / lg.length).toFixed(2)}), продаж ${sh.length} (ср.R ${(sh.reduce((a, x) => a + x.nr, 0) / sh.length).toFixed(2)})`);
   const p = portfolio(all, 0.25, (x) => x.i, fee / 100), h = [all.filter((x) => x.T < SPLIT), all.filter((x) => x.T >= SPLIT)].map((z) => portfolio(z, 0.25, (x) => x.i, fee / 100).cagr);
   const wk = all.filter((x) => x.t.reason === 4), carried = all.filter((x) => x.t.wkCarry).length;
   console.log(`комиссия ${fee}%: сделок ${all.length}, ср.R ${(r.R / r.n).toFixed(2)}, ${pct(p.cagr)}%/год (${pct(h[0])} /${pct(h[1])}), просадка ${pct(p.mdd)}%, серия ${p.st}; закрыто в пятницу ${wk.length}, перенесено ${carried}`);
