@@ -381,7 +381,7 @@
       // первая свеча после последнего дня покупки с дивидендом — день отсечки
       let k = out.findIndex((b) => mskDay(b.t) > d.last);
       if (k <= 0) continue;
-      const before = out[k - 1].c;
+      const before = bars[k - 1].c;   // настоящая цена: out[] уже поправлен более новыми дивидендами
       if (!(before > 0)) continue;
       const f = 1 - d.d / before;
       if (!(f > 0.5 && f < 1)) continue;
@@ -855,7 +855,7 @@
             const eq = vEquity(a), dist = Math.abs(an.plan.entry - an.plan.stop) / an.plan.entry, lot = d.x.lot || 1;
             const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash) / (an.plan.entry * lot)) * lot;
             a.pend[id] = { sigT, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty };
-            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'на открытии следующей свечи'} купит ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
+            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} купит ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
             log('robot', a.name + ': ' + msg); ev.push({ title: tag + ': ' + (qty >= lot ? 'сигнал ' + d.x.ticker : d.x.ticker + ' — пропуск'), text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
           }
         }

@@ -540,7 +540,17 @@
     }
     // подробности выбранного робота
     const pend = Object.entries(ra.pend || {});
-    if (pend.length) h += `<div class="card"><h3>Ждут открытия · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow"><b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}<div class="small">сигнал ${fmtT(p.sigT, false)}</div></div>`).join('')}</div>`;
+    // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
+    // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
+    const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
+    const pendRow = (id, p) => {
+      const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
+      if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
+      const t1 = p.sigT + rP, now = Date.now();
+      return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
+        <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
+    };
+    if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow">${pendRow(id, p)}</div>`).join('')}</div>`;
     h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
       const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
       if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
@@ -977,7 +987,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.39';
+  const APP_VER = '2.40';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -2852,9 +2862,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // ---------- готовые настройки (проверка: 65 акций Мосбиржи, чистый R после комиссии) ----------
   const W3ABC = { w3: true, w5: false, abc: true, tri: true };
   const PRESETS = [
-    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true, addMinRR: true, minRR: 1.5 }, '2019–2026: +200 R, 304 сделки, в среднем +0,66 R. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда, «прибыль/риск не меньше 1,5» (Кеннеди) — сделки со слишком близкой целью: на общем счёте ~29%/год, просадка ~8%, убыточных подряд не больше 11. Сделка обычно 1–3 месяца, не дольше 6.'],
-    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: +698 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34, «SMA200 растёт» и «прибыль/риск не меньше 1,5», доливка, когда волна 3 прошла 110% волны 1 (Вильямс), стоп в безубыток, когда цена ушла на 3×ATR. На общем счёте ~40%/год против ~29% у основного, просадка ~10%. Сделка не дольше 6 месяцев. Прибыльна примерно каждая вторая сделка (46%), убыточных подряд до ~12.'],
-    ['h4_week', '4 часа · неделя (покупки)', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: true, w5: false, abc: false, tri: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true }, '2018–2026 (65 акций, свечи Мосбиржи): ~21%/год на общем счёте, просадка ~11%, около 17 сделок в месяц, сделка обычно 2–3 дня. Только вход в волну 3, фильтры AO 5/34 и «SMA200 растёт», безубыток после хода на 3×ATR, выход в пятницу: без прибыли — закрыть, с прибылью — перенести на следующую неделю со стопом в безубытке. Нужна комиссия не больше ~0,1% (тариф «Трейдер»): при 0,3% — ~7%/год, хуже фонда. Для сравнения: те же сделки без пятничного выхода — ~25%/год, дневной основной набор — ~29%.'],
+    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true, addMinRR: true, minRR: 1.5 }, '2019–2026: +171 R, 301 сделка, в среднем +0,57 R. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда, «прибыль/риск не меньше 1,5» (Кеннеди) — сделки со слишком близкой целью: на общем счёте ~25%/год, просадка ~8,5%, убыточных подряд до 15. Сделка обычно 1–3 месяца, не дольше 6.'],
+    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: +555 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34, «SMA200 растёт» и «прибыль/риск не меньше 1,5», доливка, когда волна 3 прошла 110% волны 1 (Вильямс), стоп в безубыток, когда цена ушла на 3×ATR. На общем счёте ~31%/год против ~25% у основного, просадка ~9%. Сделка не дольше 6 месяцев. Прибыльна примерно каждая вторая сделка (46%), убыточных подряд до ~13.'],
+    ['h4_week', '4 часа · неделя (покупки)', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: true, w5: false, abc: false, tri: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true }, '2018–2026 (65 акций, свечи Мосбиржи): ~21%/год на общем счёте, просадка ~11%, около 17 сделок в месяц, сделка обычно 2–3 дня. Только вход в волну 3, фильтры AO 5/34 и «SMA200 растёт», безубыток после хода на 3×ATR, выход в пятницу: без прибыли — закрыть, с прибылью — перенести на следующую неделю со стопом в безубытке. Нужна комиссия не больше ~0,1% (тариф «Трейдер»): при 0,3% — ~7%/год, хуже фонда. Для сравнения: те же сделки без пятничного выхода — ~25%/год, дневной основной набор — ~25%.'],
     ['d_both', 'Дневки · с шортом', '1d', { longOnly: false, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182 }, 'Сделка не дольше 6 месяцев. 2019–2026: +266 R, 973 сделки, +0,27 R, 55 из 65.'],
     ['h4_long', '4 часа · покупки', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: true }, '2025–2026: +19 R, 550 сделок — около нуля. Лучше для уточнения входа по дневкам.'],
     ['h4_short', '4 часа · продажи', '4h', { longOnly: false, shortOnly: true, swingMult: 1.5, addMarket: true, addRunner: false, addFlipExit: true, addStruct: true }, '2025–2026: +51 R, 444 сделки, +0,12 R, 41 из 65. Проверено только на падающем рынке.'],
@@ -2968,7 +2978,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="field" ${c.beRule === 'atr' ? '' : 'hidden'}><label>N — сколько ATR (средних размахов свечи) должна пройти цена</label><input type="number" step="0.5" min="1" id="beAtr" value="${c.beAtr}"></div>
       <details class="trev"><summary>Что показала проверка (дневки, 65 бумаг, 2019–2026)</summary><div class="small mut">
         <p style="margin:6px 0">Переносить стоп всегда немного режет сумму R: часть сделок выбивает в ноль перед большим ходом. Зато освободившиеся деньги идут в следующие сигналы, и на общем счёте итог почти не меняется, а «нервов» меньше.</p>
-        <p style="margin:6px 0"><b>3×ATR</b> — основной набор: ~26%/год как и без него, просадка 6% вместо 8%, серия стопов 8 вместо 11, прибыльных 59% вместо 50%. Агрессивный (с доливками): ~39%/год вместо ~38%, просадка 10% вместо 11%, серия стопов 11 вместо 23. Результат держится при 2,5–4×ATR.</p>
+        <p style="margin:6px 0"><b>3×ATR</b> — основной набор: ~26%/год вместо ~25%, просадка 6% вместо 8,5%, серия стопов 8 вместо 15, прибыльных 59% вместо 50%. Агрессивный (с доливками): ~31%/год вместо ~32%, просадка 9% вместо 11%, серия стопов 13 вместо 26. Серии короче при 2,5–3,5×ATR; доход от множителя скачет (29–34%/год).</p>
         <p style="margin:6px 0"><b>AO против</b> — основной ~27%/год, агрессивный ~35% (без доливок). <b>+2R</b> — почти без изменений. <b>По волнам</b>, <b>20 свечей</b>, <b>+1R</b> — хуже или без пользы. <b>Рынок ниже средней</b> — меньше просадка (6%), но ~23%/год вместо ~26%.</p>
         <p style="margin:6px 0">Поэтому по умолчанию — только подсказка, а «переносить стоп» — по желанию: если для вас важнее короткие серии стопов, чем лишний процент.</p></div></details></div>
 `;
