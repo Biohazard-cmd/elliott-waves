@@ -71,7 +71,12 @@ kbd { font: inherit; font-size: 14px; padding: 1px 6px; border-radius: 6px; back
 .film .fh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 700; }
 .film .fh .grow { flex: 1; }
 .film .fh small { font-weight: 400; color: var(--mut); }
-.film canvas { display: block; width: 100%; height: 300px; background: var(--chbg); touch-action: pan-y; }
+.film .tabs { display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.film .tabs::-webkit-scrollbar { display: none; }
+.film .tabs button { flex: none; font-size: 14px; padding: 6px 10px; border-radius: 16px; text-align: left; }
+.film .tabs button small { display: block; font-size: 11px; color: var(--mut); }
+.film .cap .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.film canvas { display: block; width: 100%; height: 320px; background: var(--chbg); touch-action: pan-y; }
 .film .cap { min-height: 112px; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 15.5px; }
 .film .cap .k { display: block; font-size: 12px; color: var(--mut); margin-bottom: 3px; }
 .film .cap .rule { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; font-size: 13.5px; background: var(--bg3); border: 1px solid var(--line); }
@@ -104,13 +109,13 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
   <p><span class="badge">📱 телефон Android</span> <span class="badge">💻 Windows — позже</span></p>
 </div>
 
-<div class="sample"><b>Это пробный пример.</b> Готовы раздел «Быстрый старт» и два «мини-фильма». Остальные разделы в оглавлении пока серые — их добавим, если пример понравится.</div>
+<div class="sample"><b>Это пробный пример.</b> Готовы раздел «Быстрый старт», схема импульса и примеры на настоящих графиках. Остальные разделы в оглавлении пока серые — их добавим, если пример понравится.</div>
 
 <nav class="toc" aria-label="Оглавление">
   <a href="#start"><span class="n">1</span><span class="grow">Быстрый старт</span><span class="badge ok">готово</span></a>
   <a href="#waves"><span class="n">2</span><span class="grow">Волны по книге — простыми словами</span><span class="badge ok">фильм</span></a>
   <span><span class="n">3</span><span class="grow">График и подсчёт волн</span><span class="badge">скоро</span></span>
-  <a href="#signal"><span class="n">4</span><span class="grow">Сигнал и ведение сделки</span><span class="badge ok">фильм</span></a>
+  <a href="#signal"><span class="n">4</span><span class="grow">Сигнал и ведение сделки</span><span class="badge ok">настоящие сделки</span></a>
   <span><span class="n">5</span><span class="grow">Наборы: основной, агрессивный, «4 часа · неделя»</span><span class="badge">скоро</span></span>
   <span><span class="n">6</span><span class="grow">Роботы — виртуальные счета</span><span class="badge">скоро</span></span>
   <span><span class="n">7</span><span class="grow">Тренажёр</span><span class="badge">скоро</span></span>
@@ -175,14 +180,19 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
   <p class="lead">Нажмите ▶ — график будет расти свеча за свечой, а подсчёт появится так же, как его видит приложение: не сразу, а когда волна уже закончилась.</p>
   <div class="film" id="film1"></div>
   <div class="note">Попробуйте галочку <b>«Сломать правило»</b> под фильмом: волна 4 заползёт в зону волны 1 — и вы увидите, почему такой подсчёт не годится.</div>
+  <h3 style="margin:26px 0 4px">А теперь — настоящие графики</h3>
+  <p class="lead">На схеме всё гладко. На настоящем рынке — нет: волны кривые, откаты рваные, и приложение по ходу дела <b>несколько раз перестраивает подсчёт</b>, пока картина не сложится. Ниже — четыре реальных случая с Мосбиржи: дневные свечи, а разметка — ровно та, которую приложение видело на каждой свече (будущего оно не знает).</p>
+  <div class="film" id="film1r"></div>
+  <div class="note">🔄 — значок «подсчёт перестроен». Это не ошибка приложения, а обычная работа с волнами: так же делает и человек с книгой в руках. Поэтому у каждой сделки есть стоп.</div>
 </section>
 
 <!-- ===================== 4. Сигнал ===================== -->
 <section class="ch" id="signal">
   <h2><span class="n">4</span> Сигнал и ведение сделки</h2>
-  <p class="lead">Одна сделка от начала до конца — так, как её ведёт <b>агрессивный набор</b>: вход в волну 3, стоп, цель, безубыток и «бегунок».</p>
+  <p class="lead">Четыре настоящие сделки <b>агрессивного набора</b> из истории — удачная, убыточная, «в ноль» и сложная. Всё посчитано тем же движком, что в приложении: вход, стоп, цель, доливка, безубыток и выход. Фиолетовая линия — подсчёт, по которому открыта сделка; серая — как приложение видит волны сейчас.</p>
   <div class="film" id="film2"></div>
-  <div class="note warn">Это учебный пример на нарисованных свечах. Не каждая сделка такая удачная: по истории прибыльна примерно каждая вторая, а заработок делают немногие большие сделки.</div>
+  <div class="note warn">По истории 2019–2026 прибыльна примерно каждая вторая сделка агрессивного набора. Деньги делают немногие большие сделки, как первая, а убытки маленькие — их заранее ограничивает стоп.</div>
+  <div class="note">Цены на дневках поправлены на дивиденды — так же, как в приложении. Поэтому они могут отличаться от тех, что были на бирже в тот день.</div>
 </section>
 
 <section class="ch">
@@ -241,17 +251,19 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     return bars;
   }
   const fmt = (x, d = 2) => x.toFixed(d).replace('.', ',');
+  const MON = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const EX = /*@EXAMPLES@*/null;
 
   // ---------- проигрыватель ----------
   const films = [];
   function Film(el, sc) {
-    el.innerHTML = `<div class="fh">🎬 <span class="grow">${sc.title}</span><small class="cnt"></small></div><canvas></canvas><div class="cap"></div>
+    el.innerHTML = `<div class="fh">🎬 <span class="grow">${sc.title}</span><small class="cnt"></small></div>${sc.tabs ? `<div class="tabs">${sc.tabs.map((t, k) => `<button data-tab="${k}" class="${k ? '' : 'on'}">${t}</button>`).join('')}</div>` : ''}<canvas></canvas><div class="cap"></div>
       <div class="ctl"><button class="play">▶ Играть</button><button class="prev" aria-label="Шаг назад">⏮</button><button class="next" aria-label="Шаг вперёд">⏭</button><input type="range" min="0" value="0" aria-label="Ползунок времени">
       <label><input type="checkbox" class="stops" checked> пауза на шагах</label>${sc.variant ? `<label><input type="checkbox" class="var"> ${sc.variant}</label>` : ''}</div>`;
     const cv = el.querySelector('canvas'), cap = el.querySelector('.cap'), cnt = el.querySelector('.cnt'), rg = el.querySelector('input[type=range]');
     const pb = el.querySelector('.play'), stopsCb = el.querySelector('.stops'), varCb = el.querySelector('.var');
-    let st = null, n = 0, timer = null, hold = 0, lastStep = -1;
-    const build = () => { st = sc.build(varCb && varCb.checked); rg.max = st.bars.length - 1; };
+    let st = null, n = 0, timer = null, hold = 0, lastStep = -1, tab = 0;
+    const build = () => { st = sc.build(varCb && varCb.checked, tab); rg.max = st.bars.length - 1; };
     const stepIdx = () => { let k = 0; st.steps.forEach((s, j) => { if (s.at <= n) k = j; }); return k; };
     const self = {
       draw() {
@@ -260,14 +272,19 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
         const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
         const C = { bg: css('--chbg'), grid: css('--grid'), axis: css('--axis'), ink: css('--ink'), up: '#3fbf7f', dn: '#ef5b5b', wave: css('--wave'), corr: css('--corr'), warn: css('--warn'), neg: '#ef5b5b', pos: '#3fbf7f', mut: css('--mut') };
         g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
-        const B = st.bars, N = B.length, pl = 8, pr = 56, pt = 22, pbm = 14;
+        const B = st.bars, N = B.length, pl = 8, pr = 56, pt = 22, pbm = B[0].t ? 22 : 14;
         let lo = Infinity, hi = -Infinity; B.forEach((b) => { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); }); (st.extra || []).forEach((p) => { lo = Math.min(lo, p); hi = Math.max(hi, p); });
         const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
         const sw = (W - pl - pr) / N, X = (i) => pl + (i + 0.5) * sw, Y = (p) => pt + (hi - p) / (hi - lo) * (H - pt - pbm);
         g.font = '11px system-ui, sans-serif'; g.textBaseline = 'middle';
         const stepv = Math.pow(10, Math.floor(Math.log10((hi - lo) / 4))); let gs = stepv; while ((hi - lo) / gs > 6) gs *= 2;
         for (let p = Math.ceil(lo / gs) * gs; p < hi; p += gs) { g.strokeStyle = C.grid; g.lineWidth = 1; g.beginPath(); g.moveTo(pl, Y(p)); g.lineTo(W - pr, Y(p)); g.stroke(); g.fillStyle = C.axis; g.textAlign = 'left'; g.fillText(fmt(p, gs < 1 ? 1 : 0), W - pr + 6, Y(p)); }
-        const bw = Math.max(1.5, sw * 0.62);
+        if (B[0].t) {   // подписи дат снизу
+          g.fillStyle = C.axis; g.textAlign = 'center'; g.textBaseline = 'bottom'; let lastM = '';
+          const every = Math.max(1, Math.round(N / 5));
+          for (let i = 0; i < N; i += every) { const d = new Date(B[i].t), m = MON[d.getUTCMonth()] + ' ' + String(d.getUTCFullYear()).slice(2); if (m !== lastM) { g.fillText(m, X(i), H - 3); lastM = m; } }
+        }
+        const bw = Math.max(1.2, sw * 0.62);
         for (let i = 0; i <= n; i++) { const b = B[i], col = b.c >= b.o ? C.up : C.dn; g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(X(i), Y(b.h)); g.lineTo(X(i), Y(b.l)); g.stroke(); const y1 = Y(Math.max(b.o, b.c)), y2 = Y(Math.min(b.o, b.c)); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
         const api = {
           g, C, X, Y, W, H, pl, pr, n, B,
@@ -280,7 +297,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
         sc.overlay(api, st);
         const k = stepIdx(), s = st.steps[k];
         if (k !== lastStep) { cap.innerHTML = `<span class="k">Шаг ${k + 1} из ${st.steps.length}</span>${typeof s.cap === 'function' ? s.cap(st) : s.cap}`; lastStep = k; }
-        cnt.textContent = 'свеча ' + (n + 1) + ' из ' + N; rg.value = n;
+        cnt.textContent = (B[n].t ? new Date(B[n].t).toLocaleDateString('ru-RU', { timeZone: 'UTC' }) + ' · ' : '') + 'свеча ' + (n + 1) + ' из ' + N; rg.value = n;
       },
       stop() { clearInterval(timer); timer = null; pb.textContent = n >= st.bars.length - 1 ? '↺ Сначала' : '▶ Играть'; },
       play() {
@@ -300,6 +317,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     el.querySelector('.next').onclick = () => { self.stop(); const s = st.steps.find((x) => x.at > n); self.go(s ? s.at : st.bars.length - 1); self.stop(); };
     el.querySelector('.prev').onclick = () => { self.stop(); const k = stepIdx(); self.go(st.steps[st.steps[k].at === n ? Math.max(0, k - 1) : k].at); self.stop(); };
     rg.oninput = () => { self.stop(); self.go(Number(rg.value)); self.stop(); };
+    el.querySelectorAll('.tabs [data-tab]').forEach((b) => { b.onclick = () => { self.stop(); tab = Number(b.dataset.tab); el.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b)); build(); lastStep = -1; self.go(0); self.stop(); }; });
     if (varCb) varCb.onchange = () => { self.stop(); build(); lastStep = -1; self.go(sc.varJump ? sc.varJump(st) : 0); self.stop(); };
     build(); n = 0; self.draw();
     window.addEventListener('resize', () => self.draw());
@@ -349,58 +367,114 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     },
   });
 
-  // ---------- фильм 2: сделка ----------
+  // ---------- настоящие графики: подсчёт, каким его видел движок на каждой свече ----------
+  const toBars = (ex) => ex.bars.map(([t, o, h, l, c]) => ({ t, o, h, l, c }));
+  const snapAt = (ex, n) => { let s = ex.snaps[0]; for (const x of ex.snaps) if (x.at <= n) s = x; return s; };
+  const isExt = (prev, s) => prev.pts.every((p, k) => s.pts[k] && s.pts[k][0] === p[0] && s.pts[k][2] === p[2]);
+  function explain(title) {
+    let t = '';
+    if (/Клин/.test(title)) t += 'Клин — пять волн, которые «наползают» друг на друга: волна 4 заходит в зону волны 1, линии через вершины сходятся. Обычно бывает в конце движения. ';
+    else if (/Зигзаг/.test(title)) t += 'Зигзаг — резкая коррекция из трёх волн A-B-C. ';
+    else if (/Горизонт/.test(title)) t += 'Флэт — боковая коррекция A-B-C: волна B возвращается почти к началу A. ';
+    if (/идёт волна 2/.test(title)) t += 'Волна 1 закончилась, идёт откат — волна 2.';
+    else if (/начинается волна 3/.test(title)) t += /вниз/.test(title) ? 'Откат закончился, начинается волна 3 вниз. Наборы на покупку такой сигнал пропускают.' : 'Откат закончился, начинается волна 3 — самая сильная. В этот момент система ищет вход в сделку.';
+    else if (/идёт волна 4/.test(title)) t += 'Волна 3 закончилась, идёт откат — волна 4.';
+    else if (/идёт волна 5/.test(title)) t += 'Волна 4 закончилась, идёт последняя — пятая волна.';
+    else if (/идёт волна C/.test(title)) t += 'Идёт последняя волна коррекции — C.';
+    else if (/завершён/.test(title)) t += 'Пять волн готовы. Дальше по книге — коррекция против них.';
+    else if (/завершена/.test(title)) t += 'Коррекция закончилась.';
+    if (/расшир\. флэт/.test(title)) t += ' Одна из волн-откатов сложная — расширенный флэт: B заходит дальше начала A, а C — дальше конца A.';
+    return t;
+  }
+  function rulesHtml(s) {
+    const r = (s.rules || []).filter((x) => x[1]); if (!r.length || !/завершён/.test(s.title)) return '';
+    return '<div class="chips">' + r.map((x) => `<span class="rule ${x[0] ? 'good' : 'bad'}">${x[0] ? '✓' : '✗'} ${x[2]}</span>`).join('') + '</div>';
+  }
+  function snapText(ex, k) {
+    const s = ex.snaps[k], prev = k ? ex.snaps[k - 1] : null;
+    const rev = prev && prev.pts.length && !isExt(prev, s);
+    return (rev ? '🔄 <b>Подсчёт перестроен.</b> Новые свечи не вписались в прежнюю разметку — приложение переставило номера волн.<br>' : '')
+      + (s.title ? `<b>Приложение видит:</b> ${s.title}.<br>${explain(s.title)}` : 'Подсчёта пока нет.') + rulesHtml(s);
+  }
+  function mergeSteps(list) {
+    const m = new Map(); for (const x of list) { if (x.at < 0) continue; m.set(x.at, (m.has(x.at) ? m.get(x.at) + '<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">' : '') + x.cap); }
+    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([at, cap]) => ({ at, cap }));
+  }
+  function drawSnap(a, ex, n, faded) {
+    const s = snapAt(ex, n); if (!s || !s.pts.length) return;
+    const col = (l) => (/^[ABC]/.test(l) ? a.C.corr : a.C.wave), pts = s.pts.map((p) => [p[0], p[1]]);
+    a.path(pts, faded ? a.C.mut : a.C.wave, faded ? 1.4 : 2.2);
+    const lp = s.pts[s.pts.length - 1]; if (lp[0] < n) a.path([[lp[0], lp[1]], [n, a.B[n].c]], faded ? a.C.mut : a.C.wave, 1.3, [4, 4]);
+    s.pts.forEach((p, k) => { const nb = s.pts[k + 1] || s.pts[k - 1]; const top = nb ? p[1] > nb[1] : true; a.label(p[2], p[0], p[1], faded ? a.C.mut : col(p[2]), !top); });
+  }
+
+  const IMP_TXT = [
+    ['Мосбиржа 2023', 'почти по книге', 'Мосбиржа (MOEX), дневные свечи, конец августа — декабрь 2023. Сначала приложение видит маленькие импульсы и даже клин — и только в ноябре складывается большой импульс вверх.', 'Итог: импульс вверх с сентября по ноябрь 2023. Волна 3 растянулась больше чем на месяц, а волны 4 и 5 заняли по нескольку дней. После пятой волны — коррекция вниз, как и положено по книге.'],
+    ['МТС 2021', 'долгий, с шумом', 'МТС (MTSS), март — ноябрь 2021, рост на 70% за семь месяцев. Смотрите на начало июля: то, что приложение три месяца считало «волной 3», оказалось целой волной 1 более крупного импульса. Так бывает: волны вложены друг в друга, как матрёшки.', 'Итог: большой импульс вверх. Волна 1 — медленный подъём с марта по июль, волна 3 — с июля по сентябрь, а короткую пятую волну приложение подтвердило только в ноябре, когда цена уже пошла вниз.'],
+    ['Газпром 2025', 'вниз, сложная 4-я', 'Газпром (GAZP), август — ноябрь 2025: импульс вниз. Импульсы бывают и вниз — правила те же, только зеркально.', 'Итог: в начале октября приложение уже насчитало пять волн и ждало коррекцию — но цена нырнула ещё раз. Волна 4 оказалась сложной (расширенный флэт), и настоящая пятая волна закончилась только в конце октября. Вот почему на сложных рынках подсчёт — это всегда «лучшая версия на сейчас».'],
+    ['Магнит 2021', 'клин', 'Магнит (MGNT), февраль — июль 2021. Подъём, в котором волны «наползают» друг на друга, — клин.', 'Итог: клин вверх. Даже после «Клин завершён» подсчёт ещё раз сдвинулся — приложение уточняет разметку с каждой новой свечой. Клин по книге — фигура конца движения: после него часто бывает резкий разворот.'],
+  ];
+  Film(document.getElementById('film1r'), {
+    title: 'Импульсы на настоящих графиках',
+    tabs: IMP_TXT.map((x) => `${x[0]}<small>${x[1]}</small>`),
+    build(v, tab) {
+      const ex = EX.impulses[tab], bars = toBars(ex), last = bars.length - 1, T = IMP_TXT[tab];
+      const steps = ex.snaps.map((s, k) => ({ at: s.at, cap: (k ? '' : T[2] + '<br><br>') + snapText(ex, k) }));
+      steps.push({ at: last, cap: '<b>' + T[3] + '</b>' });
+      return { bars, ex, steps: mergeSteps(steps) };
+    },
+    overlay(a, st) { drawSnap(a, st.ex, a.n); },
+  });
+
+  // ---------- настоящие сделки ----------
+  const TR_TXT = [
+    ['Сбербанк 2021', 'удачная', 'Сбербанк (SBER), март — июль 2021. Удачная сделка — в ней есть всё: вход, доливка, безубыток, цель и «бегунок».'],
+    ['Сбербанк 2025', 'стоп', 'Сбербанк (SBER), январь — март 2025. Сделка, которая не получилась.'],
+    ['Сбербанк 2024', 'в ноль', 'Сбербанк (SBER), ноябрь 2023 — март 2024. Сделка, которую спас безубыток.'],
+    ['Газпром 2021', 'сложная', 'Газпром (GAZP), март — декабрь 2021. Долгая сделка: цель так и не взята, а выход случился, когда сменился подсчёт.'],
+  ];
   Film(document.getElementById('film2'), {
-    title: 'Сделка от входа до выхода',
-    build() {
-      const piv = [[0, 100], [12, 110], [20, 104], [41, 123.5], [50, 117.4], [56, 120.6]];
-      const bars = genBars(piv, 21);
-      const w2 = 20, iE = w2 + 3, entry = bars[iE].o, stop0 = piv[2][1] - 0.15, target = piv[2][1] + 1.618 * (piv[1][1] - piv[0][1]);
-      const atr = (i) => { let s = 0; for (let j = i - 13; j <= i; j++) { const b = bars[j], pc = bars[j - 1].c; s += Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)); } return s / 14; };
-      const A = atr(iE - 1);
-      const stops = []; let st = stop0, iBE = -1, iT = -1, iX = -1, xP = 0;
-      for (let i = 0; i < bars.length; i++) {
-        if (i < iE) { stops.push(null); continue; }
-        const b = bars[i];
-        if (iX < 0) {
-          if (b.l <= st && i > iE) { iX = i; xP = Math.min(st, b.o); stops.push(st); continue; }
-          if (iBE < 0 && b.h >= entry + 3 * A) { iBE = i; st = Math.max(st, entry); }
-          if (iT < 0 && b.h >= target) iT = i;
-          if (iT >= 0 && i > iT) { let m = Infinity; for (let j = i - 4; j <= i; j++) m = Math.min(m, bars[j].l); st = Math.max(st, m); }
-        }
-        stops.push(iX >= 0 && i > iX ? null : st);
-      }
-      const R = (xP - entry) / (entry - stop0);
-      const end = Math.min(bars.length, iX + 6);
-      const steps = [
-        { at: 0, cap: 'Цена выросла (<b>волна 1</b>) и откатилась (<b>волна 2</b>). Система ждёт: сделки нет, пока откат не закончится и цена не развернётся вверх.' },
-        { at: iE, cap: `<b>Сигнал!</b> Разворот подтвердился: волна 2 закончилась, начинается волна 3 — самая сильная. Вход по открытию свечи: <b>${fmt(entry)}</b>.<br>
-          <span style="color:#ef5b5b">■</span> <b>Стоп ${fmt(stop0)}</b> — чуть ниже конца волны 2: если цена туда дойдёт, подсчёт неверный и мы выходим с небольшим убытком.<br>
-          <span style="color:#3fbf7f">■</span> <b>Цель ${fmt(target)}</b> — по книге волна 3 часто в 1,618 раза длиннее волны 1.<br>
-          Прибыль до цели в ${fmt((target - entry) / (entry - stop0), 1)} раза больше риска <span class="rule good">✓ фильтр «прибыль/риск ≥ 1,5» пройден</span>` },
-        { at: iBE, cap: `Цена ушла вверх на 3 средних хода свечи (3×ATR) — <b>стоп переносится в безубыток</b>, на цену входа ${fmt(entry)}. Теперь эта сделка уже не принесёт убытка, что бы ни случилось.` },
-        { at: iT, cap: '<b>Цель достигнута.</b> Но сделку не закрываем: прибыль может расти дальше. Стоп подтягивается под минимумы последних 5 свечей — это «бегунок». Цена идёт вверх — стоп идёт за ней.' },
-        { at: iX, cap: `Цена развернулась и задела подтянутый стоп — <b>выход по ${fmt(xP)}</b>.<br>Итог: <b style="color:#3fbf7f">+${fmt(R, 1)} R</b> — то есть заработали в ${fmt(R, 1)} раза больше, чем рисковали. Если на сделку рискуете 3 000 ₽, это ≈ +${Math.round(R * 3000).toLocaleString('ru-RU')} ₽.` },
-      ].filter((s) => s.at >= 0);
-      return { bars: bars.slice(0, end), piv, steps, iE, entry, stop0, target, stops, iT, iX, xP, iBE, extra: [target] };
+    title: 'Настоящие сделки от входа до выхода',
+    tabs: TR_TXT.map((x) => `${x[0]}<small>${x[1]}</small>`),
+    build(v, tab) {
+      const ex = EX.trades[tab], bars = toBars(ex), t = ex.tr, last = bars.length - 1, T = TR_TXT[tab];
+      const risk = t.entry - t.stop0, R = (x) => (x >= 0 ? '+' : '−') + fmt(Math.abs(x), 1) + ' R';
+      let after = Infinity, afterHi = -Infinity; for (let i = t.iX + 1; i <= last; i++) { after = Math.min(after, bars[i].l); afterHi = Math.max(afterHi, bars[i].h); }
+      const ev = ex.snaps.map((s, k) => ({ at: s.at, cap: (k ? '' : T[2] + '<br><br>') + snapText(ex, k) }));
+      ev.push({ at: t.iSig, cap: `<b>Сигнал!</b> Волна 2 закончилась, разворот вверх подтвердился. Вход — по открытию следующей свечи.` });
+      ev.push({ at: t.iE, cap: `<b>Вход по ${fmt(t.entry)}.</b><br><span style="color:#ef5b5b">■</span> <b>Стоп ${fmt(t.stop0)}</b> — чуть ниже конца волны 2: если цена туда дойдёт, подсчёт неверный.<br><span style="color:#3fbf7f">■</span> <b>Цель ${fmt(t.target)}</b> — там волна 3 станет в 1,618 раза длиннее волны 1.<br>Прибыль до цели в ${fmt((t.target - t.entry) / risk, 1)} раза больше риска <span class="rule good">✓ «прибыль/риск ≥ 1,5»</span>` });
+      if (t.add) ev.push({ at: t.add.i, cap: `<b>Доливка по ${fmt(t.add.px)}</b> (фиолетовый ▲): цена прошла 110% волны 1 — волна 3 подтвердилась, и приложение добавляет к позиции (идея Вильямса). У доливки тот же стоп.` });
+      t.path.forEach(([i, p, be], k) => ev.push({ at: i, cap: be || (k === 0 && Math.abs(p - t.entry) < 1e-6) ? `<b>Стоп → безубыток (${fmt(p)}).</b> Цена ушла вверх на 3 средних хода свечи (3×ATR) — стоп переносится на цену входа. Теперь основная позиция уже не принесёт убытка.` : `<b>Стоп подтянут до ${fmt(p)}</b> — под минимумы последних 5 свечей («бегунок»): цена растёт — стоп идёт за ней.` }));
+      if (t.iT >= 0) ev.push({ at: t.iT, cap: `<b>Цель ${fmt(t.target)} взята.</b> Но сделку не закрываем: прибыль может расти дальше, стоп подтягивается за ценой.` });
+      let out = `<b>Выход по ${fmt(t.exitP)}</b> (${t.why}). Итог: <b style="color:${t.R > 0.02 ? '#3fbf7f' : t.R < -0.02 ? '#ef5b5b' : 'inherit'}">${R(t.R)}</b>${t.add ? ', доливка ' + R(t.add.R) : ''}.`;
+      if (tab === 0) out += ` Если на сделку рискуете 3 000 ₽, основная позиция принесла ≈ ${Math.round(t.R * 3000).toLocaleString('ru-RU')} ₽.`;
+      if (tab === 1) out += ' Так заканчивается примерно каждая вторая сделка — и это нормально: убыток заранее ограничен стопом (1% счёта). Заметьте, что подсчёт перестроился почти сразу после входа: рынок пошёл не по плану.';
+      if (tab === 2) out += after < t.stop0 ? ` Без безубытка цена дошла бы до стопа ${fmt(t.stop0)} (минимум после выхода — ${fmt(after)}): было бы −1 R. Безубыток превратил убыток в ноль.` : ' Цена вернулась к цене входа — безубыток закрыл сделку без убытка.';
+      if (tab === 3) out += ` До цели ${fmt(t.target)} цена не дошла. Выход случился, когда приложение увидело начало импульса вниз (оранжевый пунктир)${after < t.exitP ? ` — после этого цена опустилась до ${fmt(after)}` : ''}.`;
+      ev.push({ at: t.iX, cap: out });
+      return { bars, ex, t, steps: mergeSteps(ev), extra: [t.target, t.stop0] };
     },
     overlay(a, st) {
-      const n = a.n, { piv, iE } = st;
-      const vis = [piv[0]]; if (n >= piv[1][0] + 2) vis.push(piv[1]); if (n >= iE) vis.push(piv[2]); if (n >= piv[3][0] + 2) vis.push(piv[3]);
-      a.path(vis, a.C.wave); vis.forEach((p, k) => a.label(String(k), p[0], p[1], a.C.wave, k === 0 || k === 2));
-      const lp = vis[vis.length - 1]; if (lp[0] < n && n < iE) a.path([lp, [n, a.B[n].c]], a.C.wave, 1.5, [4, 4]);
-      if (n < iE) return;
-      const closed = st.iX >= 0 && n >= st.iX, endI = closed ? st.iX : n, xr = closed ? a.X(st.iX) : a.W - a.pr;
-      a.line(a.X(iE), a.Y(st.entry), xr, a.Y(st.entry), a.C.wave, 2);
-      a.text('вход ' + fmt(st.entry), a.X(iE) - 8, a.Y(st.entry) - 10, a.C.wave, 'right', 11);
-      if (st.iT < 0 || n < st.iT) { a.hline(st.target, iE, a.C.pos, 'цель', null, 2); }
-      else a.text('🎯 цель взята', a.X(st.iT), a.Y(st.target) - 12, a.C.pos, 'center', 11);
+      const n = a.n, t = st.t, ex = st.ex;
+      drawSnap(a, ex, n, n >= t.iE);
+      if (n >= t.iSig && n < t.iX + 1) a.path(t.cnt.map((p) => [p[0], p[1]]), '#c08cff', 2.2);
+      if (n < t.iE) return;
+      const closed = n >= t.iX, endI = closed ? t.iX : n, xr = closed ? a.X(t.iX) : a.W - a.pr;
+      a.line(a.X(t.iE), a.Y(t.entry), xr, a.Y(t.entry), a.C.wave, 2);
+      a.text('вход ' + fmt(t.entry), a.X(t.iE) - 6, a.Y(t.entry) - 10, a.C.wave, 'right', 11);
+      if (t.iT < 0 || n < t.iT) a.line(a.X(t.iE), a.Y(t.target), xr, a.Y(t.target), a.C.pos, 2, [6, 4]), a.text('цель ' + fmt(t.target), xr - 4, a.Y(t.target) - 9, a.C.pos, 'right', 11);
+      else a.text('🎯 цель', a.X(t.iT), a.Y(t.target) - 12, a.C.pos, 'center', 11);
       // стоп — ступеньками
-      const pts = []; for (let i = iE; i <= endI; i++) if (st.stops[i] != null) { if (pts.length) pts.push([i, pts[pts.length - 1][1]]); pts.push([i, st.stops[i]]); }
-      if (pts.length) { a.path(pts, a.C.neg, 2); const sp = pts[pts.length - 1][1]; if (!closed) { a.line(a.X(endI), a.Y(sp), xr, a.Y(sp), a.C.neg, 2, [5, 4]); a.text('стоп ' + fmt(sp), xr - 4, a.Y(sp) + 11, a.C.neg, 'right', 11); } }
-      a.text('▲', a.X(iE), a.Y(a.B[iE].l) + 12, a.C.pos, 'center', 14);
-      if (st.iBE >= 0 && n >= st.iBE && (st.iT < 0 || n < st.iT + 3)) a.text('стоп → безубыток', a.X(st.iBE) + 4, a.Y(st.entry) + 13, a.C.warn, 'left', 11);
-      if (st.iX >= 0 && n >= st.iX) { a.text('✕ выход', a.X(st.iX), a.Y(st.xP) + 14, a.C.neg, 'center', 12); }
+      const pts = [[t.iE, t.stop0]]; for (const [i, p] of t.path) if (i <= endI) { pts.push([i, pts[pts.length - 1][1]]); pts.push([i, p]); }
+      pts.push([endI, pts[pts.length - 1][1]]); a.path(pts, a.C.neg, 2);
+      const sp = pts[pts.length - 1][1];
+      if (!closed) { a.line(a.X(endI), a.Y(sp), xr, a.Y(sp), a.C.neg, 2, [5, 4]); a.text('стоп ' + fmt(sp), xr - 4, a.Y(sp) + 11, a.C.neg, 'right', 11); }
+      a.text('▲', a.X(t.iE), a.Y(a.B[t.iE].l) + 12, a.C.pos, 'center', 14);
+      if (t.add && n >= t.add.i) a.text('▲', a.X(t.add.i), a.Y(a.B[t.add.i].l) + 12, '#c08cff', 'center', 13);
+      if (closed) {
+        if (t.exitCnt.length) a.path(t.exitCnt.map((p) => [p[0], p[1]]), '#ff7ab6', 2, [6, 4]);
+        a.text('✕ выход', a.X(t.iX), a.Y(t.exitP) - 12, t.R > 0.02 ? a.C.pos : a.C.neg, 'center', 12);
+      }
     },
   });
   setTheme(theme);
