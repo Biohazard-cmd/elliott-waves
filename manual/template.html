@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Волны Эллиотта — инструкция</title>
+<style>
+:root {
+  --bg: #14181e; --bg2: #1b2028; --bg3: #232a34; --line: #2e3744; --ink: #e8ecf1; --mut: #8d98a6; --dim: #5f6a78;
+  --acc: #2b4a7a; --accl: #3f6fb3; --pos: #3fbf7f; --neg: #ef5b5b; --warn: #f0a23a; --wave: #5b9cff; --corr: #b07cf0;
+  --chbg: #14181e; --grid: #222a35; --axis: #7d8896;
+}
+:root[data-theme="light"] {
+  --bg: #f4f6f9; --bg2: #ffffff; --bg3: #e9edf3; --line: #d5dbe3; --ink: #1b2330; --mut: #5d6878; --dim: #8a94a3;
+  --acc: #d6e4fa; --accl: #3f6fb3; --chbg: #ffffff; --grid: #edf0f4; --axis: #6b7684; --wave: #2f7bf0; --corr: #8a4fe0; --warn: #d9821c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, Roboto, "Segoe UI", sans-serif; }
+a { color: var(--accl); }
+header.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+header.top .ttl { flex: 1; font-weight: 700; font-size: 17px; }
+header.top .ttl small { display: block; font-weight: 400; font-size: 12px; color: var(--mut); }
+button { font: inherit; color: var(--ink); background: var(--bg3); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; cursor: pointer; }
+button.on { background: var(--acc); border-color: var(--accl); }
+main { max-width: 860px; margin: 0 auto; padding: 0 16px 80px; }
+.hero { padding: 28px 0 8px; }
+.hero h1 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; }
+.hero p { color: var(--mut); margin: 0 0 10px; }
+.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--line); color: var(--mut); white-space: nowrap; }
+.badge.ok { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
+.sample { margin: 14px 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--warn); color: var(--ink); background: color-mix(in srgb, var(--warn) 8%, var(--bg2)); font-size: 15px; }
+nav.toc { margin: 18px 0 8px; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 6px; }
+nav.toc a, nav.toc span { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; text-decoration: none; color: var(--ink); }
+nav.toc a:hover { background: var(--bg3); }
+nav.toc span { color: var(--dim); }
+nav.toc .n { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--bg3); border: 1px solid var(--line); }
+nav.toc a .n { background: var(--acc); border-color: var(--accl); }
+nav.toc .grow { flex: 1; }
+section.ch { padding-top: 26px; scroll-margin-top: 56px; }
+.film { scroll-margin-top: 64px; }
+section.ch > h2 { font-size: 24px; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; }
+section.ch > h2 .n { color: var(--accl); }
+.lead { color: var(--mut); margin: 0 0 16px; }
+.step { position: relative; margin: 18px 0; padding: 14px 16px 14px 58px; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; }
+.step > .sn { position: absolute; left: 14px; top: 14px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--accl); color: #fff; }
+.step h3 { margin: 2px 0 6px; font-size: 18px; }
+.step p { margin: 6px 0; }
+.step ol, .step ul { margin: 6px 0; padding-left: 20px; }
+.note { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg3); border-left: 3px solid var(--accl); font-size: 15px; }
+.note.safe { border-left-color: var(--pos); }
+.note.warn { border-left-color: var(--warn); }
+.plat { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.plat .badge b { color: var(--ink); font-weight: 600; }
+kbd { font: inherit; font-size: 14px; padding: 1px 6px; border-radius: 6px; background: var(--bg3); border: 1px solid var(--line); white-space: nowrap; }
+/* скриншот с номерами */
+.shot { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 12px 0 4px; }
+.shot .pic { position: relative; flex: none; width: min(340px, 100%); border-radius: 18px; overflow: hidden; border: 6px solid #0b0d10; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.shot .pic img { display: block; width: 100%; height: auto; }
+.shot .dot { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: #e8590c; color: #fff; font: 700 12px/20px system-ui, sans-serif; text-align: center; padding: 0; box-shadow: 0 1px 6px rgba(0,0,0,.6); animation: pulse 2.4s infinite; }
+.shot .dot.sel { background: #2f7bf0; animation: none; transform: translate(-50%, -50%) scale(1.25); z-index: 2; }
+@keyframes pulse { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(232,89,12,.7); } 35% { box-shadow: 0 0 0 7px rgba(232,89,12,0); } }
+.shot ol.lst { flex: 1 1 280px; margin: 0; padding: 0; list-style: none; counter-reset: k; }
+.shot ol.lst li { position: relative; padding: 7px 8px 7px 38px; border-radius: 10px; cursor: pointer; font-size: 15px; }
+.shot ol.lst li::before { counter-increment: k; content: counter(k); position: absolute; left: 6px; top: 7px; width: 22px; height: 22px; border-radius: 50%; background: #e8590c; color: #fff; font: 700 12px/22px system-ui, sans-serif; text-align: center; }
+.shot ol.lst li.sel { background: var(--bg3); outline: 1px solid var(--accl); }
+.shot ol.lst li.sel::before { background: #2f7bf0; }
+.shot .hint { font-size: 13px; color: var(--mut); width: 100%; margin-top: -6px; }
+/* мини-фильм */
+.film { margin: 14px 0; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.film .fh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.film .fh .grow { flex: 1; }
+.film .fh small { font-weight: 400; color: var(--mut); }
+.film canvas { display: block; width: 100%; height: 300px; background: var(--chbg); touch-action: pan-y; }
+.film .cap { min-height: 112px; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 15.5px; }
+.film .cap .k { display: block; font-size: 12px; color: var(--mut); margin-bottom: 3px; }
+.film .cap .rule { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; font-size: 13.5px; background: var(--bg3); border: 1px solid var(--line); }
+.film .cap .rule.bad { border-color: var(--neg); color: var(--neg); }
+.film .cap .rule.good { border-color: var(--pos); color: var(--pos); }
+.film .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.film .ctl input[type=range] { flex: 1 1 140px; accent-color: var(--accl); }
+.film .ctl label { font-size: 14px; color: var(--mut); display: flex; align-items: center; gap: 6px; }
+.film .ctl .play { min-width: 92px; }
+.soon { margin: 12px 0; padding: 18px; text-align: center; color: var(--dim); border: 1px dashed var(--line); border-radius: 14px; }
+footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: center; }
+@media (max-width: 520px) {
+  .step { padding: 12px 12px 12px 50px; }
+  .step > .sn { left: 10px; width: 30px; height: 30px; }
+  .film canvas { height: 260px; }
+  .hero h1 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="ttl">Волны Эллиотта<small>инструкция · для версии 2.39</small></div>
+  <button id="themeBtn" aria-label="Светлая или тёмная тема">☀︎ Светлая</button>
+</header>
+<main>
+
+<div class="hero">
+  <h1>Как пользоваться приложением «Волны Эллиотта»</h1>
+  <p>Приложение само размечает волны на графике по книге Пректера и Фроста «Волновой принцип Эллиотта», показывает сигналы на покупку, считает стоп, цель и сколько акций брать, и ведёт виртуальных роботов.</p>
+  <p><span class="badge">📱 телефон Android</span> <span class="badge">💻 Windows — позже</span></p>
+</div>
+
+<div class="sample"><b>Это пробный пример.</b> Готовы раздел «Быстрый старт» и два «мини-фильма». Остальные разделы в оглавлении пока серые — их добавим, если пример понравится.</div>
+
+<nav class="toc" aria-label="Оглавление">
+  <a href="#start"><span class="n">1</span><span class="grow">Быстрый старт</span><span class="badge ok">готово</span></a>
+  <a href="#waves"><span class="n">2</span><span class="grow">Волны по книге — простыми словами</span><span class="badge ok">фильм</span></a>
+  <span><span class="n">3</span><span class="grow">График и подсчёт волн</span><span class="badge">скоро</span></span>
+  <a href="#signal"><span class="n">4</span><span class="grow">Сигнал и ведение сделки</span><span class="badge ok">фильм</span></a>
+  <span><span class="n">5</span><span class="grow">Наборы: основной, агрессивный, «4 часа · неделя»</span><span class="badge">скоро</span></span>
+  <span><span class="n">6</span><span class="grow">Роботы — виртуальные счета</span><span class="badge">скоро</span></span>
+  <span><span class="n">7</span><span class="grow">Тренажёр</span><span class="badge">скоро</span></span>
+  <span><span class="n">8</span><span class="grow">Дневник, уведомления, виджет</span><span class="badge">скоро</span></span>
+  <span><span class="n">9</span><span class="grow">Настройки</span><span class="badge">скоро</span></span>
+  <span><span class="n">10</span><span class="grow">Что проверено на истории</span><span class="badge">скоро</span></span>
+  <span><span class="n">11</span><span class="grow">Проверь себя — вопросы на графике</span><span class="badge">скоро</span></span>
+  <span><span class="n">12</span><span class="grow">Частые вопросы</span><span class="badge">скоро</span></span>
+  <span><span class="n">13</span><span class="grow">Словарь</span><span class="badge">скоро</span></span>
+</nav>
+
+<!-- ===================== 1. Быстрый старт ===================== -->
+<section class="ch" id="start">
+  <h2><span class="n">1</span> Быстрый старт</h2>
+  <p class="lead">Четыре шага — и на экране настоящие котировки Мосбиржи с разметкой волн.</p>
+
+  <div class="step"><span class="sn">1</span>
+    <h3>Получите токен Т-Инвестиций «только для чтения»</h3>
+    <p>Токен — это ключ, по которому приложение получает котировки у брокера. Нужен токен <b>только для чтения</b>: с ним нельзя ни купить, ни продать, ни вывести деньги.</p>
+    <ol>
+      <li>На компьютере откройте <b>tbank.ru/invest/settings</b>.</li>
+      <li>Найдите блок <b>«Токены T-Bank Invest API»</b>.</li>
+      <li>Нажмите «Создать токен» и выберите <b>«Только для чтения»</b>.</li>
+      <li>Скопируйте токен (начинается с <kbd>t.</kbd>) и перешлите себе на телефон.</li>
+    </ol>
+    <div class="note safe">🔒 Токен хранится только в вашем телефоне. Никому его не отправляйте — даже разработчику. В выгрузки и журнал приложения он не попадает.</div>
+  </div>
+
+  <div class="step"><span class="sn">2</span>
+    <h3>Вставьте токен в приложение</h3>
+    <p>Откройте <kbd>⚙</kbd> Настройки → вкладка <b>«Счёт»</b>. Нажмите на номера на картинке — увидите, что где.</p>
+    <figure class="shot" data-pts='[[218,52,"Вкладка «Счёт». Пока токена нет, на ней горит оранжевая точка."],[355,166,"Поле для токена. Вставьте сюда скопированный токен."],[207,216,"«Сохранить и проверить» — приложение сразу попробует загрузить свечи Сбербанка и напишет, работает ли токен."]]'>
+      <div class="pic"><img src="img/set-acct.jpg" alt="Настройки, вкладка Счёт"></div>
+      <ol class="lst"></ol>
+    </figure>
+    <p>Если всё в порядке, появится зелёная надпись <b>«Токен работает»</b>. Если нет — проверьте, что токен скопирован целиком.</p>
+  </div>
+
+  <div class="step"><span class="sn">3</span>
+    <h3>Поставьте готовый набор</h3>
+    <p>Там же, в Настройках, вкладка <b>«Готовые»</b>. Набор — это проверенные на истории 65 акций настройки: какой график смотреть и какие фильтры включить. Для начала нажмите <b>«Поставить»</b> у первого — <b>«Дневки · покупки (основной)»</b>.</p>
+    <figure class="shot" data-pts='[[86,52,"Вкладка «Готовые» — проверенные наборы."],[14,125,"Что стоит сейчас. После нажатия «Поставить» здесь будет название набора."],[366,236,"Основной набор — спокойный, для начала лучше его. Под названием — его результаты на истории 2019–2026."],[366,400,"Агрессивный — зарабатывает больше, но сделок с убытком больше и стоп ближе."],[366,595,"«4 часа · неделя» — короткие сделки на 2–3 дня. Только для тарифа с низкой комиссией («Трейдер»)."]]'>
+      <div class="pic"><img src="img/set-ready.jpg" alt="Настройки, вкладка Готовые"></div>
+      <ol class="lst"></ol>
+    </figure>
+  </div>
+
+  <div class="step"><span class="sn">4</span>
+    <h3>Посмотрите на главный экран</h3>
+    <p>Вернитесь назад кнопкой <kbd>←</kbd>. Это главный экран: сверху бумага и кнопки, посередине график, внизу панель «Сейчас». Нажимайте на номера.</p>
+    <figure class="shot" data-pts='[[14,52,"Бумага. Нажмите, чтобы найти другую акцию: поиск по названию и «Сканер» — где сейчас есть сигналы."],[108,55,"Таймфрейм — из каких свечей график: 1 час, 4 часа, день…"],[213,57,"☆ В избранное — бумага попадёт в список, который приложение проверяет в фоне."],[251,57,"🔔 Оповещения по этой бумаге."],[289,57,"⟳ Обновить котировки."],[327,57,"📒 Дневник ваших сделок."],[365,57,"⚙ Настройки."],[336,92,"Табличка над графиком: какой подсчёт, куда тренд, в сделке ли система. Стрелка ▴ сворачивает её."],[30,440,"График. Синяя линия с цифрами — подсчёт волн. Пальцами можно двигать и увеличивать. Долгое нажатие — меню: оповещение на этой цене или «моя покупка здесь»."],[240,489,"Ручка. Потяните вверх-вниз — график станет больше или меньше. Двойное касание — график на весь экран."],[172,505,"Порог — насколько крупные волны искать. «Авто» подбирает сам; кнопки − и + меняют вручную."],[268,505,"Результат системы на этом графике: сколько заработала бы и сколько было сделок."],[370,505,"«Вид» — что показывать на графике. Значок 🎓 — тренажёр."],[18,557,"Панель «Сейчас» — самое главное: открытая сделка, сколько акций брать, стоп, цель и план."]]'>
+      <div class="pic"><img src="img/main.jpg" alt="Главный экран приложения"></div>
+      <ol class="lst"></ol>
+    </figure>
+    <div class="plat"><span class="badge">📱 Телефон: <b>нажать на номер</b></span><span class="badge">💻 Windows: появится в своей версии инструкции</span></div>
+  </div>
+</section>
+
+<!-- ===================== 2. Волны ===================== -->
+<section class="ch" id="waves">
+  <h2><span class="n">2</span> Волны по книге — простыми словами</h2>
+  <p class="lead">Нажмите ▶ — график будет расти свеча за свечой, а подсчёт появится так же, как его видит приложение: не сразу, а когда волна уже закончилась.</p>
+  <div class="film" id="film1"></div>
+  <div class="note">Попробуйте галочку <b>«Сломать правило»</b> под фильмом: волна 4 заползёт в зону волны 1 — и вы увидите, почему такой подсчёт не годится.</div>
+</section>
+
+<!-- ===================== 4. Сигнал ===================== -->
+<section class="ch" id="signal">
+  <h2><span class="n">4</span> Сигнал и ведение сделки</h2>
+  <p class="lead">Одна сделка от начала до конца — так, как её ведёт <b>агрессивный набор</b>: вход в волну 3, стоп, цель, безубыток и «бегунок».</p>
+  <div class="film" id="film2"></div>
+  <div class="note warn">Это учебный пример на нарисованных свечах. Не каждая сделка такая удачная: по истории прибыльна примерно каждая вторая, а заработок делают немногие большие сделки.</div>
+</section>
+
+<section class="ch">
+  <h2><span class="n">…</span> Дальше</h2>
+  <div class="soon">Остальные разделы — после того, как вы посмотрите пример и скажете, что поменять.</div>
+</section>
+
+<footer>Волны Эллиотта · инструкция (пример) · октябрь 2026</footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  // ---------- тема ----------
+  const root = document.documentElement, tb = document.getElementById('themeBtn');
+  let theme = 'dark';
+  try { theme = localStorage.getItem('ewman.theme') || 'dark'; } catch (e) { /* без хранилища */ }
+  const setTheme = (t) => { theme = t; root.dataset.theme = t; tb.textContent = t === 'dark' ? '☀︎ Светлая' : '☾ Тёмная'; try { localStorage.setItem('ewman.theme', t); } catch (e) { /* ничего */ } films.forEach((f) => f.draw()); };
+  tb.onclick = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+  const css = (v) => getComputedStyle(root).getPropertyValue(v).trim();
+
+  // ---------- скриншоты с номерами ----------
+  document.querySelectorAll('figure.shot').forEach((fig) => {
+    const pts = JSON.parse(fig.dataset.pts), pic = fig.querySelector('.pic'), lst = fig.querySelector('.lst');
+    const W = 390, H = 844;
+    const dots = pts.map(([x, y], k) => { const b = document.createElement('button'); b.className = 'dot'; b.textContent = k + 1; b.style.left = (x / W * 100) + '%'; b.style.top = (y / H * 100) + '%'; b.setAttribute('aria-label', 'Пояснение ' + (k + 1)); pic.appendChild(b); return b; });
+    const items = pts.map(([, , t]) => { const li = document.createElement('li'); li.textContent = t; lst.appendChild(li); return li; });
+    const pick = (k, scroll) => { dots.forEach((d, j) => d.classList.toggle('sel', j === k)); items.forEach((d, j) => d.classList.toggle('sel', j === k)); if (scroll) items[k].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+    dots.forEach((d, k) => { d.onclick = () => pick(k, true); });
+    items.forEach((d, k) => { d.onclick = () => pick(k, false); });
+    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = 'Нажмите на номер на картинке или на строку в списке.'; fig.appendChild(hint);
+  });
+
+  // ---------- свечи по опорным точкам ----------
+  function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+  function genBars(piv, seed) {
+    const r = rng(seed), bars = [];
+    let prev = piv[0][1];
+    for (let k = 1; k < piv.length; k++) {
+      const [i0, p0] = piv[k - 1], [i1, p1] = piv[k], n = i1 - i0, lo = Math.min(p0, p1), hi = Math.max(p0, p1);
+      const a = Math.abs(p1 - p0) / n * 0.9 + 0.35, up = p1 > p0;
+      for (let i = i0 + 1; i <= i1; i++) {
+        const base = p0 + (p1 - p0) * (i - i0) / n;
+        const o = prev;
+        let c = i === i1 ? p1 - (up ? 1 : -1) * a * (0.25 + 0.3 * r()) : base + (r() - 0.5) * a * 1.6;
+        c = Math.min(hi, Math.max(lo, c));
+        let h = Math.max(o, c) + r() * a * 0.5, l = Math.min(o, c) - r() * a * 0.5;
+        if (i === i1) { if (up) h = p1; else l = p1; }
+        h = Math.min(h, k + 1 < piv.length && up ? p1 : hi + (up ? 0 : a * 0.3)); l = Math.max(l, up ? lo - a * 0.3 : p1);
+        if (i < i1) { if (up) h = Math.min(h, p1 - 0.05); else l = Math.max(l, p1 + 0.05); }
+        bars.push({ o, h: Math.max(h, o, c), l: Math.min(l, o, c), c });
+        prev = c;
+      }
+    }
+    bars.unshift({ o: piv[0][1] + 0.4, h: piv[0][1] + 0.6, l: piv[0][1], c: piv[0][1] + 0.3 });
+    return bars;
+  }
+  const fmt = (x, d = 2) => x.toFixed(d).replace('.', ',');
+
+  // ---------- проигрыватель ----------
+  const films = [];
+  function Film(el, sc) {
+    el.innerHTML = `<div class="fh">🎬 <span class="grow">${sc.title}</span><small class="cnt"></small></div><canvas></canvas><div class="cap"></div>
+      <div class="ctl"><button class="play">▶ Играть</button><button class="prev" aria-label="Шаг назад">⏮</button><button class="next" aria-label="Шаг вперёд">⏭</button><input type="range" min="0" value="0" aria-label="Ползунок времени">
+      <label><input type="checkbox" class="stops" checked> пауза на шагах</label>${sc.variant ? `<label><input type="checkbox" class="var"> ${sc.variant}</label>` : ''}</div>`;
+    const cv = el.querySelector('canvas'), cap = el.querySelector('.cap'), cnt = el.querySelector('.cnt'), rg = el.querySelector('input[type=range]');
+    const pb = el.querySelector('.play'), stopsCb = el.querySelector('.stops'), varCb = el.querySelector('.var');
+    let st = null, n = 0, timer = null, hold = 0, lastStep = -1;
+    const build = () => { st = sc.build(varCb && varCb.checked); rg.max = st.bars.length - 1; };
+    const stepIdx = () => { let k = 0; st.steps.forEach((s, j) => { if (s.at <= n) k = j; }); return k; };
+    const self = {
+      draw() {
+        const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+        if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+        const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const C = { bg: css('--chbg'), grid: css('--grid'), axis: css('--axis'), ink: css('--ink'), up: '#3fbf7f', dn: '#ef5b5b', wave: css('--wave'), corr: css('--corr'), warn: css('--warn'), neg: '#ef5b5b', pos: '#3fbf7f', mut: css('--mut') };
+        g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+        const B = st.bars, N = B.length, pl = 8, pr = 56, pt = 22, pbm = 14;
+        let lo = Infinity, hi = -Infinity; B.forEach((b) => { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); }); (st.extra || []).forEach((p) => { lo = Math.min(lo, p); hi = Math.max(hi, p); });
+        const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+        const sw = (W - pl - pr) / N, X = (i) => pl + (i + 0.5) * sw, Y = (p) => pt + (hi - p) / (hi - lo) * (H - pt - pbm);
+        g.font = '11px system-ui, sans-serif'; g.textBaseline = 'middle';
+        const stepv = Math.pow(10, Math.floor(Math.log10((hi - lo) / 4))); let gs = stepv; while ((hi - lo) / gs > 6) gs *= 2;
+        for (let p = Math.ceil(lo / gs) * gs; p < hi; p += gs) { g.strokeStyle = C.grid; g.lineWidth = 1; g.beginPath(); g.moveTo(pl, Y(p)); g.lineTo(W - pr, Y(p)); g.stroke(); g.fillStyle = C.axis; g.textAlign = 'left'; g.fillText(fmt(p, gs < 1 ? 1 : 0), W - pr + 6, Y(p)); }
+        const bw = Math.max(1.5, sw * 0.62);
+        for (let i = 0; i <= n; i++) { const b = B[i], col = b.c >= b.o ? C.up : C.dn; g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(X(i), Y(b.h)); g.lineTo(X(i), Y(b.l)); g.stroke(); const y1 = Y(Math.max(b.o, b.c)), y2 = Y(Math.min(b.o, b.c)); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
+        const api = {
+          g, C, X, Y, W, H, pl, pr, n, B,
+          line(x1, y1, x2, y2, col, w = 2, dash = null) { g.save(); g.strokeStyle = col; g.lineWidth = w; if (dash) g.setLineDash(dash); g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); g.restore(); },
+          hline(p, i0, col, text, dash = [5, 4], w = 1.5) { api.line(X(i0), Y(p), W - pr, Y(p), col, w, dash); g.fillStyle = col; g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'right'; g.textBaseline = 'bottom'; if (text) g.fillText(text, W - pr - 4, Y(p) - 2); g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(fmt(p), W - pr + 6, Y(p)); },
+          label(t, i, p, col, below) { const x = X(i), y = Y(p) + (below ? 14 : -14); g.font = 'bold 14px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = C.bg; g.strokeText(t, x, y); g.fillStyle = col; g.fillText(t, x, y); },
+          text(t, x, y, col, al = 'left', sz = 12) { g.font = 'bold ' + sz + 'px system-ui, sans-serif'; g.textAlign = al; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = C.bg; g.strokeText(t, x, y); g.fillStyle = col; g.fillText(t, x, y); },
+          path(pts, col, w = 2.2, dash = null) { g.save(); g.strokeStyle = col; g.lineWidth = w; if (dash) g.setLineDash(dash); g.beginPath(); pts.forEach(([i, p], k) => (k ? g.lineTo(X(i), Y(p)) : g.moveTo(X(i), Y(p)))); g.stroke(); g.restore(); },
+        };
+        sc.overlay(api, st);
+        const k = stepIdx(), s = st.steps[k];
+        if (k !== lastStep) { cap.innerHTML = `<span class="k">Шаг ${k + 1} из ${st.steps.length}</span>${typeof s.cap === 'function' ? s.cap(st) : s.cap}`; lastStep = k; }
+        cnt.textContent = 'свеча ' + (n + 1) + ' из ' + N; rg.value = n;
+      },
+      stop() { clearInterval(timer); timer = null; pb.textContent = n >= st.bars.length - 1 ? '↺ Сначала' : '▶ Играть'; },
+      play() {
+        if (n >= st.bars.length - 1) { n = 0; lastStep = -1; }
+        pb.textContent = '⏸ Пауза'; hold = 0;
+        timer = setInterval(() => {
+          if (hold > 0) { hold--; return; }
+          if (n >= st.bars.length - 1) { self.stop(); return; }
+          n++;
+          if (stopsCb.checked && st.steps.some((s) => s.at === n)) hold = 22;
+          self.draw();
+        }, 90);
+      },
+      go(m) { n = Math.max(0, Math.min(st.bars.length - 1, m)); self.draw(); },
+    };
+    pb.onclick = () => (timer ? self.stop() : self.play());
+    el.querySelector('.next').onclick = () => { self.stop(); const s = st.steps.find((x) => x.at > n); self.go(s ? s.at : st.bars.length - 1); self.stop(); };
+    el.querySelector('.prev').onclick = () => { self.stop(); const k = stepIdx(); self.go(st.steps[st.steps[k].at === n ? Math.max(0, k - 1) : k].at); self.stop(); };
+    rg.oninput = () => { self.stop(); self.go(Number(rg.value)); self.stop(); };
+    if (varCb) varCb.onchange = () => { self.stop(); build(); lastStep = -1; self.go(sc.varJump ? sc.varJump(st) : 0); self.stop(); };
+    build(); n = 0; self.draw();
+    window.addEventListener('resize', () => self.draw());
+    if ('IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) { io.disconnect(); if (!timer && n === 0) self.play(); } }, { threshold: 0.6 }); io.observe(cv); }
+    films.push(self);
+    return self;
+  }
+
+  // ---------- фильм 1: импульс и коррекция ----------
+  const NAMES = ['0', '1', '2', '3', '4', '5', 'A', 'B', 'C'];
+  Film(document.getElementById('film1'), {
+    title: 'Как рождается импульс 1-2-3-4-5',
+    variant: 'Сломать правило волны 4',
+    build(bad) {
+      const piv = [[0, 100], [12, 112], [20, 105], [38, 128], [47, bad ? 109.5 : 121], [59, 134], [68, 124], [74, 130], [84, 118], [90, 121.5]];
+      const bars = genBars(piv, 7);
+      const L = 2;   // волна видна через 2 свечи после конца — когда разворот подтвердился
+      const at = (k) => piv[k][0] + L;
+      const steps = [
+        { at: 0, cap: 'Каждая палочка — <b>свеча</b>: цена за один промежуток (час, 4 часа или день). Зелёная — цена за это время выросла, красная — упала. Цена никогда не идёт по прямой: она движется <b>волнами</b>.' },
+        { at: at(1), cap: '<b>Волна 1.</b> Первый рывок вверх. В этот момент ещё никто не знает, что начался новый подъём: со стороны это похоже на обычный отскок.' },
+        { at: at(2), cap: '<b>Волна 2</b> откатывает часть волны 1 — чаще всего 50–62%. Здесь — 58%.<br><span class="rule good">✓ Правило: волна 2 никогда не уходит ниже начала волны 1</span> (красный пунктир). Если ушла — подсчёт неверный.' },
+        { at: at(3), cap: (s) => `<b>Волна 3</b> — самая сильная и длинная, обычно в 1,6 раза длиннее волны 1 и больше. Здесь — в ${fmt((s.piv[3][1] - s.piv[2][1]) / (s.piv[1][1] - s.piv[0][1]), 1)} раза.<br><span class="rule good">✓ Правило: волна 3 не бывает самой короткой из 1, 3 и 5</span>. Именно в волну 3 система входит в сделку.` },
+        { at: at(4), cap: (s) => s.bad
+          ? '<b>Волна 4 зашла в зону волны 1</b> — опустилась ниже красного пунктира (вершины волны 1). Значит, это не импульс 1-2-3-4-5: приложение отбросит такой подсчёт и поищет другой — например, клин или коррекцию.<br><span class="rule bad">✗ Правило нарушено: в импульсе волна 4 не заходит в зону волны 1</span>'
+          : '<b>Волна 4</b> — спокойный откат, «отдых» после волны 3. Обычно не похожа на волну 2: одна резкая, другая боковая (это называется чередование).<br><span class="rule good">✓ Правило: волна 4 не заходит в зону волны 1</span> — выше оранжевой линии.' },
+        { at: at(5), cap: (s) => `<b>Волна 5</b> — последний рывок вверх. Часто она примерно равна волне 1 (здесь ${fmt(s.piv[5][1] - s.piv[4][1], 0)} против ${fmt(s.piv[1][1] - s.piv[0][1], 0)}) — так бывает, когда растянута волна 3. <b>Импульс 1-2-3-4-5 закончен</b>.` },
+        { at: at(8), cap: '<b>Коррекция A-B-C.</b> После импульса цена откатывает в три волны: A — вниз, B — отскок, C — снова вниз. Обычно коррекция заканчивается в районе волны 4 — у нас так и вышло. Дальше может начаться новый импульс.' },
+      ];
+      return { bars, piv, steps, bad, L };
+    },
+    varJump: (st) => st.piv[4][0] + st.L,
+    overlay(a, st) {
+      const { piv, L } = st, n = a.n;
+      let last = 0; for (let k = 1; k < piv.length - 1; k++) if (piv[k][0] + L <= n) last = k;
+      const imp = piv.slice(0, Math.min(last, 5) + 1), cor = last > 5 ? piv.slice(5, last + 1) : [];
+      // правила
+      if (last >= 1 && last < 3) a.hline(piv[0][1], piv[0][0], a.C.neg, 'начало волны 1 — ниже нельзя');
+      if (last >= 3 && last < 5) a.hline(piv[1][1], piv[1][0], st.bad && last >= 4 ? a.C.neg : a.C.warn, st.bad && last >= 4 ? 'нарушено: волна 4 в зоне волны 1' : 'вершина волны 1 — граница для волны 4');
+      a.path(imp, a.C.wave);
+      if (st.bad && last >= 4) a.path([piv[3], piv[4]], a.C.neg, 3);
+      if (cor.length > 1) a.path(cor, a.C.corr);
+      const lp = piv[last]; if (lp[0] < n) a.path([lp, [n, a.B[n].c]], last >= 5 ? a.C.corr : a.C.wave, 1.5, [4, 4]);
+      for (let k = 0; k <= last; k++) { const top = k === 0 ? false : piv[k][1] > piv[k - 1][1]; a.label(NAMES[k], piv[k][0], piv[k][1], k > 5 ? a.C.corr : a.C.wave, !top); }
+      if (last >= 3 && last < 5) { const m = Math.round((piv[2][0] + piv[3][0]) / 2); a.text('волна 3 = ' + fmt((piv[3][1] - piv[2][1]) / (piv[1][1] - piv[0][1]), 1) + ' × волна 1', a.X(m) + 10, a.Y((piv[2][1] + piv[3][1]) / 2) + 4, a.C.wave, 'left', 11); }
+      if (last >= 5 && last < 8) a.text('импульс', a.X(piv[3][0]), a.Y(piv[5][1]) - 4, a.C.wave, 'center', 12);
+    },
+  });
+
+  // ---------- фильм 2: сделка ----------
+  Film(document.getElementById('film2'), {
+    title: 'Сделка от входа до выхода',
+    build() {
+      const piv = [[0, 100], [12, 110], [20, 104], [41, 123.5], [50, 117.4], [56, 120.6]];
+      const bars = genBars(piv, 21);
+      const w2 = 20, iE = w2 + 3, entry = bars[iE].o, stop0 = piv[2][1] - 0.15, target = piv[2][1] + 1.618 * (piv[1][1] - piv[0][1]);
+      const atr = (i) => { let s = 0; for (let j = i - 13; j <= i; j++) { const b = bars[j], pc = bars[j - 1].c; s += Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)); } return s / 14; };
+      const A = atr(iE - 1);
+      const stops = []; let st = stop0, iBE = -1, iT = -1, iX = -1, xP = 0;
+      for (let i = 0; i < bars.length; i++) {
+        if (i < iE) { stops.push(null); continue; }
+        const b = bars[i];
+        if (iX < 0) {
+          if (b.l <= st && i > iE) { iX = i; xP = Math.min(st, b.o); stops.push(st); continue; }
+          if (iBE < 0 && b.h >= entry + 3 * A) { iBE = i; st = Math.max(st, entry); }
+          if (iT < 0 && b.h >= target) iT = i;
+          if (iT >= 0 && i > iT) { let m = Infinity; for (let j = i - 4; j <= i; j++) m = Math.min(m, bars[j].l); st = Math.max(st, m); }
+        }
+        stops.push(iX >= 0 && i > iX ? null : st);
+      }
+      const R = (xP - entry) / (entry - stop0);
+      const end = Math.min(bars.length, iX + 6);
+      const steps = [
+        { at: 0, cap: 'Цена выросла (<b>волна 1</b>) и откатилась (<b>волна 2</b>). Система ждёт: сделки нет, пока откат не закончится и цена не развернётся вверх.' },
+        { at: iE, cap: `<b>Сигнал!</b> Разворот подтвердился: волна 2 закончилась, начинается волна 3 — самая сильная. Вход по открытию свечи: <b>${fmt(entry)}</b>.<br>
+          <span style="color:#ef5b5b">■</span> <b>Стоп ${fmt(stop0)}</b> — чуть ниже конца волны 2: если цена туда дойдёт, подсчёт неверный и мы выходим с небольшим убытком.<br>
+          <span style="color:#3fbf7f">■</span> <b>Цель ${fmt(target)}</b> — по книге волна 3 часто в 1,618 раза длиннее волны 1.<br>
+          Прибыль до цели в ${fmt((target - entry) / (entry - stop0), 1)} раза больше риска <span class="rule good">✓ фильтр «прибыль/риск ≥ 1,5» пройден</span>` },
+        { at: iBE, cap: `Цена ушла вверх на 3 средних хода свечи (3×ATR) — <b>стоп переносится в безубыток</b>, на цену входа ${fmt(entry)}. Теперь эта сделка уже не принесёт убытка, что бы ни случилось.` },
+        { at: iT, cap: '<b>Цель достигнута.</b> Но сделку не закрываем: прибыль может расти дальше. Стоп подтягивается под минимумы последних 5 свечей — это «бегунок». Цена идёт вверх — стоп идёт за ней.' },
+        { at: iX, cap: `Цена развернулась и задела подтянутый стоп — <b>выход по ${fmt(xP)}</b>.<br>Итог: <b style="color:#3fbf7f">+${fmt(R, 1)} R</b> — то есть заработали в ${fmt(R, 1)} раза больше, чем рисковали. Если на сделку рискуете 3 000 ₽, это ≈ +${Math.round(R * 3000).toLocaleString('ru-RU')} ₽.` },
+      ].filter((s) => s.at >= 0);
+      return { bars: bars.slice(0, end), piv, steps, iE, entry, stop0, target, stops, iT, iX, xP, iBE, extra: [target] };
+    },
+    overlay(a, st) {
+      const n = a.n, { piv, iE } = st;
+      const vis = [piv[0]]; if (n >= piv[1][0] + 2) vis.push(piv[1]); if (n >= iE) vis.push(piv[2]); if (n >= piv[3][0] + 2) vis.push(piv[3]);
+      a.path(vis, a.C.wave); vis.forEach((p, k) => a.label(String(k), p[0], p[1], a.C.wave, k === 0 || k === 2));
+      const lp = vis[vis.length - 1]; if (lp[0] < n && n < iE) a.path([lp, [n, a.B[n].c]], a.C.wave, 1.5, [4, 4]);
+      if (n < iE) return;
+      const closed = st.iX >= 0 && n >= st.iX, endI = closed ? st.iX : n, xr = closed ? a.X(st.iX) : a.W - a.pr;
+      a.line(a.X(iE), a.Y(st.entry), xr, a.Y(st.entry), a.C.wave, 2);
+      a.text('вход ' + fmt(st.entry), a.X(iE) - 8, a.Y(st.entry) - 10, a.C.wave, 'right', 11);
+      if (st.iT < 0 || n < st.iT) { a.hline(st.target, iE, a.C.pos, 'цель', null, 2); }
+      else a.text('🎯 цель взята', a.X(st.iT), a.Y(st.target) - 12, a.C.pos, 'center', 11);
+      // стоп — ступеньками
+      const pts = []; for (let i = iE; i <= endI; i++) if (st.stops[i] != null) { if (pts.length) pts.push([i, pts[pts.length - 1][1]]); pts.push([i, st.stops[i]]); }
+      if (pts.length) { a.path(pts, a.C.neg, 2); const sp = pts[pts.length - 1][1]; if (!closed) { a.line(a.X(endI), a.Y(sp), xr, a.Y(sp), a.C.neg, 2, [5, 4]); a.text('стоп ' + fmt(sp), xr - 4, a.Y(sp) + 11, a.C.neg, 'right', 11); } }
+      a.text('▲', a.X(iE), a.Y(a.B[iE].l) + 12, a.C.pos, 'center', 14);
+      if (st.iBE >= 0 && n >= st.iBE && (st.iT < 0 || n < st.iT + 3)) a.text('стоп → безубыток', a.X(st.iBE) + 4, a.Y(st.entry) + 13, a.C.warn, 'left', 11);
+      if (st.iX >= 0 && n >= st.iX) { a.text('✕ выход', a.X(st.iX), a.Y(st.xP) + 14, a.C.neg, 'center', 12); }
+    },
+  });
+  setTheme(theme);
+})();
+</script>
+</body>
+</html>
