@@ -3,3 +3,5 @@ node_modules/
 research/ui-tests/shots/*
 !research/ui-tests/shots/.keep
 apk/
+# книги владельца — только на компьютере, не на GitHub
+books/
