@@ -4,8 +4,10 @@
 const S = require('./store.js');
 const { evalCfg } = require('./strat.js');
 const { portfolio } = require('./maxpos_add.js');
-const ser = S.series.filter((s) => s.tf === '4h'), mkt = S.D.buildMarket('4h', 200);
-const H4 = 4 * 3600e3, SPLIT = Date.parse('2025-08-17'), FEE = 0.0007, BOR = 0.15;
+// MOEX=1 — 4ч Мосбиржи 2018–2026 (moex4h.js), половины до/после 09.08.2022
+const MOEX = !!process.env.MOEX;
+const ser = MOEX ? require('./moex4h.js').series(S) : S.series.filter((s) => s.tf === '4h'), mkt = S.D.buildMarket('4h', 200);
+const H4 = 4 * 3600e3, SPLIT = MOEX ? Date.UTC(2022, 7, 9) : Date.parse('2025-08-17'), FEE = 0.0007, BOR = 0.15;
 const DIR = process.env.DIR || 'long';
 const H4W = { longOnly: DIR === 'long', shortOnly: DIR === 'short', swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true,
   beMode: 'auto', beRule: 'atr', beAtr: 3, setups: { w3: true, w5: false, abc: false, tri: false }, weekExit: true, feePct: 0.05 };
@@ -60,12 +62,12 @@ function report(lab, list) {
   console.log(lab.padEnd(36), String(all.length).padStart(5), R.toFixed(0).padStart(5), (R / all.length).toFixed(2).padStart(6), pct(w / all.length) + '%', pct(p.cagr), pct(h[0]), pct(h[1]), pct(p.mdd) + '%', String(p.st).padStart(4), '|', pct(rc[0]), '–', pct(rc[19]), DIR === 'both' ? `| пок ${L.length} ${avg(L)}R, прод ${Sh.length} ${avg(Sh)}R` : '');
 }
 const base = trades({}), near = trades({ targetMode: 'near' });
-console.log(`\n«4 часа · неделя», ${({ long: 'только покупки', short: 'только продажи (плата за шорт 15%/год)', both: 'покупки и продажи' })[DIR]}; 4ч VI.2024–X.2026, половины до/после 17.08.2025`);
+console.log(`\n«4 часа · неделя», ${({ long: 'только покупки', short: 'только продажи (плата за шорт 15%/год)', both: 'покупки и продажи' })[DIR]}; ${MOEX ? '4ч Мосбиржи 2018–2026, половины до/после 09.08.2022' : '4ч VI.2024–X.2026, половины до/после 17.08.2025'}`);
 console.log('вариант'.padEnd(36), 'сделок    R   ср.R прибыльн.  %/год  1пол  2пол просадка серия | порядок');
 report('как сейчас', base);
 report('ближняя цель W3 = W1', near);
 // фонд денежного рынка без сделок за тот же период (как в portfolio)
-{ const RATE = { 2024: 0.173, 2025: 0.183, 2026: 0.143 }; let eq = 1; const t0 = Math.min(...base.map((q) => q.T)), t1 = Math.max(...base.map((q) => q.T));
+{ const RATE = { 2019: 0.066, 2020: 0.043, 2021: 0.051, 2022: 0.098, 2023: 0.092, 2024: 0.173, 2025: 0.183, 2026: 0.143 }; let eq = 1; const t0 = Math.min(...base.map((q) => q.T)), t1 = Math.max(...base.map((q) => q.T));
   for (let t = t0; t < t1; t += 864e5) eq *= 1 + (RATE[new Date(t).getUTCFullYear()] || 0.1) / 365.25; console.log('только фонд, без сделок'.padEnd(36), ''.padEnd(32), pct(Math.pow(eq, 1 / ((t1 - t0) / 31557600000)) - 1)); }
 for (const W of [6, 12]) { const tk = base.map((q) => thrust(q, W, false)), nr = (q) => nrOf(q.sd, q.e, q.st, q.ex, (q.TOut - q.T) / 864e5);
   const off = base.filter((q, i) => !tk[i]), on = base.filter((q, i) => tk[i]); console.log(`  толчок ${W}: отсеяно ${off.length}, их R при обычном входе ${(off.reduce((s, q) => s + nr(q), 0) / off.length).toFixed(2)} на сделку; оставшиеся при обычном входе ${(on.reduce((s, q) => s + nr(q), 0) / on.length).toFixed(2)}`); }
