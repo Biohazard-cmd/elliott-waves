@@ -500,6 +500,13 @@
   }
   // ---------- 2.41: роботы с характером и настроением ----------
   const animOn = () => S.anim !== false;
+  // 2.42: карточки сворачиваются нажатием на заголовок; что свёрнуто — помним (S.fold: ключ → true, если свёрнута)
+  const foldC = (k, def) => ' fold' + ((S.fold && k in S.fold ? S.fold[k] : !!def) ? ' folded' : '');
+  document.addEventListener('click', (e) => {
+    const h = e.target.closest('.card.fold > h3'); if (!h || e.target.closest('button, input, select, a, label')) return;
+    const c = h.parentElement, k = c.dataset.fold; if (!k) return;
+    S.fold = Object.assign({}, S.fold); S.fold[k] = !c.classList.contains('folded'); c.classList.toggle('folded', S.fold[k]); save();
+  });
   const applyAnim = () => document.body.classList.toggle('noanim', !animOn());
   // робот-картинка: цвет — как его сделки на графике; огонёк — агрессивный, часики — «4 часа · неделя»
   function botSvg(key, mood, big) {
@@ -571,7 +578,7 @@
     if (robotBusy) return ['think', 'Думаю… перебираю бумаги и считаю волны.'];
     if (!V.on) return ['sleep', 'Я на паузе. Нажмите «▶ Продолжить» внизу — и снова за работу.'];
     if (fresh.length) return moodOf(fresh) === 'happy' ? ['happy', 'Сделка закрылась в плюс! Пректер был бы доволен.'] : ['sad', 'Сработал стоп. Это часть плана: убытки маленькие, прибыль — большая.'];
-    if (pend.length) { const [a, id] = pend[0]; return ['happy', `Есть сигнал: ${id.split('_')[0]} — ${(a.tf || '1d') === '1d' ? 'завтра на открытии покупаю' : 'вход сейчас'} («${a.name}»).`]; }
+    if (pend.length) { const [a, id] = pend[0]; return ['happy', `Есть сигнал: ${id.split('_')[0]} — ${(a.tf || '1d') === '1d' ? 'завтра на открытии покупаю' : 'вход сейчас'} («${a.name}»).`, { id, tf: a.tf || '1d' }]; }
     if (wd === 0 || wd === 6) return ['sleep', 'Выходные — биржа спит, и я тоже.' + (wk ? ' 🧳 Прибыльные сделки уехали на следующую неделю: ' + wk + '.' : '')];
     const pos = robs.flatMap((a) => a.pos.map((p) => [a, p]));
     if (pos.length) {
@@ -592,7 +599,12 @@
   function robFeed() {
     let L; try { L = D.logRead(); } catch (e) { return ''; }
     const it = L.app.items.concat(L.bg.items).filter((x) => x.k === 'robot').sort((a, b) => b.t - a.t).slice(0, 30);
-    return `<div class="card"><h3>📜 Что делали роботы</h3>${it.length ? it.map((x) => `<div class="feed"><time>${fmtT(x.t, true)}</time>${esc(x.m)}</div>`).join('') : '<div class="small">Пока пусто.</div>'}</div>`;
+    // бумага из строки журнала («имя робота: купил SBER …») — по нажатию её график в таймфрейме робота
+    const V = D.vaccGet(), NOT = ['ATR', 'SMA200', 'AO', 'W1', 'CSV', 'JSON'];
+    const go = (m) => { const a = V && V.accs.find((z) => m.startsWith(z.name + ':')); if (!a) return '';
+      const t = (m.slice(a.name.length + 1).match(/\b[A-Z][A-Z0-9]{1,5}\b/g) || []).find((w) => !NOT.includes(w));
+      return t ? ` data-ropen="${t}_TQBR|${a.manual ? '1d' : a.tf || '1d'}" role="button"` : ''; };
+    return `<div class="card${foldC('robFeed', true)}" data-fold="robFeed"><h3>📜 Что делали роботы${it.length ? ' (' + it.length + ')' : ''}</h3>${it.length ? it.map((x) => `<div class="feed"${go(x.m)}><time>${fmtT(x.t, true)}</time>${esc(x.m)}</div>`).join('') : '<div class="small">Пока пусто.</div>'}</div>`;
   }
   function renderRobot() {
     const V = D.vaccGet();
@@ -623,7 +635,7 @@
       return;
     }
     const ra = V.accs.find((a) => a.key === S.robotAcc) || V.accs[0];
-    { const [m, t] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub">${esc(t)}</div></div>`; }
+    { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
     h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
     // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
     const vimTot = V.accs.filter((a) => !a.manual).reduce((s, a) => s + (a.mm || 0), 0);
@@ -664,7 +676,7 @@
       return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
         <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
     };
-    if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow">${pendRow(id, p)}</div>`).join('')}</div>`;
+    if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
     h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
       const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
       if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
@@ -692,6 +704,7 @@
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
     $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; save(); renderRobot(); }; });
     $('#robBody').querySelectorAll('[data-rgo]').forEach((r) => { r.onclick = () => { const id = r.dataset.rgo; closeSheet('robots'); const rtf = ra.tf || '1d'; if (S.inst.id !== id || S.tf !== rtf) { S.inst = { id, ticker: id.split('_')[0], name: id.split('_')[0], classCode: 'TQBR' }; S.tf = rtf; save(); sel = -1; an = null; view.init = false; renderHead(); load(false); } }; });
+    $('#robBody').querySelectorAll('[data-ropen]').forEach((r) => { r.onclick = (e) => { e.stopPropagation(); const [id, tf] = r.dataset.ropen.split('|'); goChart({ id, ticker: id.split('_')[0], tf }); }; });
     $('#vRun').onclick = () => runRobot();
     { const vb = $('#vVim'); if (vb) vb.onclick = () => { S.vimOn = !S.vimOn; save(); renderRobot(); }; }
     $('#robBody').querySelectorAll('[data-rbe]').forEach((b) => { b.onclick = (e) => {
@@ -996,7 +1009,7 @@
     const ad = addonsList();
     // 1. фаза, выход, план, открытая сделка
     const ph = an.phase;
-    h += `<div class="card" id="nowCard"><h3><span class="grow">Сейчас</span><span class="small">${ad.length ? 'доп.: ' + esc(ad.join(', ')) : 'как по книге'}</span></h3>`;
+    h += `<div class="card${foldC('now')}" id="nowCard" data-fold="now"><h3><span class="grow">Сейчас</span><span class="small">${ad.length ? 'доп.: ' + esc(ad.join(', ')) : 'как по книге'}</span></h3>`;
     const nowTop = h.length;   // открытая сделка встаёт сюда — первой, над фазой и планом
     h += `<div class="big ${ph.tone}">${esc(ph.text)}</div>`;
     if (an.phaseNext !== 0) h += `<div class="exit">ВЫХОД: закрыть ${an.phaseNext > 0 ? 'продажи' : 'покупки'} — фигура завершена</div>`;
@@ -1030,7 +1043,7 @@
     // 2. подсчёт
     if (altSel >= an.scen.length) altSel = 0;
     const s = curScen(), tgc = curTg(), lastPx = an.bars[an.N - 1].c;
-    h += `<div class="card"><h3>Подсчёт волн</h3>`;
+    h += `<div class="card${foldC('count')}" data-fold="count"><h3>Подсчёт волн</h3>`;
     if (an.scen.length > 1) {
       const top = an.scen.slice(0, 4), sum = top.reduce((a, x) => a + x.score, 0) || 1;
       h += `<div class="row sortb" style="margin-bottom:2px">${top.map((x, k) => `<button id="alt${k}" data-alt="${k}" class="${k === altSel ? 'on' : ''}">${k ? 'Альт. ' + k : 'Основной'} ${Math.round(x.score / sum * 100)}%</button>`).join('')}</div>`;
@@ -1051,7 +1064,7 @@
     // 3. бэктест
     const st = an.stats, n = st.trades;
     const avgR = n ? st.sumR / n : 0, pf = st.gl > 0 ? st.gp / st.gl : st.gp > 0 ? 99 : 0;
-    h += `<div class="card"><h3><span class="grow">Порог разворота и бэктест</span></h3>
+    h += `<div class="card${foldC('bt')}" data-fold="bt"><h3><span class="grow">Порог разворота и бэктест</span></h3>
       <div class="stepper"><button id="swMinus">−</button><b class="mono" style="min-width:58px;text-align:center">${an.swing.toFixed(an.swing < 2 ? 2 : 1).replace('.', DEC())}%</b><button id="swPlus">+</button><button id="swAuto" class="${curSwing() ? '' : 'on'}">Авто</button><button id="swOpt">Лучший R</button><button id="swOptRet">Макс. %</button></div>
       <div class="kv">
         <div><small>Сделок</small><b>${n}</b></div>
@@ -1080,7 +1093,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
     // 4. сделки
     if (n) {
-      h += `<div class="card"><h3><span class="grow">Сделки бэктеста</span><button id="tPrev">◄</button><button id="tNext">►</button></h3>`;
+      h += `<div class="card${foldC('btTr')}" data-fold="btTr"><h3><span class="grow">Сделки бэктеста</span><button id="tPrev">◄</button><button id="tNext">►</button></h3>`;
       if (sel >= 0) {
         const t = an.trades[sel], sh = an.shadow[sel];
         h += `<div class="plan ${t.side > 0 ? 'buy' : 'sell'}" style="margin:0 0 8px"><b>Сделка ${sel + 1} из ${n} · ${t.side > 0 ? 'покупка' : 'продажа'} · ${esc(E.SETUP_NAME[t.setup])}</b>
@@ -1093,7 +1106,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       }
       h += `<table class="tlist"><thead><tr><th>#</th><th>Дата</th><th>Сетап</th><th>R</th><th>Выход</th></tr></thead><tbody>${an.trades.map((t, k) => `<tr data-t="${k}" class="${k === sel ? 'sel' : ''}"><td>${k + 1} ${t.side > 0 ? '▲' : '▼'}</td><td>${fmtT(an.bars[t.iEntry].t)}</td><td>${E.SETUP_SHORT[t.setup]}${t.add ? ' <span title="доливка по Вильямсу">+д</span>' : ''}</td><td class="${t.R >= 0 ? 'pos' : 'neg'}">${f2(t.R)}${t.add && t.add.R != null ? `<br><small class="${t.add.R >= 0 ? 'pos' : 'neg'}">+${f2(t.add.R)}</small>` : ''}</td><td>${esc(reason(t))}</td></tr>`).join('')}</tbody></table></div>`;
     }
-    h += `<div class="card"><h3>Разбор ошибок</h3><div class="small">Выгрузит свечи, настройки и результат анализа этой бумаги в файл (без токена). Его можно прислать в чат вместе со скриншотом — разберём, где подсчёт ошибся.</div>
+    h += `<div class="card${foldC('dbg')}" data-fold="dbg"><h3>Разбор ошибок</h3><div class="small">Выгрузит свечи, настройки и результат анализа этой бумаги в файл (без токена). Его можно прислать в чат вместе со скриншотом — разберём, где подсчёт ошибся.</div>
       <div class="row" style="margin-top:8px"><button id="expBtn">Выгрузить для разбора</button><button id="expShare" ${lastExport ? '' : 'hidden'}>Отправить</button></div>
       <div class="small" id="expRes">${lastExport ? 'Сохранено: ' + esc(lastExport) : ''}</div></div>`;
     h += `<div class="small" style="text-align:center;margin-top:10px">${S.token && lastLoad ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
@@ -1108,7 +1121,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.41';
+  const APP_VER = '2.42';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1860,6 +1873,15 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       trRenderBar(); draw(); fillPop();
     }; });
   }
+  // 2.42: главное из «Плана» — одной строкой под кнопками, без прокрутки панели; нажатие открывает полный план
+  function trPlanStrip() {
+    if (!tr.waves || !an) return '';
+    const ot = an.openTrade, p = an.plan && an.planActive ? an.plan : null;
+    const t = ot ? `<b class="${ot.side > 0 ? 'pos' : 'neg'}">Сделка системы: ${ot.side > 0 ? 'покупка' : 'продажа'}</b> от ${pr(ot.entry)} · стоп ${pr(ot.stop)}${ot.notgt || !ot.target ? '' : ' · цель ' + pr(ot.target)} · <span class="${ot.R >= 0 ? 'pos' : 'neg'}">${f2(ot.R)} R</span>`
+      : p ? `<b class="${p.side > 0 ? 'pos' : 'neg'}">ПЛАН: ${p.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА'}</b> · вход ~${pr(p.entry)} · стоп ${pr(p.stop)}${p.notgt ? '' : ' · цель ' + pr(p.target)}`
+      : 'ПЛАН: ждать подтверждения разворота';
+    return `<div class="row trps" id="trPlS" role="button"><span class="inf">${t} <span class="mut">▸ подробнее</span></span></div>`;
+  }
   function trRenderBar() {
     const B = $('#trBar'); if (!B) return;
     if (!tr) { B.hidden = true; renderTrQuick(); return; }
@@ -1871,6 +1893,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     B.innerHTML = `<div class="row"><button id="trPP">${tr.playing ? '⏸' : '▶'}</button><button id="trS1" title="шаг">+1</button><button id="trSB" title="до конца свечи">⏭</button><button id="trW" class="${tr.waves ? 'on' : ''}" title="волновая разметка">🌊</button>
       <span class="spdg"><button id="trSm" aria-label="медленнее">−</button><button id="trSx" class="spdv" title="быстро переключить: 1 → 4 → 15 → 30 шагов/с">${tr.speed < 1 ? (1 / tr.speed) + ' с/шаг' : tr.speed + '/с'}<small>⏩</small></button><button id="trSp" aria-label="быстрее">+</button></span><button id="trX" class="${tr.finished && tr.xPane != null ? 'on' : ''}" aria-label="Закончить" title="итоги на весь экран; ещё раз — вернуть график">✕</button></div>
       <div class="row"><button id="trB" class="buy">Buy</button><button id="trSl" class="sell">Sell</button><button id="trTk" class="${tr.ticket ? 'on' : ''}">Ордер ▾</button><button id="trPl" class="${popFor === 'trPl' ? 'on' : ''}" title="план сигнала и открытая сделка системы">План</button><button id="trLy" class="${popFor === 'trBar' ? 'on' : ''}">Слои ▾</button><span class="inf">${tr.cur < tr.full.length ? fmtT(tr.full[tr.cur].t, S.tf !== '1d' && S.tf !== '1w') + ' · ' + tr.j + '/' + path.length : 'конец'} · ${Math.round(trEq()).toLocaleString('ru-RU')} ₽</span></div>
+      ${trPlanStrip()}
       ${tr.ticket ? `<div class="row"><span class="inf" style="flex:none">Объём</span><select id="trPct" class="tin" style="flex:none;width:auto">${[10, 25, 50, 100].map((v) => `<option value="${v}" ${(S.trPct || 100) === v ? 'selected' : ''}>${v}%</option>`).join('')}</select><span class="inf" style="flex:none">SL</span><input type="number" step="any" id="tkSL" class="tin" value="${tr.tk && tr.tk.sl ? tr.tk.sl : ''}" placeholder="нет"><span class="inf" style="flex:none">TP</span><input type="number" step="any" id="tkTP" class="tin" value="${tr.tk && tr.tk.tp ? tr.tk.tp : ''}" placeholder="нет"></div>
         <div class="row"><span class="inf" style="flex:none">Цена</span><input type="number" step="any" id="tkPx" class="tin" placeholder="${pr(trPx())}"><button id="tkBuyP">Buy по цене</button><button id="tkSellP">Sell по цене</button></div>
         ${an && an.plan && an.planActive ? `<div class="row"><button id="tkPlan">Взять SL/TP из сигнала системы</button></div>` : ''}` : ''}
@@ -1920,6 +1943,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       trPause(); tr.xPane = S.view.pane || 0; tr.finished = true; setPane(2); renderPanel(); $('#panel').scrollTop = 0; trRenderBar();
     });
     on('trPl', () => togglePop('trPl', trPlanPop, trPlanBind));
+    on('trPlS', () => togglePop('trPl', trPlanPop, trPlanBind));
     const setSpd = (v) => { tr.speed = v; S.trSpeed = v; save(); if (tr.playing) { clearTimeout(tr.timer); tr.timer = setTimeout(trTick, 1000 / tr.speed); } trRenderBar(); };
     const si = () => { let k = sp.indexOf(tr.speed); if (k < 0) k = sp.findIndex((v) => v > tr.speed) - 1; return Math.max(0, k); };
     on('trSm', () => setSpd(sp[Math.max(0, si() - 1)]));
@@ -1957,7 +1981,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const sys = an ? an.trades.filter((t) => an.bars[t.iEntry] && an.bars[t.iEntry].t >= tr.startT) : [];
     const sysR = sys.filter((t) => t.reason !== 3).reduce((s, t) => s + t.NR, 0), sysW = sys.filter((t) => t.reason !== 3 && t.NR > 0).length, sysN = sys.filter((t) => t.reason !== 3).length;
     const bh = trPx() / tr.startPx - 1, days = Math.round(((all.length ? all[all.length - 1].t : tr.startT) - tr.startT) / 86400000);
-    let h = `<div class="card" style="border-color:#3f6fb3"><h3><span class="grow">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}${tr.finished ? ' · итоги' : ''}</span></h3>
+    let h = `<div class="card${foldC('tr')}" data-fold="tr" style="border-color:#3f6fb3"><h3><span class="grow">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}${tr.finished ? ' · итоги' : ''}</span></h3>
       <div class="small">Старт ${fmtT(tr.startT, false)} · прошло ${days} дн. · порог системы ${String(tr.sw).replace('.', DEC())}% (заморожен)</div>
       <div class="kv"><div><small>Вы</small><b class="${ret >= 0 ? 'pos' : 'neg'}">${spc(ret)}</b></div><div><small>Система</small><b class="${sysR >= 0 ? 'pos' : 'neg'}">${f2(sysR)} R</b></div><div><small>Купил и держал</small><b class="${bh >= 0 ? 'pos' : 'neg'}">${spc(bh)}</b></div>
       <div><small>Ваших сделок</small><b>${tr.trades.length}${tr.trades.length ? ' · ' + Math.round(w / tr.trades.length * 100) + '%' : ''}</b></div><div><small>Сделок системы</small><b>${sysN}${sysN ? ' · ' + Math.round(sysW / sysN * 100) + '%' : ''}</b></div><div><small>Капитал</small><b>${Math.round(eq).toLocaleString('ru-RU')} ₽</b></div></div>
@@ -3267,8 +3291,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const el = $('#watchList'); if (!el) return;
     el.innerHTML = S.watch.length ? S.watch.map((w, k) => {
       const l = D.store.get('last.' + w.wid, null) || D.store.get('last.' + w.ticker + '.' + w.tf, null);
-      return `<div class="watch"><span><b>${esc(w.ticker)}</b> ${D.TF[w.tf].name} <span class="small">· ${esc(w.label || 'текущие настройки')}${w.sw != null ? ', ' + swText(w.sw, w.cfg) : ''}</span><br><span class="small">${l ? esc(l.phase) + (l.plan ? ' · план: ' + l.plan : '') : 'ещё не проверялось'}</span></span><button data-del="${k}">✕</button></div>`;
+      return `<div class="watch"><span data-wgo="${k}" role="button"><b>${esc(w.ticker)}</b> ${D.TF[w.tf].name} <span class="small">· ${esc(w.label || 'текущие настройки')}${w.sw != null ? ', ' + swText(w.sw, w.cfg) : ''}</span><br><span class="small">${l ? esc(l.phase) + (l.plan ? ' · план: ' + l.plan : '') : 'ещё не проверялось'}</span></span><button data-del="${k}">✕</button></div>`;
     }).join('') : '<div class="small" style="padding:8px 0">Список пуст. Откройте нужную бумагу и таймфрейм и нажмите «Добавить».</div>';
+    el.querySelectorAll('[data-wgo]').forEach((s) => { s.onclick = () => { const w = S.watch[Number(s.dataset.wgo)]; if (w) goChart({ id: w.id || w.ticker + '_TQBR', ticker: w.ticker, tf: w.tf }); }; });
     el.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => { S.watch.splice(Number(b.dataset.del), 1); save(); renderWatch(); applySchedule(); renderHead(); }; });
   }
   function applySchedule() { if (A && A.schedule) A.schedule(D.needBg(S) ? S.bgMinutes : 0); }
@@ -3286,6 +3311,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     if (!A || !A.takeOpen) return;
     let o = null; try { o = JSON.parse(A.takeOpen() || 'null'); } catch (e) { return; }
     if (!o || !o.id) return;
+    goChart(o);
+  };
+  // открыть бумагу на графике: { id, ticker, tf } — из уведомления, у роботов, в списке слежения
+  function goChart(o) {
     for (const id of ['journal', 'robots', 'scanner', 'search', 'settings']) closeSheet(id);
     closePop();
     const ch = o.id !== S.inst.id || (o.tf && o.tf !== S.tf);
@@ -3293,9 +3322,20 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     if (o.tf && D.TF[o.tf]) S.tf = o.tf;
     save();
     if (ch) { sel = -1; an = null; view.init = false; renderHead(); load(false); }
-  };
+  }
   window.appResume = () => { renderBell(); renderRobIcon(); if (S.token && Date.now() - lastLoad > 30000) load(false); };
   setInterval(() => { if (S.token && !document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
+  // 2.42: живая цена — последняя (незакрытая) свеча растёт каждые 5 с: запрос последней цены лёгкий; свечи целиком и анализ — по-прежнему раз в минуту
+  let liveBusy = false, liveFail = 0;
+  setInterval(async () => {
+    if (liveBusy || tr || demo || loading || err || !S.token || document.hidden || !lotInfo || !lotInfo.uid || !all.length || Date.now() - liveFail < 60000) return;
+    const b = all[all.length - 1]; if (b.done !== false) return;   // свеча закрыта (биржа закрыта) — обновлять нечего
+    liveBusy = true;
+    try {
+      const id = S.inst.id, uid = lotInfo.uid, m = await D.getLastPrices(S.token, [uid]), v = m[uid];
+      if (v && v.price > 0 && id === S.inst.id && all[all.length - 1] === b) { b.c = v.price; if (v.price > b.h) b.h = v.price; if (v.price < b.l) b.l = v.price; draw(); renderQuote(); }
+    } catch (e) { liveFail = Date.now(); } finally { liveBusy = false; }
+  }, 5000);
   window.addEventListener('resize', () => setChartH(snapPx(S.view.pane || 0)));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) window.appResume(); else if (tr) { trPause(); trSaveState(); } });
   window.addEventListener('pagehide', () => { if (tr) trSaveState(); });

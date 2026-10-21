@@ -57,7 +57,8 @@ body > header .icon { width: 32px; }
 .bot.m-think .bot-eyes { animation: botLook 1.2s ease-in-out infinite; }
 .bot.m-think .bot-b { animation: botTilt 1.2s ease-in-out infinite; }
 .bot .bot-fire { animation: botFire .35s ease-in-out infinite alternate; }
-.bot .bot-hand { animation: botTick 4s steps(8) infinite; transform-origin: 0 0; transform-box: view-box; }
+/* стрелка крутится вокруг центра циферблата (20, 19); с центром 0 0 она летала вокруг робота «мухой» (2.41) */
+.bot .bot-hand { animation: botTick 4s steps(8) infinite; transform-origin: 20px 19px; transform-box: view-box; }
 @keyframes botSway { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
 @keyframes botBlink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
 @keyframes botJump { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-3px); } }
@@ -222,6 +223,15 @@ button:active { transform: translateY(1px); }
 .card { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; margin-bottom: 8px; }
 .card h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
 .card h3 .grow { flex: 1; }
+/* 2.42: сворачиваемые карточки — нажатие на заголовок */
+.card.fold > h3 { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.card.fold > h3:after { content: '▾'; flex: none; font-size: 13px; color: var(--mut); }
+.card.fold.folded > h3:after { content: '▸'; }
+.card.fold.folded > h3 { margin-bottom: 0; }
+.card.fold.folded > :not(h3) { display: none !important; }
+[data-ropen], [data-wgo], .jrow[data-rgo] { cursor: pointer; }
+#trBar .trps { cursor: pointer; background: #24304a; border-radius: 6px; padding: 4px 8px; }
+#trBar .trps .inf { white-space: normal; color: var(--ink); }
 #nowCard .plan + .big { margin-top: 10px; }
 #nowCard h3 .small { text-transform: none; letter-spacing: 0; font-weight: 400; text-align: right; }
 .sw small .hist { display: block; font-style: normal; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--line); }
