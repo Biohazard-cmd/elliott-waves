@@ -710,7 +710,12 @@
     const one = only ? V.accs.find((a) => a.key === only) : null;
     if (only && !one) return ev;
     const now = Date.now();
-    if (!force && now - (V.lastRun || 0) < 50 * 60000) return ev;
+    // 2.43: счёт ходит, когда у его таймфрейма закрылась новая свеча (4ч — в 03/07/11/15/19/23 МСК, дневки — после конца дня по МСК),
+    // но не чаще раза в 4 мин; без новой свечи — раз в 50 мин (стопы ручного счёта, пополнения). Грузим свечи только тех, кому пора.
+    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(a.manual ? '1d' : a.tf || '1d', now)); };
+    const runAccs = force ? V.accs.filter((a) => !one || a === one) : V.accs.filter(due);
+    if (!runAccs.length) return ev;
+    const runSet = new Set(runAccs);
     const say = (m) => { if (onLog) onLog(m); };
     // 1) пополнения и выводы реального счёта
     if (s.account) {
@@ -736,7 +741,7 @@
     const list = U.list.filter((x) => x.turn >= 50e6).slice(0, V.top || 50);
     for (const x of U.list) if (held.has(x.id) && !list.includes(x)) list.push(x);   // бумаги в позиции — даже если выпали из топа
     // свечи — по таймфреймам роботов (дневки нужны всегда: ручной счёт берёт из них ATR); 2.39: робот «4 часа · неделя»
-    const tfs = one ? [one.manual ? '1d' : one.tf || '1d'] : Array.from(new Set(['1d'].concat(V.accs.filter((a) => !a.manual).map((a) => a.tf || '1d'))));
+    const tfs = Array.from(new Set(runAccs.map((a) => (a.manual ? '1d' : a.tf || '1d'))));   // дневки — только если ходит дневной робот или ручной счёт (ему нужен ATR)
     const dataBy = {}, mktBy = {};
     for (const tf of tfs) {
       const dd = dataBy[tf] = {};
@@ -752,7 +757,7 @@
     const data = dataBy['1d'] || dataBy[tfs[0]];
     const T = (an, i) => (an.bars[i] ? an.bars[i].t : 0);
     for (const a of V.accs) {
-      if (one && a !== one) continue;
+      if (!runSet.has(a)) continue;
       const aLast = a.lastRun || V.lastRun || 0;   // прошлый ход этого счёта: робот мог ходить и один, по своей кнопке
       // заголовок уведомления начинается с бумаги: в шторке длинный заголовок обрезается с конца
       const tag = (a.manual ? 'вирт. счёт «' : 'робот «') + a.name + '»', atf = a.manual ? '1d' : a.tf || '1d', mkt = mktBy[atf], aStart = a.startAt || V.startAt;
@@ -767,6 +772,38 @@
       };
       // ручной счёт: стопы и цели, поставленные вами, проверяем по 5-минуткам с прошлой проверки
       if (a.manual) {
+        // 2.43: ваши сделки со счёта Т-Инвестиций повторяются здесь: покупка — позиция, продажа — закрытие (частичная — частью); без уведомлений — вы их сделали сами
+        if (s.account) {
+          const n0 = ev.length, a0 = a.startAt || V.startAt;
+          try {
+            a.opSeen = a.opSeen || {};
+            const ops = await getOperations(s.token, s.account.id, null, Math.max(a0, (a.opAt || 0) - 3 * 86400000));
+            for (const o of ops) {
+              if (a.opSeen[o.id] || o.t < a0) continue;
+              a.opSeen[o.id] = 1;
+              const ins = await instByUid(s.token, o.uid);
+              if (!ins || ins.classCode !== 'TQBR') continue;   // только акции Мосбиржи
+              const id = ins.ticker + '_TQBR';
+              if (o.side > 0) {
+                const cost = o.qty * o.price * (1 + VFEE); a.cash -= cost;
+                a.pos.push({ id, ticker: ins.ticker, lot: ins.lot || 1, qty: o.qty, entry: o.price, entryT: o.t, side: 1, stop: 0, target: 0, cost, divs: 0, src: 'счёт', be: !!a.be, lastChk: o.t });
+                log('robot', `${a.name}: с вашего счёта — купил ${ins.ticker} ${o.qty} шт по ${fmtPrice(o.price, [{ c: o.price }])}`);
+              } else {
+                let left = o.qty;
+                for (const p of a.pos.filter((z) => z.id === id && z.side !== -1).sort((x, y) => x.entryT - y.entryT)) {
+                  if (left <= 0) break;
+                  if (p.qty > left) {   // продали часть — отделяем проданную часть и закрываем её
+                    const k = left / p.qty, part = Object.assign({}, p, { qty: left, cost: p.cost * k, divs: (p.divs || 0) * k });
+                    p.qty -= left; p.cost -= part.cost; p.divs = (p.divs || 0) - part.divs; a.pos.push(part); sold(part, o.price, o.t, 'продажа на вашем счёте'); left = 0;
+                  } else { left -= p.qty; sold(p, o.price, o.t, 'продажа на вашем счёте'); }
+                }
+                if (left > 0) log('robot', `${a.name}: с вашего счёта — продажа ${ins.ticker} ${left} шт без позиции здесь (куплены до запуска роботов) — пропущено`);
+              }
+            }
+            a.opAt = now;
+          } catch (e) { say('ваши сделки со счёта: ' + e.message); }
+          ev.length = n0;
+        }
         for (const p of a.pos.slice()) {
           try {
             const from = Math.max(p.lastChk || p.entryT, now - 5 * 86400000);
@@ -898,13 +935,33 @@
     }
     // без связи ход не засчитываем: иначе после долгого перерыва робот «забыл» бы сделки, случившиеся без него
     if (!Object.keys(data).length && list.length) { log('robot', 'нет связи — ход отложен'); vaccSet(V); return ev; }
-    for (const a of V.accs) if (!one || a === one) a.lastRun = now;
-    if (!one) V.lastRun = now;
+    for (const a of runAccs) a.lastRun = now;
+    if (runAccs.length === V.accs.length) V.lastRun = now;
     V.lastN = Object.keys(data).length;
     vaccSet(V);
     say('робот: проверено ' + V.lastN + ' бумаг');
     return ev;
   }
 
-  root.EWData = { widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  // 2.43: время закрытия последней свечи таймфрейма (+1 мин, пока брокер отдаст её закрытой); 4ч — по UTC 0/4/8…, дневки — конец дня по МСК
+  function lastClose(tf, now) { const p = tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5, off = p === 864e5 ? 3 * 3600e3 : 0; return Math.floor((now - 60e3 + off) / p) * p - off; }
+  // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
+  function nextAlarm() {
+    const V = vaccGet(); if (!V || !V.on || !settings().token) return 0;
+    const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map((a) => a.tf || '1d')); let t = 0;
+    for (const tf of tfs) { const c = lastClose(tf, now) + (tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5) + 90e3; if (!t || c < t) t = c; }
+    return t;
+  }
+  // история всех отправленных уведомлений (для списка в приложении)
+  function notifSave(ev) {
+    if (!ev || !ev.length) return;
+    const h = store.get('notifHist', []), t = Date.now();
+    for (const e of ev) h.push({ t, title: e.title, text: e.text, open: e.open || null });
+    store.set('notifHist', h.slice(-200));
+  }
+  // одна проверка за раз: фон по расписанию, «будильник» и проверка при открытом приложении не должны идти одновременно
+  function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
+  function bgUnlock() { store.set('bgLock', 0); }
+
+  root.EWData = { nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

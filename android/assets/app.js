@@ -500,6 +500,21 @@
   }
   // ---------- 2.41: роботы с характером и настроением ----------
   const animOn = () => S.anim !== false;
+  // 2.43: все уведомления — через одно место: шторка Android + история оповещений в приложении
+  function sendNotes(ev, id0) {
+    if (!ev || !ev.length) return;
+    D.notifSave(ev);
+    let id = id0; for (const e of ev) { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); }
+  }
+  function notifRows(n) {
+    const h = D.store.get('notifHist', []).slice(-n).reverse();
+    if (!h.length) return '<div class="small mut" style="padding:4px 0">Пока ни одного. Здесь будут все уведомления, что приходили: сигналы, выходы, фигуры, отмена подсчёта, уровни, роботы.</div>';
+    return h.map((x) => `<div class="feed"${x.open && x.open.id ? ` data-nopen="${esc(x.open.id)}|${esc(x.open.tf || '')}" role="button"` : ''}><time>${fmtT(x.t, true)}</time><b>${esc(x.title)}</b><div class="small mut">${esc(x.text || '')}</div></div>`).join('');
+  }
+  document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-nopen]'); if (!r) return;
+    const [id, tf] = r.dataset.nopen.split('|'); goChart({ id, ticker: id.split('_')[0], tf: tf || undefined });
+  });
   // 2.42: карточки сворачиваются нажатием на заголовок; что свёрнуто — помним (S.fold: ключ → true, если свёрнута)
   const foldC = (k, def) => ' fold' + ((S.fold && k in S.fold ? S.fold[k] : !!def) ? ' folded' : '');
   document.addEventListener('click', (e) => {
@@ -679,7 +694,7 @@
     if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
     h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
       const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
-      if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
+      if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
         <div class="small">${fmtT(p.entryT, true)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-top:4px"><div class="field" style="margin:0"><label>Стоп</label><input type="number" step="any" data-mstop="${p.entryT}" value="${p.stop || ''}"></div><div class="field" style="margin:0"><label>Тейк</label><input type="number" step="any" data-mtgt="${p.entryT}" value="${p.target || ''}"></div><button data-msave="${p.entryT}">✓</button></div>
         <div class="row" style="margin-top:4px"><button data-mclose="${p.entryT}">Закрыть по рынку</button><button data-rgo="${esc(p.id)}">На график</button></div></div>`;
@@ -691,7 +706,7 @@
     h += robFeed();
     h += `<div class="card"><h3>Управление</h3>
       <div class="row"><button id="vRun" ${robotBusy ? 'disabled' : ''}>${robotBusy ? 'Роботы думают…' : '⟳ Ход всех роботов'}</button><button id="vToggle">${V.on ? '⏸ Остановить' : '▶ Продолжить'}</button></div>
-      <div class="small" id="vMsg">${esc(robotMsg) || 'Сам робот ходит раз в час вместе с фоновой проверкой (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
+      <div class="small" id="vMsg">${esc(robotMsg) || 'Робот ходит сам: сразу после закрытия свечи своего таймфрейма (4 часа — в 3, 7, 11, 15, 19 и 23 ч МСК; телефон будит его, даже когда спит), а при открытом приложении проверка каждые 5 минут (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
       <div class="field" style="margin-top:10px"><label>Пополнить (+) или вывести (−) вручную, ₽ — если деньги не через этот счёт</label><div class="row"><input type="number" id="vFlow" step="1000" style="flex:1"><button id="vFlowOk">Внести</button></div></div>
       ${V.accs.some((a) => a.manual) ? '' : '<div class="row" style="margin-top:6px"><button id="vAddMan">➕ Добавить мой ручной счёт</button></div>'}
       ${V.accs.some((a) => a.key === 'h4_week') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddW">➕ Добавить робота «4 часа · неделя»</button></div><div class="small">Короткие сделки по 4-часовым свечам: в пятницу сделку без прибыли закрывает, прибыльную переносит на следующую неделю в безубытке. Стартовые деньги — как у основного; торгует только по новым сигналам.</div>'}
@@ -843,7 +858,7 @@
     try {
       const ev = await D.robotStep((m) => { robotMsg = m; const el = $('#vMsg'); if (el) el.textContent = m; }, true, only);
       robotMsg = 'Готово: ' + (ev.length ? 'действий ' + ev.length : 'новых действий нет') + ' · ' + fmtT(Date.now(), true);
-      let id = 700; if (A && S.notify.robot !== false) for (const e of ev) { if (A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); }
+      if (S.notify.robot !== false) sendNotes(ev, 700);
     } catch (e) { robotMsg = 'Ошибка: ' + e.message; D.log('error', 'робот: ' + e.message); }
     robotBusy = false; D.logFlush();
     if (!$('#robots').hidden) { const V = D.vaccGet(); if (V) robTakeNews(V); renderRobot(); }
@@ -1121,7 +1136,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.42';
+  const APP_VER = '2.43';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1536,6 +1551,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     h += `<div class="padd"><input type="text" inputmode="decimal" id="paPrice" placeholder="${last ? pr(last) : 'цена'}" autocomplete="off"><button id="paAdd">+ Уровень</button></div>`;
     const mine = jList().filter((j) => !j.closeT && j.instId === S.inst.id && (j.stop || j.target));
     if (mine.length) h += `<div class="pnote">${S.notify.mine === false ? 'Стоп и цель моих сделок из дневника — оповещения выключены в настройках.' : '📒 Стоп и цель моих сделок из дневника тоже отслеживаются.'}</div>`;
+    h += `<div class="pgrp">Последние оповещения</div>${notifRows(6)}`;
     h += `<div class="pnote">${bgLine()}</div><button class="plink" id="pbAll">Все оповещения и частота проверки →</button>`;
     return h;
   }
@@ -3162,6 +3178,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 `;
     if (tab === 'alerts') h = `<div class="card"><h3>Как это работает</h3>
       <div class="small">Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
+      <div class="card${foldC('notifs')}" data-fold="notifs"><h3>📨 История оповещений</h3><div class="small">Все уведомления, что приходили (последние 50). Нажмите — откроется график бумаги.</div>${notifRows(50)}</div>
       <div class="card"><h3>Сигналы системы</h3>
       <div class="small">Бумаги и таймфреймы, по которым присылать вход, выход и уровни. Каждая проверяется по тем настройкам, что стояли, когда её добавили.</div>
       <div id="watchList"></div>
@@ -3227,8 +3244,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       const logs = [];
       const ev = await D.checkAll((m) => logs.push(m));
       btn.textContent = 'Проверить сейчас';
-      let id = 500;
-      for (const e of ev) { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); }
+      sendNotes(ev, 500);
       alertMsg((ev.length ? 'Новых событий: ' + ev.length + ' (отправлены уведомления).\n' : 'Новых событий нет.\n') + logs.join('\n'));
       renderSettings();
     });
@@ -3296,7 +3312,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     el.querySelectorAll('[data-wgo]').forEach((s) => { s.onclick = () => { const w = S.watch[Number(s.dataset.wgo)]; if (w) goChart({ id: w.id || w.ticker + '_TQBR', ticker: w.ticker, tf: w.tf }); }; });
     el.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => { S.watch.splice(Number(b.dataset.del), 1); save(); renderWatch(); applySchedule(); renderHead(); }; });
   }
-  function applySchedule() { if (A && A.schedule) A.schedule(D.needBg(S) ? S.bgMinutes : 0); }
+  function applySchedule() { if (A && A.schedule) A.schedule(D.needBg(S) ? S.bgMinutes : 0); if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm())); }   // 2.43: + «будильник» робота после закрытия свечи
   function alertMsg(m) { window.alert(m); }
   $('#setBtn').onclick = () => { renderSettings(); openSheet('settings'); };
 
@@ -3323,6 +3339,15 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     save();
     if (ch) { sel = -1; an = null; view.init = false; renderHead(); load(false); }
   }
+  // 2.43: пока приложение открыто — проверка сигналов и роботов каждые 5 минут (роботы ходят, только когда закрылась новая свеча их таймфрейма)
+  let fgBusy = false;
+  setInterval(async () => {
+    if (fgBusy || robotBusy || tr || !S.token || document.hidden || !D.bgLock(8 * 60000)) return;
+    fgBusy = true;
+    try { const ev = await D.checkAll(() => {}); sendNotes(ev, 900); if (ev.length) { renderBell(); renderRobIcon(); if (!$('#robots').hidden) renderRobot(); } }
+    catch (e) { D.log('error', 'проверка в приложении: ' + e.message); }
+    finally { D.bgUnlock(); fgBusy = false; D.logFlush(); if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm())); }
+  }, 5 * 60000);
   window.appResume = () => { renderBell(); renderRobIcon(); if (S.token && Date.now() - lastLoad > 30000) load(false); };
   setInterval(() => { if (S.token && !document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
   // 2.42: живая цена — последняя (незакрытая) свеча растёт каждые 5 с: запрос последней цены лёгкий; свечи целиком и анализ — по-прежнему раз в минуту
@@ -3363,5 +3388,6 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   if (!trRestore()) load(false);
   if (S.account && S.token && (!S.acct || Date.now() - S.acct.at > 3600000)) setTimeout(() => refreshAccount(false), 3000);
   if (A && S.bgMinutes && D.needBg(S) && A.isScheduled && !A.isScheduled()) applySchedule();
+  if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm()));   // 2.43: «будильник» робота — при каждом запуске (после обновления приложения он сброшен)
   window.appOpen();
 })();

@@ -53,21 +53,21 @@ public class Bridge {
     static final int JOB_ID = 1001;
     static final String CHANNEL = "signals";
     private final Context ctx;
-    private final CheckService service;
+    private final BgTask service;   // фоновая проверка (CheckService по расписанию или AlarmService по «будильнику»)
     private final WebView web;
     private final Activity act;   // окно приложения (у фоновой проверки его нет)
     // ответы — через главный поток, а не web.post(): у фоновой проверки WebView без окна,
     // и web.post() у такого WebView откладывает задачу «до показа на экране», то есть навсегда — проверка зависала на первом запросе
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
-    Bridge(Context ctx, CheckService service, WebView web) {
+    Bridge(Context ctx, BgTask service, WebView web) {
         this.ctx = ctx.getApplicationContext();
         this.service = service;
         this.web = web;
         this.act = ctx instanceof Activity ? (Activity) ctx : null;
     }
 
-    static void setup(WebView web, Context ctx, CheckService service) {
+    static void setup(WebView web, Context ctx, BgTask service) {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -172,6 +172,13 @@ public class Bridge {
                 .setPersisted(true)
                 .build();
         return js.schedule(job) == JobScheduler.RESULT_SUCCESS;
+    }
+
+    // «будильник» робота: at — время в мс (строкой: в JS числа большие); 0 — снять
+    @JavascriptInterface
+    public void setAlarm(String at) {
+        long t = 0; try { t = (long) Double.parseDouble(at); } catch (Exception e) { /* 0 — снять */ }
+        AlarmReceiver.arm(ctx, t);
     }
 
     @JavascriptInterface

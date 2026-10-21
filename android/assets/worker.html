@@ -11,11 +11,15 @@
   const log = (m) => { try { A && A.log(m); } catch (e) { /* нет моста */ } };
   try {
     EWData.logInit('log_bg.json');
+    // 2.43: уже идёт другая проверка (по расписанию, по «будильнику» или в открытом приложении) — не мешаем ей
+    if (!EWData.bgLock(8 * 60000)) { log('проверка уже идёт — пропуск'); return; }
+    var locked = true;
     const t0 = Date.now();
     EWData.store.set('lastbg', { at: t0, ok: false, running: true });
     const ev = await EWData.checkAll(log, { budgetMs: 6 * 60000 });   // бумаги — не дольше 6 мин, остальное время — уровням и роботам
     EWData.store.set('lastbg', { at: Date.now(), ok: true, events: ev.length, sec: Math.round((Date.now() - t0) / 1000) });
     EWData.log('bg', 'фоновая проверка: готово за ' + Math.round((Date.now() - t0) / 1000) + ' с, событий ' + ev.length);
+    EWData.notifSave(ev);   // всё, что отправили, — в историю оповещений приложения
     let id = 100 + (Date.now() % 1000);
     for (const e of ev) { try { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); } catch (x) { log('notify: ' + x.message); } }
     log('проверка: событий ' + ev.length);
@@ -24,6 +28,8 @@
     EWData.store.set('lastbg', { at: Date.now(), ok: false, err: (e && e.message) || String(e) });
     EWData.log('error', 'фоновая проверка: ' + ((e && e.message) || String(e)), { stack: e && e.stack ? String(e.stack).slice(0, 800) : undefined });
   } finally {
+    try { if (typeof locked !== 'undefined' && locked) EWData.bgUnlock(); } catch (e) { /* не важно */ }
+    try { const at = EWData.nextAlarm(); if (A && A.setAlarm) A.setAlarm(String(at)); } catch (e) { /* старый мост */ }   // следующий «будильник» — после закрытия ближайшей свечи
     try { EWData.logFlush(); } catch (e) { /* не важно */ }
     try { A && A.done(); } catch (e) { /* нет моста */ }
   }

@@ -8,7 +8,7 @@ import android.webkit.WebView;
 
 // Фоновая проверка: открывает assets/worker.html без окна, тот загружает котировки,
 // считает подсчёт и при новом сигнале присылает уведомление.
-public class CheckService extends JobService {
+public class CheckService extends JobService implements BgTask {
     private WebView web;
     private JobParameters params;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -32,7 +32,7 @@ public class CheckService extends JobService {
         return true;
     }
 
-    void finish() {
+    public void finish() {
         main.post(new Runnable() {
             @Override
             public void run() {
