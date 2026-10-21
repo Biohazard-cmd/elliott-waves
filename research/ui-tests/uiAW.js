@@ -15,15 +15,16 @@ const tail = `  await p.addInitScript(() => { window.__alarms = []; const mk = (
   console.log('ход без нажатия:', said, '| 4ч ходил:', V1.accs[0].lastRun > Date.now() - 60e3, '| ручной ходил:', V1.accs[1].lastRun > Date.now() - 60e3);
   const said2 = await p.evaluate(async () => { const m = []; await window.EWData.robotStep((x) => m.push(x), false); return m.length; });
   console.log('сразу ещё раз — сообщений хода:', said2, '(0 = никому не пора)');
-  // 2) сделки со счёта → «мой (вручную)»
-  await p.evaluate(() => { const V = window.EWData.vaccGet(); V.accs[1].lastRun = 0; V.accs[1].startAt = Date.now() - 400 * 864e5; window.EWData.vaccSet(V); });
+  // 2) сделки со счёта → «мой (вручную)»: первая сверка — портфель (SBER 30 шт по средней 284), ручная позиция по той же бумаге не задваивается
+  await p.evaluate(() => { const V = window.EWData.vaccGet(); const m = V.accs[1]; m.lastRun = 0; m.pos = [{ id: 'SBER_TQBR', ticker: 'SBER', lot: 10, qty: 10, entry: 280, entryT: Date.now() - 864e5, side: 1, stop: 270, target: 0, cost: 2800, divs: 0 }]; window.EWData.vaccSet(V); });
   await p.evaluate(() => window.EWData.robotStep(null, true, 'manual'));
-  const M = await p.evaluate(() => window.EWData.vaccGet().accs[1]);
-  console.log('ручной счёт: позиций', M.pos.map((x) => x.ticker + ' ' + x.qty + '@' + x.entry + (x.src ? '(счёт)' : '')).join(', '), '| закрыто', M.closed.map((c) => c.ticker + ' ' + c.qty + ' ' + c.why).join(', '));
+  let M = await p.evaluate(() => window.EWData.vaccGet().accs[1]);
+  console.log('после первой сверки:', M.pos.map((x) => x.ticker + ' ' + x.qty + '@' + x.entry + (x.src ? '(счёт)' : '')).join(', '), '| закрыто', M.closed.length);
+  // вторая сверка: операций после сверки нет, портфель тот же — изменений нет
   await p.evaluate(() => window.EWData.robotStep(null, true, 'manual'));
   const M2 = await p.evaluate(() => window.EWData.vaccGet().accs[1]);
-  console.log('повторный ход не задваивает:', M2.pos.length === M.pos.length && M2.closed.length === M.closed.length);
-  console.log('журнал:', (await p.evaluate(() => { const L = window.EWData.logRead(); return L.app.items.filter((x) => x.k === 'robot').map((x) => x.m).slice(-6).join(' / '); })));
+  console.log('повторная сверка не задваивает:', JSON.stringify(M2.pos.map((x) => x.qty)) === JSON.stringify(M.pos.map((x) => x.qty)), M2.closed.length === M.closed.length);
+  console.log('журнал:', (await p.evaluate(() => { const L = window.EWData.logRead(); return L.app.items.filter((x) => x.k === 'robot').map((x) => x.m).slice(-4).join(' / '); })));
   // 3) история оповещений
   await p.evaluate(() => window.EWData.notifSave([{ title: 'SBER 1ч: ВЫХОД — закрыть покупки', text: 'Фигура завершена', open: { id: 'SBER_TQBR', ticker: 'SBER', tf: '1h' } }, { title: 'OZON 4ч: подсчёт отменён', text: 'Цена прошла 3547', open: { id: 'OZON_TQBR', ticker: 'OZON', tf: '4h' } }]));
   await p.click('#bellBtn'); await p.waitForTimeout(400);

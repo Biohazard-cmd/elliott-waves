@@ -772,36 +772,59 @@
       };
       // ручной счёт: стопы и цели, поставленные вами, проверяем по 5-минуткам с прошлой проверки
       if (a.manual) {
-        // 2.43: ваши сделки со счёта Т-Инвестиций повторяются здесь: покупка — позиция, продажа — закрытие (частичная — частью); без уведомлений — вы их сделали сами
+        // 2.44: ваши сделки со счёта Т-Инвестиций повторяются здесь (без уведомлений — вы их сделали сами):
+        // 1) новые покупки/продажи — по точной цене из операций; 2) сверка с портфелем — бумаги, что лежат на счёте (в т.ч. купленные
+        // до запуска роботов), ставятся позициями по средней цене, а если на счёте их стало меньше — лишнее закрывается по текущей цене
         if (s.account) {
-          const n0 = ev.length, a0 = a.startAt || V.startAt;
+          const n0 = ev.length;
           try {
             a.opSeen = a.opSeen || {};
-            const ops = await getOperations(s.token, s.account.id, null, Math.max(a0, (a.opAt || 0) - 3 * 86400000));
-            for (const o of ops) {
-              if (a.opSeen[o.id] || o.t < a0) continue;
-              a.opSeen[o.id] = 1;
-              const ins = await instByUid(s.token, o.uid);
-              if (!ins || ins.classCode !== 'TQBR') continue;   // только акции Мосбиржи
-              const id = ins.ticker + '_TQBR';
-              if (o.side > 0) {
-                const cost = o.qty * o.price * (1 + VFEE); a.cash -= cost;
-                a.pos.push({ id, ticker: ins.ticker, lot: ins.lot || 1, qty: o.qty, entry: o.price, entryT: o.t, side: 1, stop: 0, target: 0, cost, divs: 0, src: 'счёт', be: !!a.be, lastChk: o.t });
-                log('robot', `${a.name}: с вашего счёта — купил ${ins.ticker} ${o.qty} шт по ${fmtPrice(o.price, [{ c: o.price }])}`);
-              } else {
-                let left = o.qty;
-                for (const p of a.pos.filter((z) => z.id === id && z.side !== -1).sort((x, y) => x.entryT - y.entryT)) {
-                  if (left <= 0) break;
-                  if (p.qty > left) {   // продали часть — отделяем проданную часть и закрываем её
-                    const k = left / p.qty, part = Object.assign({}, p, { qty: left, cost: p.cost * k, divs: (p.divs || 0) * k });
-                    p.qty -= left; p.cost -= part.cost; p.divs = (p.divs || 0) - part.divs; a.pos.push(part); sold(part, o.price, o.t, 'продажа на вашем счёте'); left = 0;
-                  } else { left -= p.qty; sold(p, o.price, o.t, 'продажа на вашем счёте'); }
-                }
-                if (left > 0) log('robot', `${a.name}: с вашего счёта — продажа ${ins.ticker} ${left} шт без позиции здесь (куплены до запуска роботов) — пропущено`);
+            const ref = (o) => instByUid(s.token, o.uid).catch(() => null);
+            const mine = (id) => a.pos.filter((z) => z.id === id && z.src === 'счёт');
+            const closeQty = (id, qty, px, t) => {   // закрыть qty шт позиций «со счёта» по бумаге, старые — первыми
+              let left = qty;
+              for (const p of mine(id).sort((x, y) => x.entryT - y.entryT)) {
+                if (left <= 0) break;
+                if (p.qty > left) { const k = left / p.qty, part = Object.assign({}, p, { qty: left, cost: p.cost * k, divs: (p.divs || 0) * k }); p.qty -= left; p.cost -= part.cost; p.divs = (p.divs || 0) - part.divs; a.pos.push(part); sold(part, px, t, 'продажа на вашем счёте'); left = 0; }
+                else { left -= p.qty; sold(p, px, t, 'продажа на вашем счёте'); }
+              }
+              return qty - left;
+            };
+            const openQty = (ins, qty, px, t, note) => {
+              const cost = qty * px * (1 + VFEE); a.cash -= cost;
+              a.pos.push({ id: ins.ticker + '_TQBR', ticker: ins.ticker, lot: ins.lot || 1, qty, entry: px, entryT: t, side: 1, stop: 0, target: 0, cost, divs: 0, src: 'счёт', be: !!a.be, lastChk: t });
+              log('robot', `${a.name}: с вашего счёта — ${note} ${ins.ticker} ${qty} шт по ${fmtPrice(px, [{ c: px }])}`);
+            };
+            let nOps = 0;
+            if (a.syncAt) {   // операции — только после прошлой сверки (более ранние уже учтены портфелем)
+              const ops = await getOperations(s.token, s.account.id, null, a.syncAt - 3 * 86400000);
+              for (const o of ops) {
+                if (a.opSeen[o.id] || o.t < a.syncAt - 60000) { a.opSeen[o.id] = 1; continue; }
+                a.opSeen[o.id] = 1;
+                const ins = await ref(o); if (!ins || ins.classCode !== 'TQBR') continue;
+                if (o.side > 0) openQty(ins, o.qty, o.price, o.t, 'купил'); else closeQty(ins.ticker + '_TQBR', o.qty, o.price, o.t);
+                nOps++;
               }
             }
-            a.opAt = now;
-          } catch (e) { say('ваши сделки со счёта: ' + e.message); }
+            // сверка с портфелем: сколько каждой акции на счёте сейчас против позиций «со счёта» здесь
+            const acc = await getAccountMoney(s.token, s.account.id), real = new Map();
+            for (const p of acc.positions) {
+              if (!(p.qty > 0) || !p.uid) continue;
+              const ins = await ref(p); if (!ins || ins.classCode !== 'TQBR' || !/share/i.test(ins.type || 'share')) continue;
+              real.set(ins.ticker + '_TQBR', { ins, qty: p.qty, avg: p.avg || p.cur, cur: p.cur || p.avg });
+            }
+            let nAdd = 0, nCut = 0;
+            // первая сверка: вашу позицию, заведённую вручную по бумаге, которая есть на счёте, считаем позицией «со счёта» — без задвоения
+            if (!a.syncAt) for (const [id] of real) if (!mine(id).length) for (const p of a.pos.filter((z) => z.id === id && !z.src && z.side !== -1)) p.src = 'счёт';
+            const ids = new Set([...real.keys(), ...a.pos.filter((z) => z.src === 'счёт').map((z) => z.id)]);
+            for (const id of ids) {
+              const r = real.get(id), have = mine(id).reduce((sm, z) => sm + z.qty, 0), want = r ? r.qty : 0;
+              if (want > have) { openQty(r.ins, want - have, a.syncAt ? r.cur : r.avg, now, a.syncAt ? 'сверка: на счёте больше, добавил' : 'уже на счёте'); nAdd++; }
+              else if (want < have) { const px = r ? r.cur : (a.px[id] || mine(id)[0].entry); closeQty(id, have - want, px, now); nCut++; }
+            }
+            log('robot', `${a.name}: сверка со счётом — акций на счёте ${real.size}${nOps ? ', новых сделок ' + nOps : ''}${nAdd ? ', добавлено позиций ' + nAdd : ''}${nCut ? ', закрыто ' + nCut : ''}${nOps || nAdd || nCut ? '' : ', изменений нет'}`);
+            a.syncAt = now; a.opAt = now;
+          } catch (e) { log('robot', `${a.name}: сверка со счётом не удалась — ${e.message}`); say('ваши сделки со счёта: ' + e.message); }
           ev.length = n0;
         }
         for (const p of a.pos.slice()) {
