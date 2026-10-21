@@ -618,7 +618,9 @@
       const V = vaccGet();
       if (V && V.on) for (const a of V.accs || []) {
         const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
-        robots.push({ h: `🤖 ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
+        // характер и настроение робота: последняя сделка за 2 дня — в плюс 🎉, в минус 😢
+        const lc = a.closed[a.closed.length - 1], mood = lc && Date.now() - lc.exitT < 2 * 86400000 ? (lc.pl >= 0 ? '🎉' : '😢') : '';
+        robots.push({ h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
       const t = store.get('lastcheck', 0), d = new Date(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
@@ -701,9 +703,12 @@
     return out;
   }
   function vEquity(a) { return a.cash + a.pos.reduce((s, p) => s + (p.side < 0 ? -1 : 1) * p.qty * (a.px[p.id] || p.entry), 0); }
-  async function robotStep(onLog, force) {
+  // only — ключ одного счёта (кнопка «Ход» у робота); без него ходят все
+  async function robotStep(onLog, force, only) {
     const s = settings(), V = vaccGet(), ev = [];
     if (!V || !V.on || !s.token) return ev;
+    const one = only ? V.accs.find((a) => a.key === only) : null;
+    if (only && !one) return ev;
     const now = Date.now();
     if (!force && now - (V.lastRun || 0) < 50 * 60000) return ev;
     const say = (m) => { if (onLog) onLog(m); };
@@ -731,7 +736,7 @@
     const list = U.list.filter((x) => x.turn >= 50e6).slice(0, V.top || 50);
     for (const x of U.list) if (held.has(x.id) && !list.includes(x)) list.push(x);   // бумаги в позиции — даже если выпали из топа
     // свечи — по таймфреймам роботов (дневки нужны всегда: ручной счёт берёт из них ATR); 2.39: робот «4 часа · неделя»
-    const tfs = Array.from(new Set(['1d'].concat(V.accs.filter((a) => !a.manual).map((a) => a.tf || '1d'))));
+    const tfs = one ? [one.manual ? '1d' : one.tf || '1d'] : Array.from(new Set(['1d'].concat(V.accs.filter((a) => !a.manual).map((a) => a.tf || '1d'))));
     const dataBy = {}, mktBy = {};
     for (const tf of tfs) {
       const dd = dataBy[tf] = {};
@@ -744,9 +749,11 @@
       }
       mktBy[tf] = buildMarket(tf, 200);
     }
-    const data = dataBy['1d'];
+    const data = dataBy['1d'] || dataBy[tfs[0]];
     const T = (an, i) => (an.bars[i] ? an.bars[i].t : 0);
     for (const a of V.accs) {
+      if (one && a !== one) continue;
+      const aLast = a.lastRun || V.lastRun || 0;   // прошлый ход этого счёта: робот мог ходить и один, по своей кнопке
       const tag = (a.manual ? 'Вирт. счёт · ' : 'Робот · ') + a.name, atf = a.manual ? '1d' : a.tf || '1d', mkt = mktBy[atf], aStart = a.startAt || V.startAt;
       const sold = (p, px, t, why) => {
         let pl;
@@ -805,7 +812,7 @@
           const A = tr.add, tA = T(an, A.i), key = id + '|' + p.entryT + '|add';
           if (a.seen[key] || a.pos.some((z) => z.addOf === p.entryT && z.id === id)) return;
           a.seen[key] = 1;
-          if (tA < (V.lastRun || aStart) - 10 * 86400000) return;
+          if (tA < (aLast || aStart) - 10 * 86400000) return;
           const eq = vEquity(a), dist = Math.abs(A.px - A.stop) / A.px, lot = d.x.lot || 1;
           const held = a.pos.filter((z) => z.id === id).reduce((sm, z) => sm + z.qty * A.px, 0);
           const val = Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, Math.max(0, eq * VMAXPOS * 2 - held), a.cash / (1 + VFEE));   // на бумагу вместе с доливкой — не больше двух лимитов позиции
@@ -834,7 +841,7 @@
         for (const tr of an.trades) {
           const tIn = T(an, tr.iEntry), key = id + '|' + tIn;
           // только новые сделки: после старта и не раньше прошлого хода (иначе после смены порога «вспомнились» бы старые)
-          if (tIn < aStart || tIn < Math.max(V.lastRun || 0, aStart) - 10 * 86400000 || a.seen[key]) continue;
+          if (tIn < aStart || tIn < Math.max(aLast, aStart) - 10 * 86400000 || a.seen[key]) continue;
           a.seen[key] = 1; delete a.pend[id];
           const eq = vEquity(a), dist = Math.abs(tr.entry - tr.stop0) / tr.entry, lot = d.x.lot || 1;
           let val = Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE));
@@ -882,7 +889,9 @@
     }
     // без связи ход не засчитываем: иначе после долгого перерыва робот «забыл» бы сделки, случившиеся без него
     if (!Object.keys(data).length && list.length) { log('robot', 'нет связи — ход отложен'); vaccSet(V); return ev; }
-    V.lastRun = now; V.lastN = Object.keys(data).length;
+    for (const a of V.accs) if (!one || a === one) a.lastRun = now;
+    if (!one) V.lastRun = now;
+    V.lastN = Object.keys(data).length;
     vaccSet(V);
     say('робот: проверено ' + V.lastN + ' бумаг');
     return ev;
