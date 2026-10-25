@@ -11,14 +11,16 @@ const RUNS = {
   main: ['ОСНОВНОЙ', MAIN, [['набор 2.38', {}], ['без П/Р 1,5', { addMinRR: false }], ['П/Р 1,2', { minRR: 1.2 }], ['П/Р 2', { minRR: 2 }], ['без AO', { addAO: false }], ['без SMA200', { addSma200: false }], ['+ безубыток 3×ATR', BE(3)]]],
   agr: ['АГРЕССИВНЫЙ + ДОЛИВКА', AGR, [['набор 2.38', {}], ['без П/Р 1,5', { addMinRR: false }], ['без безубытка', { beMode: 'hint' }], ['БУ 2,5×ATR', { beAtr: 2.5 }], ['БУ 3,5×ATR', { beAtr: 3.5 }], ['П/Р 1,2', { minRR: 1.2 }], ['П/Р 2', { minRR: 2 }], ['без AO', { addAO: false }], ['без SMA200', { addSma200: false }], ['без доливки', { addPyramid: false }]]],
 };
-const [nm, pre, vars] = RUNS[process.env.PART || 'main'];
+RUNS.mainbe = ['ОСНОВНОЙ + безубыток k×ATR', MAIN, [['набор 2.38 (без БУ)', {}], ...[1, 1.5, 2, 2.5, 3, 4].map((k) => ['БУ ' + k + '×ATR', BE(k)])]];
+RUNS.agrbe = ['АГРЕССИВНЫЙ: безубыток k×ATR', AGR, [1, 1.5, 2, 2.5, 3, 4].map((k) => ['БУ ' + k + '×ATR', { beAtr: k }])];
+const [nm, pre, vars] = RUNS[process.env.PART || 'main'], ORD = process.env.ORD === 'turn';
 console.log(`\n${nm} (поправка на дивиденды исправлена)`);
 console.log('вариант'.padEnd(20), 'сделок     R  ср.R прибыльных  %/год  до23  с23  просадка серия | порядок');
 for (const [lab, over] of vars) {
   const cfg = Object.assign({}, pre, over);
-  const r = evalCfg(cfg, { tr: (t, bars) => { if (t.add && t.add.i != null) t.addT = bars[t.add.i].t; return t.NR; } });
+  const r = evalCfg(cfg, { tr: (t, bars) => { if (t.add && t.add.i != null) t.addT = bars[t.add.i].t; t.turn = 0; for (let j = Math.max(0, t.iEntry - 30); j < t.iEntry; j++) t.turn += bars[j].c * (bars[j].v || 0); return t.NR; } });
   const adds = cfg.addPyramid ? r.all.filter((x) => x.t.add && x.t.add.NR != null).map((x) => ({ id: x.id + '+', of: x, t: { side: x.t.side, entry: x.t.add.px, stop0: x.t.add.stop, exitP: x.t.exitP }, T: Math.max(x.T + 1, x.t.addT || 0), TOut: x.TOut })) : [];
-  const all = r.all.concat(adds); all.forEach((x, i) => { x.i = i; });
+  const all = r.all.concat(adds); all.forEach((x, i) => { x.i = ORD ? -(x.of || x).t.turn : i; });   // ORD=turn — одновременные сигналы по обороту, как робот в приложении
   const halves = [all.filter((x) => (x.of || x).T < SPLIT), all.filter((x) => (x.of || x).T >= SPLIT)];
   const p = portfolio(all, 0.25, (x) => x.i), h = halves.map((z) => portfolio(z, 0.25, (x) => x.i));
   const rc = Array.from({ length: 20 }, () => { const mm = new Map(all.map((x) => [x, rnd()])); return portfolio(all, 0.25, (x) => mm.get(x)).cagr; }).sort((a, b) => a - b);

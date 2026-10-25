@@ -63,6 +63,10 @@
     addMktFast: false,    // осторожный режим: индекс рынка ещё и выше своей средней за 50 свечей (нужен фильтр рынка)
     aoMode: 'pos',        // 'pos' — AO на стороне сделки; 'both' — ещё и выше своей средней за 5 (строже)
     weekExit: false,      // «неделя» (2.39): в пятницу по закрытию последней свечи сделку без прибыли закрыть, прибыльную — стоп в безубыток и держать; входы только пн–пт
+    // 3.0, проверка 4ч Мосбиржи 2018–2026 (research/fri_chan.js, revisit.js): дополнения к «неделе»
+    wkChan: false,        // в пятницу сделку без прибыли закрывать, только если за неделю было закрытие ниже нижней линии канала её подсчёта, иначе — на следующую неделю со своим стопом
+    wkNextOpen: false,    // пятничный выход — по открытию следующей свечи (обычно утро понедельника), а не по закрытию пятницы
+    topOnly: false,       // сигнал — только от лучшего (первого) подсчёта
     addPyramid: false,    // доливка: когда волна 3 прошла 110% волны 1 — докупить ещё на 1% риска со стопом системы
     // бэктест
     riskPct: 1.0, maxLev: 3.0, feePct: 0.05, slipPct: 0.02,
@@ -705,7 +709,8 @@
       }
       if (cur) {
         let reason = -1, px = 0;
-        if (phaseExit) { px = O[i]; reason = 5; }
+        if (cur.wkOut) { px = O[i]; reason = 4; }   // пятничный выход по открытию следующей свечи (wkNextOpen)
+        else if (phaseExit) { px = O[i]; reason = 5; }
         else if (flipExit) { px = O[i]; reason = cur.divExit ? 9 : 6; }
         else if (cur.side > 0) {
           if (L[i] <= cur.stop) { px = Math.min(O[i], cur.stop); reason = 0; }
@@ -726,6 +731,8 @@
         if (reason < 0 && c.weekExit && this.weekEnd(i)) {
           const be = this.beLevel(cur);
           if (cur.side * (C[i] - be) > 0) { cur.wkCarry = (cur.wkCarry || 0) + 1; if (cur.side * (be - cur.stop) > 0) { cur.stop = be; cur.moves++; if (cur.beOn == null) { cur.beOn = i; cur.beLv = be; cur.beWhy = 'пятница, сделка в плюсе — переносим на следующую неделю'; } if (keep) cur.path.push({ bar: i, p: be, be: true }); } }
+          else if (c.wkChan && this.wkChanHold(cur, i, mp)) cur.wkHold = (cur.wkHold || 0) + 1;   // без прибыли, но канал цел — на следующую неделю
+          else if (c.wkNextOpen) cur.wkOut = true;   // выход — по открытию следующей свечи
           else { px = C[i]; reason = 4; }
         }
         if (reason < 0 && i === N - 1) { px = C[i]; reason = 3; }
@@ -798,6 +805,7 @@
       if (piv && !cur && !hasSig && i < N - 1) {
         const sc = this.buildScenarios(mp);
         for (const s of sc) {
+          if (c.topOnly && s !== sc[0]) break;   // сигнал — только от лучшего подсчёта
           if (s.score < c.minScore) continue;
           const pl = this.makePlan(s, C[i]);
           if (pl && this.trendOK(pl.side, tr[i]) && this.marketOK(pl.side, this.T[i]) && this.aoOK(pl.side, i)) { sig = pl; sig.i0 = s.idx[0]; sig.cnt = keep ? snapCount(s) : null; sigBar = i; hasSig = true; break; }
@@ -830,6 +838,7 @@
       const lp = this.main[this.main.length - 1], entry = this.C[lp.c];
       for (let k = 0; k < this.scen.length; k++) {
         const s = this.scen[k];
+        if (c.topOnly && k > 0) break;   // как в бэктесте: план — только от лучшего подсчёта
         if (s.score < c.minScore) continue;
         const pl = this.makePlan(s, entry);
         if (pl && this.trendOK(pl.side, this.trend[lp.c]) && this.marketOK(pl.side, this.T[lp.c]) && this.aoOK(pl.side, lp.c)) { pl.scen = k; pl.sigBar = lp.c; this.plan = pl; break; }
@@ -936,6 +945,18 @@
     if (i < T.length - 1) return wkNo(T[i + 1]) !== wkNo(t) || wkDay(T[i + 1]) % 6 === 0;
     let p = Infinity; for (let k = Math.max(1, i - 20); k <= i; k++) p = Math.min(p, T[k] - T[k - 1]);
     return wkDay(t) === 5 && t + p > mskDay(t) * 86400000 - MSK_MS + (23 * 60 + 50) * 60000;
+  };
+  // «неделя» + канал (wkChan): держать сделку без прибыли на следующую неделю, если за неделю ни одна свеча не закрылась ниже нижней линии
+  // канала её подсчёта (сценарий с тем же началом, по точкам, известным к этой свече). Пока идёт волна 3 — линия 0–2; идёт волна 4 —
+  // параллель через 2 к линии 1–3; дальше — линия 2–4. Подсчёта сделки уже нет — не держим.
+  Ctx.prototype.wkChanHold = function (cur, i, mp) {
+    const s = this.buildScenarios(mp).find((x) => x.fam === 0 && x.dir === cur.side && x.idx[0] === cur.i0);
+    if (!s || s.n < 3) return false;
+    const base = (j) => lineAt(s.idx[0], s.px[0], s.idx[2], s.px[2], j);
+    const l = s.n === 3 ? null : channelLines(s)[s.n === 4 ? 1 : 0], f = l ? (j) => lineAt(l.i1, l.p1, l.i2, l.p2, j) : base;
+    let j0 = i; while (j0 > cur.iEntry && !this.weekEnd(j0 - 1)) j0--;
+    for (let j = j0; j <= i; j++) if (cur.side * (this.C[j] - f(j)) < 0) return false;
+    return true;
   };
   Ctx.prototype.beLevel = function (t) { const c = this.cfg; return t.entry * (1 + t.side * (2 * c.feePct + 2 * c.slipPct + 0.05) / 100); };
   Ctx.prototype.beWhyText = function () { const r = this.cfg.beRule; return r === 'atr' ? 'цена ушла на ' + (this.cfg.beAtr || 3) + '×ATR' : BE_WHY[r] || ''; };

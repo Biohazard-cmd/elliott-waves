@@ -44,6 +44,14 @@
     S.cfgVer = 5;
     D.saveSettings(S);
   }
+  // версия 3.0: основной дневной — безубыток 3×ATR; «4 часа · неделя» — канал, выход по открытию пн, только лучший подсчёт (research/fri_chan.js, recheck_div.js)
+  if ((S.cfgVer || 0) < 6) {
+    S.cfg = S.cfg || {};
+    if (S.preset === 'd_long') Object.assign(S.cfg, { beMode: 'auto', beRule: 'atr', beAtr: 3 });
+    if (S.preset === 'h4_week') Object.assign(S.cfg, { wkChan: true, wkNextOpen: true, topOnly: true });
+    S.cfgVer = 6;
+    D.saveSettings(S);
+  }
   try { if (A && A.setQuiet) A.setQuiet(!!(S.notify && S.notify.quiet)); } catch (e) { /* старая сборка без моста */ }
   // ---------- оформление (темы) ----------
   // Меняются только фон, рамки, текст и цвет свечей. Цвета сигналов (стоп, цель, волны, сделки) во всех темах одни и те же.
@@ -483,9 +491,11 @@
 
   // ---------- виртуальный счёт робота ----------
   const robotTf = (key) => { const p = PRESETS.find((x) => x[0] === key); return p ? p[2] : '1d'; };
+  // 3.1: риск на сделку у роботов — по набору (проверка 2018–2026: основной 26 → 30%/год, «4 часа · неделя» 20 → 23%, просадка +0,6…1,6 п.п.); остальные — как в настройках
+  const ROBOT_RISK = { d_long: 1.5, h4_week: 1.5 };
   function robotCfg(key) {
     const p = PRESETS.find((x) => x[0] === key);
-    return Object.assign({ maxBars: 2000, riskPct: S.cfg.riskPct || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
+    return Object.assign({ maxBars: 2000, riskPct: ROBOT_RISK[key] || S.cfg.riskPct || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
       { setups: Object.assign({}, W3ABC), addComplexTrade: false, addPhaseExit: false, addMinRR: false, addDepth: false, exitMode: 'fixed', targetMode: 'main', minScore: 45, bookTrend: true, addTrend: 'none', stopW2: false, localBars: 2, maxHoldDays: 0 }, p ? p[3] : {});
   }
   let robotBusy = false, robotMsg = '', robotArm = '';
@@ -627,23 +637,23 @@
     if (!V) {
       const cap = Math.round((S.acct && S.acct.total) || S.capital || 300000);
       h += `<div class="card"><h3>Виртуальный счёт робота</h3>
-        <div class="small">Три робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор и <b>«4 часа · неделя»</b> (короткие сделки, в пятницу без прибыли — закрыть).</div>
+        <div class="small">Четыре робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор, <b>«4 часа · неделя»</b> (короткие сделки, на выходные — только прибыльные или с целым каналом) и <b>«продажи по треугольнику»</b> (наблюдение: шорт после треугольника на 4-часовых свечах).</div>
         <ul class="small bul"><li>Сами выбирают из топ-50 акций по обороту, покупают по сигналам, ведут стоп и выходят — ровно как бэктест, но с этого дня и вперёд.</li>
-        <li>Деньги общие на все бумаги: риск на сделку ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
+        <li>Деньги общие на все бумаги: риск на сделку у основного и «4 часа · неделя» — 1,5%, у остальных — ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
         <li>Свободные деньги лежат в фонде ликвидности. Пополнения и выводы вашего реального счёта повторяются сами. Дивиденды начисляются за вычетом налога.</li></ul>
         <div class="small" style="margin-top:6px">Про каждую покупку и продажу придёт уведомление — можно повторять в Т-Инвестициях. Сигнал по дневке приходит вечером после закрытия дня: «завтра на открытии купит…».</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div class="field"><label>Стартовый капитал, ₽</label><input type="number" id="vCap" step="1000" min="1000" value="${cap}"></div>
         <div class="field"><label>Ставка ВИМ для расчёта, % годовых</label><input type="number" id="vRate" step="0.5" min="0" value="${S.cfg.cashYield || 13.5}"></div></div>
         <div class="small">${S.acct ? 'Капитал подставлен со счёта «' + esc(S.account.name) + '».' : 'Подключите счёт (⚙ → Счёт → «Взять с брокерского счёта»), чтобы робот повторял ваши пополнения.'}</div>
         ${cap < 60000 ? '<div class="note">При капитале меньше ~60 000 ₽ роботы будут пропускать большинство сигналов: позиция ограничена 25% счёта, а лот многих акций стоит дороже. Для проверки стратегии можно поставить ту сумму, с которой планируете торговать, — пополнения реального счёта всё равно добавятся.</div>' : ''}
-        <div class="small" style="margin-top:6px">Вместе с роботами появится третий счёт — <b>«мой (вручную)»</b>: там сделки открываете вы сами, со своим стопом и тейк-профитом, а приложение следит за ценой.</div>
+        <div class="small" style="margin-top:6px">Вместе с роботами появится счёт <b>«мой (вручную)»</b>: в нём — ваши настоящие сделки и деньги со счёта Т-Инвестиций, чтобы сравнивать себя с роботами.</div>
         <div class="row" style="margin-top:10px"><button id="vStart" ${S.token ? '' : 'disabled'}>🤖 Запустить роботов</button></div>
         ${S.token ? '' : '<div class="note">Нужен токен (⚙ → Счёт).</div>'}</div>`;
       $('#robBody').innerHTML = h;
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
-        const mk = (key, name) => ({ key, name, tf: robotTf(key), cfg: robotCfg(key), be: key !== 'd_long', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
-        D.vaccSet({ on: true, startAt: now, mmRate: rate, top: 50, flows: [], lastAccrue: now, realStart: S.acct ? S.acct.total : null, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный'), mk('h4_week', '4 часа · неделя'), Object.assign(mk('manual', 'мой (вручную)'), { manual: true, cfg: {} })] });
+        const mk = (key, name) => ({ key, name, tf: robotTf(key), cfg: robotCfg(key), be: key !== 'h4_tri', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
+        D.vaccSet({ on: true, startAt: now, mmRate: rate, top: 50, flows: [], lastAccrue: now, realStart: S.acct ? S.acct.total : null, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный'), mk('h4_week', '4 часа · неделя'), mk('h4_tri', 'продажи · треугольник'), Object.assign(mk('manual', 'мой (вручную)'), { manual: true, cfg: {} })] });
         D.log('robot', 'запущены: капитал ' + cap2 + ' ₽, фонд ' + rate + '%');
         ensureBg(); runRobot();
       };
@@ -661,24 +671,13 @@
       h += `<div class="card" data-racc="${a.key}" style="${a === ra ? 'border-color:#3f6fb3' : ''};cursor:pointer"><h3><span class="grow" style="display:flex;align-items:center;gap:6px">${a.manual ? '✋' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle')} ${esc(a.name)}${a.pos.some((p) => p.wk) ? ' <span class="wk">🧳</span>' : ''}</span>${eqSpark(a.hist)}</h3>
         <div class="kv"><div><small>Капитал</small><b>${rub0(eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
         <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${rub0(a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
-        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом, проверить стопы и тейки' : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
-        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${a.manual ? (a.be ? 'ваши позиции: стоп на вход, когда цена уйдёт на 3×ATR (проверка по 5-минуткам)' : 'стопы только ваши') : (a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>
+        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
+        ${a.manual ? '' : `<div class="row" style="margin:6px 0 2px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>`}
         <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div>
-        <div class="small">Вложено (старт + пополнения): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`;
+        <div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего счёта Т-Инвестиций (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', без пополнений и выводов. ' : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`;
     }
     if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
     if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
-    // ручной счёт: новая сделка по бумаге с графика
-    if (ra.manual) {
-      const p = an && an.plan && an.planActive ? an.plan : null, px = all.length ? all[all.length - 1].c : 0;
-      h += `<div class="card jform"><h3>Новая виртуальная сделка · ${esc(S.inst.ticker)}</h3>
-        <div class="two"><div class="field"><label>Направление</label><select id="mSide"><option value="1" ${!p || p.side > 0 ? 'selected' : ''}>Покупка</option><option value="-1" ${p && p.side < 0 ? 'selected' : ''}>Продажа (шорт)</option></select></div>
-        <div class="field"><label>Лотов (пусто — по риску ${S.cfg.riskPct || 1}%)</label><input type="number" id="mLots" min="1" step="1" placeholder="авто"></div></div>
-        <div class="two"><div class="field"><label>Стоп-лосс</label><input type="number" step="any" id="mStop" value="${p ? +p.stop.toFixed(4) : ''}" placeholder="необязательно"></div>
-        <div class="field"><label>Тейк-профит</label><input type="number" step="any" id="mTgt" value="${p && !p.notgt ? +p.target.toFixed(4) : ''}" placeholder="необязательно"></div></div>
-        <div class="row"><button id="mOpen">Открыть по рынку${px ? ' (~' + pr(px) + ')' : ''}</button></div>
-        <div class="small">Бумага — та, что открыта на графике. ${p ? 'Стоп и цель подставлены из плана системы — поменяйте как считаете нужным.' : 'Сигнала системы сейчас нет — стоп и цель задайте сами.'} Стоп и тейк срабатывают в фоне, проверка по 5-минуткам с прошлого хода (раз в час).</div></div>`;
-    }
     // подробности выбранного робота
     const pend = Object.entries(ra.pend || {});
     // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
@@ -694,15 +693,13 @@
     if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
     h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
       const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
-      if (ra.manual) return `<div class="jrow"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼' : '▲'} ${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</span></div>
-        <div class="small">${fmtT(p.entryT, true)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.</div>
-        <div class="two" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-top:4px"><div class="field" style="margin:0"><label>Стоп</label><input type="number" step="any" data-mstop="${p.entryT}" value="${p.stop || ''}"></div><div class="field" style="margin:0"><label>Тейк</label><input type="number" step="any" data-mtgt="${p.entryT}" value="${p.target || ''}"></div><button data-msave="${p.entryT}">✓</button></div>
-        <div class="row" style="margin-top:4px"><button data-mclose="${p.entryT}">Закрыть по рынку</button><button data-rgo="${esc(p.id)}">На график</button></div></div>`;
-      return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc(px / p.entry - 1)}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : '<div class="small">Нет. Робот ждёт сигналов.</div>'}</div>`;
+      if (ra.manual) return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
+      return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
     const cl = ra.closed.slice(-40).reverse();
     if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
-      h += `<div class="card"><h3>Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${rub0(Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.qty} шт · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${rub0(Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${pr(c.entry)} → ${fmtT(c.exitT, false)} по ${pr(c.exit)}</div></div>`).join('')}</div>`; }
+      h += `<div class="card"><h3>Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${rub0(Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '▼ шорт ' : ''}${c.qty} шт · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${rub0(Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${pr(c.entry)} → ${fmtT(c.exitT, false)} по ${pr(c.exit)}</div></div>`).join('')}</div>`; }
     h += robFeed();
     h += `<div class="card"><h3>Управление</h3>
       <div class="row"><button id="vRun" ${robotBusy ? 'disabled' : ''}>${robotBusy ? 'Роботы думают…' : '⟳ Ход всех роботов'}</button><button id="vToggle">${V.on ? '⏸ Остановить' : '▶ Продолжить'}</button></div>
@@ -710,7 +707,8 @@
       <div class="field" style="margin-top:10px"><label>Пополнить (+) или вывести (−) вручную, ₽ — если деньги не через этот счёт</label><div class="row"><input type="number" id="vFlow" step="1000" style="flex:1"><button id="vFlowOk">Внести</button></div></div>
       ${V.accs.some((a) => a.manual) ? '' : '<div class="row" style="margin-top:6px"><button id="vAddMan">➕ Добавить мой ручной счёт</button></div>'}
       ${V.accs.some((a) => a.key === 'h4_week') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddW">➕ Добавить робота «4 часа · неделя»</button></div><div class="small">Короткие сделки по 4-часовым свечам: в пятницу сделку без прибыли закрывает, прибыльную переносит на следующую неделю в безубытке. Стартовые деньги — как у основного; торгует только по новым сигналам.</div>'}
-      ${(() => { const old = V.accs.filter((a) => !a.manual && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${[old.some((a) => !a.cfg.addSma200) && 'фильтр «SMA200 растёт»', old.some((a) => !a.cfg.addAO) && 'фильтр AO 5/34', old.some((a) => a.key === 'd_aggr' && !a.cfg.addPyramid) && 'доливка на 110% волны 1', old.some((a) => !a.cfg.addMinRR) && 'фильтр «прибыль/риск не меньше 1,5»', old.some((a) => a.key === 'd_aggr' && !a.be) && 'у агрессивного — безубыток 3×ATR'].filter(Boolean).join(', ') || 'обновлённые параметры'}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
+      ${V.accs.some((a) => a.key === 'h4_tri') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddT">➕ Добавить робота «продажи по треугольнику»</button></div><div class="small">Наблюдение (3.0): 4-часовые свечи, только продажи (шорт) после завершённого треугольника. На истории ~13 сделок в год, в среднем +0,5 R, но прибыль дали немногие бумаги — смотрим, как пойдёт вживую. Плата брокера за шорт тут не считается. Стартовые деньги — как у основного.</div>'}
+      ${(() => { const old = V.accs.filter((a) => !a.manual && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${(() => { const NEW = [['addSma200', 'фильтр «SMA200 растёт»'], ['addAO', 'фильтр AO 5/34'], ['addPyramid', 'доливка на 110% волны 1'], ['addMinRR', 'фильтр «прибыль/риск не меньше 1,5»'], ['wkChan', 'на выходные — и убыточную, пока цел канал'], ['wkNextOpen', 'пятничный выход — по открытию понедельника'], ['topOnly', 'сигнал только от лучшего подсчёта']]; const it = NEW.filter(([k]) => old.some((a) => robotCfg(a.key)[k] && !a.cfg[k])).map(([, t]) => t); if (old.some((a) => (a.key === 'd_long' || a.key === 'd_aggr') && !a.be)) it.push('безубыток 3×ATR'); for (const a of old) { const r = robotCfg(a.key).riskPct; if (r !== a.cfg.riskPct) it.push('риск на сделку у «' + a.name + '» — ' + String(r).replace('.', ',') + '%'); } return it.join(', ') || 'обновлённые параметры'; })()}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
       <div class="row" style="margin-top:8px"><button id="vCsv">⬇ Отчёт CSV</button><button id="vJson">⬇ JSON</button></div>
       <div class="small" id="vExpRes">Все сделки роботов и ваши виртуальные: открытые и закрытые, вход, стоп, цель, выход, причина, ₽, дивиденды, доливки, плюс итоги по каждому счёту. CSV — открыть в таблице; JSON — прислать на разбор.</div>
       <div class="row" style="margin-top:6px"><button id="vReset">${robotArm === 'reset' ? 'Точно стереть? Нажмите ещё раз' : 'Сбросить роботов'}</button></div></div>`;
@@ -738,57 +736,18 @@
         const nc = robotCfg(a.key); if (JSON.stringify(a.cfg) === JSON.stringify(nc)) continue;
         if (a.pos.length) { a.cfgPrev = a.cfgPrev || a.cfg; a.pos.forEach((p) => { p.legacy = true; }); }
         a.cfg = nc; n++;
-        if (a.key === 'd_aggr') a.be = true;   // 2.38: безубыток 3×ATR — часть агрессивного набора (кнопка 🛡 по-прежнему выключает)
-        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1', nc.addMinRR && 'П/Р ≥ ' + nc.minRR, a.key === 'd_aggr' && 'безубыток 3×ATR'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
+        if (a.key === 'd_aggr' || a.key === 'd_long') a.be = true;   // 2.38: безубыток 3×ATR — часть агрессивного набора, 3.0 — и основного (кнопка 🛡 по-прежнему выключает)
+        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1', nc.addMinRR && 'П/Р ≥ ' + nc.minRR, (a.key === 'd_aggr' || a.key === 'd_long') && 'безубыток 3×ATR', nc.wkChan && 'неделя: канал', nc.wkNextOpen && 'выход по открытию пн', nc.topOnly && 'только лучший подсчёт', nc.riskPct !== a.cfg.riskPct && 'риск ' + nc.riskPct + '%'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
       }
       D.vaccSet(W); robotMsg = n ? 'Настройки обновлены у ' + n + ' робота(ов). Новые сделки — по новым правилам.' : ''; renderRobot();
     };
     const am = $('#vAddMan'); if (am) am.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0]; W.accs.push({ key: 'manual', name: 'мой (вручную)', manual: true, cfg: {}, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: Date.now(), eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); S.robotAcc = 'manual'; save(); renderRobot(); };
+    const addRob = (key, name, tf, be, msg) => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key, name, tf, cfg: robotCfg(key), be, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «' + name + '»'); S.robotAcc = key; save(); robotMsg = msg; renderRobot(); runRobot(key); };
+    const at = $('#vAddT'); if (at) at.onclick = () => addRob('h4_tri', 'продажи · треугольник', '4h', false, 'Робот «продажи по треугольнику» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).');
     const aw = $('#vAddW'); if (aw) aw.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
-    const mo = $('#mOpen'); if (mo) mo.onclick = () => manualOpen();
-    const mAcc = () => { const W = D.vaccGet(); return [W, W.accs.find((a) => a.manual)]; };
-    $('#robBody').querySelectorAll('[data-msave]').forEach((b) => { b.onclick = () => { const [W, a] = mAcc(), t = Number(b.dataset.msave), p = a.pos.find((z) => z.entryT === t); if (!p) return;
-      p.stop = Number($('#robBody').querySelector(`[data-mstop="${t}"]`).value) || null; p.target = Number($('#robBody').querySelector(`[data-mtgt="${t}"]`).value) || null; D.vaccSet(W); D.log('robot', 'вручную: ' + p.ticker + ' стоп ' + p.stop + ', тейк ' + p.target); robotMsg = 'Сохранено: ' + p.ticker; renderRobot(); }; });
-    $('#robBody').querySelectorAll('[data-mclose]').forEach((b) => { b.onclick = () => manualClose(Number(b.dataset.mclose)); });
     $('#vToggle').onclick = () => { const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); };
     $('#vFlowOk').onclick = () => { const v = Number($('#vFlow').value); if (!v) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); };
     $('#vReset').onclick = () => { if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); };
-  }
-  // ручной счёт: текущая цена у брокера
-  async function livePrice(inst) {
-    try { const info = await D.instInfo(S.token, inst); if (info.uid) { const m = await D.getLastPrices(S.token, [info.uid]); if (m[info.uid] && m[info.uid].price > 0) return { px: m[info.uid].price, lot: info.lot || 1 }; } } catch (e) { /* ниже — цена с графика */ }
-    return { px: inst.id === S.inst.id && all.length ? all[all.length - 1].c : 0, lot: lotInfo && inst.id === S.inst.id ? lotInfo.lot || 1 : 1 };
-  }
-  async function manualOpen() {
-    const W = D.vaccGet(), a = W && W.accs.find((x) => x.manual); if (!a) return;
-    const side = Number($('#mSide').value), stop = Number($('#mStop').value) || null, target = Number($('#mTgt').value) || null;
-    robotMsg = 'узнаю цену…'; const el = $('#vMsg'); if (el) el.textContent = robotMsg;
-    const { px, lot } = await livePrice(S.inst);
-    if (!(px > 0)) { robotMsg = 'Не удалось узнать цену'; renderRobot(); return; }
-    if (stop && (side > 0 ? stop >= px : stop <= px)) { robotMsg = 'Стоп должен быть ' + (side > 0 ? 'ниже' : 'выше') + ' цены ' + pr(px); renderRobot(); return; }
-    const eq = D.vEquity(a);
-    let lots = Number($('#mLots').value) || 0;
-    if (!lots) lots = stop ? Math.floor(Math.min(eq * (S.cfg.riskPct || 1) / 100 / Math.abs(px - stop), eq * 0.25 / px) / lot) : Math.floor(eq * 0.25 / px / lot);
-    const qty = lots * lot;
-    if (qty < lot) { robotMsg = 'Не хватает денег даже на 1 лот (' + lot + ' шт по ' + pr(px) + ')'; renderRobot(); return; }
-    const cost = qty * px * (1 + 0.0005);
-    if (side > 0 && cost > a.cash) { robotMsg = 'Не хватает свободных денег: нужно ' + rub0(cost) + ', есть ' + rub0(a.cash); renderRobot(); return; }
-    if (side > 0) a.cash -= cost; else a.cash += qty * px * (1 - 0.0005);
-    a.pos.push({ id: S.inst.id, ticker: S.inst.ticker, lot, qty, side, entry: px, entryT: Date.now(), stop, stop0: stop, target, cost: side > 0 ? cost : qty * px * (1 - 0.0005), divs: 0, lastChk: Date.now() });
-    a.px[S.inst.id] = px; D.vaccSet(W);
-    D.log('robot', 'вручную: ' + (side > 0 ? 'купил ' : 'продал ') + S.inst.ticker + ' ' + qty + ' шт по ' + px + (stop ? ', стоп ' + stop : '') + (target ? ', тейк ' + target : ''));
-    robotMsg = (side > 0 ? 'Куплено ' : 'Продано ') + S.inst.ticker + ' ' + qty + ' шт по ' + pr(px); ensureBg(); renderRobot();
-  }
-  async function manualClose(entryT) {
-    const W = D.vaccGet(), a = W && W.accs.find((x) => x.manual), p = a && a.pos.find((z) => z.entryT === entryT); if (!p) return;
-    const { px } = await livePrice({ id: p.id, ticker: p.ticker, classCode: 'TQBR' });
-    if (!(px > 0)) { robotMsg = 'Не удалось узнать цену'; renderRobot(); return; }
-    let pl;
-    if (p.side < 0) { const v = p.qty * px * 1.0005; a.cash -= v; pl = p.cost - v; } else { const v = p.qty * px * (1 - 0.0005); a.cash += v; pl = v - p.cost + (p.divs || 0); }
-    a.closed.push({ id: p.id, ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, exit: px, exitT: Date.now(), why: 'вы закрыли', pl, divs: p.divs || 0 });
-    a.pos = a.pos.filter((z) => z !== p); D.vaccSet(W);
-    D.log('robot', 'вручную: закрыл ' + p.ticker + ' по ' + px + ', ' + Math.round(pl) + ' ₽');
-    robotMsg = 'Закрыто ' + p.ticker + ': ' + (pl >= 0 ? '+' : '−') + rub0(Math.abs(pl)); renderRobot();
   }
   // отчёт по роботам: все счета, позиции и закрытые сделки
   function robotExport(kind) {
@@ -824,7 +783,7 @@
   // вид отметок сделок на графике: фигура и цвет — свои у каждого счёта
   const RM_SHAPES = [['tri', '▲'], ['dia', '◆'], ['dot', '●'], ['sq', '■'], ['star', '★']];
   const RM_COLORS = ['#c08cff', '#f0a23a', '#4fc3f7', '#3fbf7f', '#ef5b5b', '#f5d742', '#ffffff'];
-  const RM_DEF = { d_long: { sh: 'tri', c: '#c08cff' }, d_aggr: { sh: 'dia', c: '#f0a23a' }, h4_week: { sh: 'sq', c: '#3fbf7f' }, manual: { sh: 'dot', c: '#4fc3f7' }, me: { sh: 'dot', c: '#5b9cff' } };
+  const RM_DEF = { d_long: { sh: 'tri', c: '#c08cff' }, d_aggr: { sh: 'dia', c: '#f0a23a' }, h4_week: { sh: 'sq', c: '#3fbf7f' }, h4_tri: { sh: 'tri', c: '#ef5b5b' }, manual: { sh: 'dot', c: '#4fc3f7' }, me: { sh: 'dot', c: '#5b9cff' } };
   const rmStyle = (key) => Object.assign({}, RM_DEF[key] || RM_DEF.d_long, (S.rmStyle || {})[key] || {});
   function rmShape(sh, x, y, d, r) {   // фигура с вершиной у цены входа (d — сторона: +1 покупка снизу, −1 продажа сверху)
     const cy = y + d * (r + 2);
@@ -841,7 +800,7 @@
     const now = Date.now(); if (now - robCache.at < 5000 && robCache.id === S.inst.id) return robCache.list;
     const out = []; let V = null; try { V = D.vaccGet(); } catch (e) { V = null; }
     if (V && V.accs) for (const a of V.accs) {
-      const lt = a.manual ? 'Я' : a.key === 'd_aggr' ? 'А' : a.key === 'h4_week' ? 'Н' : 'О', key = a.manual ? 'manual' : a.key;
+      const lt = a.manual ? 'Я' : a.key === 'd_aggr' ? 'А' : a.key === 'h4_week' ? 'Н' : a.key === 'h4_tri' ? 'Т' : 'О', key = a.manual ? 'manual' : a.key;
       for (const p of a.pos) if (p.id === S.inst.id) out.push({ lt, key, side: p.side || 1, t0: p.entryT, e: p.entry, open: true, stop: p.stop, be: !!p.beOn });
       for (const c of a.closed) if (c.id === S.inst.id) out.push({ lt, key, side: c.side || 1, t0: c.entryT, e: c.entry, t1: c.exitT, x: c.exit, pl: c.pl });
     }
@@ -964,7 +923,8 @@
     if (c.maxHold > 0) a.push('макс. ' + c.maxHold + ' бар.');
     if (c.maxHoldDays > 0) a.push('сделка до ' + Math.round(c.maxHoldDays / 30.4) + ' мес');
     if (c.addMinRR) a.push('П/Р от ' + c.minRR);
-    if (c.weekExit) a.push('выход в пятницу');
+    if (c.weekExit) a.push('выход в пятницу' + (c.wkChan ? ' (держать, пока цел канал)' : '') + (c.wkNextOpen ? ', по открытию пн' : ''));
+    if (c.topOnly) a.push('только лучший подсчёт');
     if (c.addDepth) a.push('рамки волн 2 и 4');
     if (c.addPhaseExit) a.push('выход по смене фазы');
     if (c.addFlipExit) a.push('выход при смене подсчёта');
@@ -1136,7 +1096,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '2.44';
+  const APP_VER = '3.1';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -3029,6 +2989,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     ['addStruct', 'Тренд подтверждать структурой', 'Максимумы и минимумы растут (падают)'],
     ['addMinRR', 'Фильтр: мин. прибыль/риск 1,5', ''],
     ['weekExit', 'Выход в пятницу (неделя)', 'В пятницу по закрытию последней свечи сделка без прибыли закрывается, прибыльная остаётся на следующую неделю со стопом в безубытке. Новые входы — только пн–пт'],
+    ['wkChan', 'Неделя: убыточную держать, пока цел канал', 'С «выходом в пятницу»: сделку без прибыли закрывать, только если за неделю цена закрылась ниже нижней линии канала её подсчёта (пока идёт волна 3 — линия от начала волны 1 через конец волны 2); иначе — на следующую неделю со своим стопом. 4ч 2018–2026: 18,4 → 19,5%/год, просадка 10,4 → 8,9%'],
+    ['wkNextOpen', 'Неделя: выход в понедельник по открытию', 'С «выходом в пятницу»: закрывать не по закрытию пятницы, а по открытию следующей свечи — так и реально исполнить. 4ч 2018–2026: 18,4 → 19,6%/год, лучше в каждом году'],
+    ['topOnly', 'Сигнал только от лучшего подсчёта', 'Входить, только если сигнал дал первый (лучший) подсчёт в списке. Сделок на четверть меньше, счёт ровнее, но доход обычно чуть ниже; в «4 часа · неделя» вместе с каналом и понедельником — 20%/год при просадке ~7,5%'],
     ['addDepth', 'Фильтр: рамки глубины волн 2 и 4', 'Волна 2 — 30–80%, волна 4 — до 50%'],
     ['setupCounter', 'Сетап против тренда после 5 волн', ''],
     ['addBreak24', 'Отмечать пробой линии 2-4', 'После пяти волн'],
@@ -3036,9 +2999,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // ---------- готовые настройки (проверка: 65 акций Мосбиржи, чистый R после комиссии) ----------
   const W3ABC = { w3: true, w5: false, abc: true, tri: true };
   const PRESETS = [
-    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true, addMinRR: true, minRR: 1.5 }, '2019–2026: +171 R, 301 сделка, в среднем +0,57 R. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда, «прибыль/риск не меньше 1,5» (Кеннеди) — сделки со слишком близкой целью: на общем счёте ~25%/год, просадка ~8,5%, убыточных подряд до 15. Сделка обычно 1–3 месяца, не дольше 6.'],
-    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: +555 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34, «SMA200 растёт» и «прибыль/риск не меньше 1,5», доливка, когда волна 3 прошла 110% волны 1 (Вильямс), стоп в безубыток, когда цена ушла на 3×ATR. На общем счёте ~31%/год против ~25% у основного, просадка ~9%. Сделка не дольше 6 месяцев. Прибыльна примерно каждая вторая сделка (46%), убыточных подряд до ~13.'],
-    ['h4_week', '4 часа · неделя (покупки)', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: true, w5: false, abc: false, tri: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true }, '2018–2026 (65 акций, свечи Мосбиржи): ~21%/год на общем счёте, просадка ~11%, около 17 сделок в месяц, сделка обычно 2–3 дня. Только вход в волну 3, фильтры AO 5/34 и «SMA200 растёт», безубыток после хода на 3×ATR, выход в пятницу: без прибыли — закрыть, с прибылью — перенести на следующую неделю со стопом в безубытке. Нужна комиссия не больше ~0,1% (тариф «Трейдер»): при 0,3% — ~7%/год, хуже фонда. Для сравнения: те же сделки без пятничного выхода — ~25%/год, дневной основной набор — ~25%.'],
+    ['d_long', 'Дневки · покупки (основной)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182, addAO: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: 315 сделок, +162 R, прибыльных 59%. Фильтры AO 5/34 (Вильямс) и «SMA200 растёт» отсеивают входы против долгого тренда, «прибыль/риск не меньше 1,5» (Кеннеди) — сделки со слишком близкой целью, стоп в безубыток, когда цена ушла на 3×ATR (3.0). На общем счёте ~26%/год, просадка ~6%, убыточных подряд до 8 (без безубытка было ~25%, ~8,5% и 15). Робот ведёт набор с риском 1,5% на сделку (3.1): ~30%/год, просадка ~7%. Сделка обычно 1–3 месяца, не дольше 6.'],
+    ['d_aggr', 'Дневки · покупки (агрессивный)', '1d', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, stopW2: true, localBars: 5, maxHoldDays: 182, addAO: true, addPyramid: true, addSma200: true, addMinRR: true, minRR: 1.5, beMode: 'auto', beRule: 'atr', beAtr: 3 }, '2019–2026: +555 R с доливками — стоп под концом волны 2, после цели стоп под минимумами 5 свечей, фильтры AO 5/34, «SMA200 растёт» и «прибыль/риск не меньше 1,5», доливка, когда волна 3 прошла 110% волны 1 (Вильямс), стоп в безубыток, когда цена ушла на 3×ATR. На общем счёте ~27%/год (сильно зависит от того, какие сигналы робот успел взять: 25–33%), просадка ~9,5%. Сделка не дольше 6 месяцев. Прибыльна примерно каждая вторая сделка (46%), убыточных подряд до ~13.'],
+    ['h4_week', '4 часа · неделя (покупки)', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: true, w5: false, abc: false, tri: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true, wkChan: true, wkNextOpen: true, topOnly: true }, '2018–2026 (65 акций, свечи Мосбиржи): ~20%/год на общем счёте, просадка ~7,5%, около 12 сделок в месяц, сделка обычно 2–3 дня. Только вход в волну 3 и только от лучшего подсчёта, фильтры AO 5/34 и «SMA200 растёт», безубыток после хода на 3×ATR. Пятница: с прибылью — на следующую неделю со стопом в безубытке; без прибыли — закрыть, если цена за неделю закрылась ниже нижней линии канала подсчёта, иначе тоже на следующую неделю со своим стопом; выход — по открытию следующей свечи (утро понедельника). Нужна комиссия не больше ~0,1% (тариф «Трейдер»): при 0,2% — ~14%/год. До 3.0 (просто «без прибыли — закрыть в пятницу»): ~18%/год, просадка ~10%. Робот ведёт набор с риском 1,5% на сделку (3.1): ~23%/год, просадка ~9%; плечо не помогает (долг съедает прибавку).'],
+    ['h4_tri', '4 часа · продажи по треугольнику', '4h', { longOnly: false, shortOnly: true, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, setups: { w3: false, w5: false, abc: false, tri: true } }, 'Только продажи (шорт) после завершённого треугольника, когда рынок ниже своей средней. 2018–2026 (65 акций, свечи Мосбиржи): 112 сделок — около 13 в год, в среднем +0,5 R с платой за шорт 15% годовых, отдельным счётом ~15%/год вместе с фондом на свободные деньги, просадка ~2%; сделка обычно 3 дня. Осторожно: сделок мало, прибыль дали немногие бумаги, запреты шорта и список бумаг брокера не учтены — пока для наблюдения.'],
     ['d_both', 'Дневки · с шортом', '1d', { longOnly: false, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, maxHoldDays: 182 }, 'Сделка не дольше 6 месяцев. 2019–2026: +266 R, 973 сделки, +0,27 R, 55 из 65.'],
     ['h4_long', '4 часа · покупки', '4h', { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: true }, '2025–2026: +19 R, 550 сделок — около нуля. Лучше для уточнения входа по дневкам.'],
     ['h4_short', '4 часа · продажи', '4h', { longOnly: false, shortOnly: true, swingMult: 1.5, addMarket: true, addRunner: false, addFlipExit: true, addStruct: true }, '2025–2026: +51 R, 444 сделки, +0,12 R, 41 из 65. Проверено только на падающем рынке.'],

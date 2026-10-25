@@ -741,7 +741,7 @@
     const list = U.list.filter((x) => x.turn >= 50e6).slice(0, V.top || 50);
     for (const x of U.list) if (held.has(x.id) && !list.includes(x)) list.push(x);   // бумаги в позиции — даже если выпали из топа
     // свечи — по таймфреймам роботов (дневки нужны всегда: ручной счёт берёт из них ATR); 2.39: робот «4 часа · неделя»
-    const tfs = Array.from(new Set(runAccs.map((a) => (a.manual ? '1d' : a.tf || '1d'))));   // дневки — только если ходит дневной робот или ручной счёт (ему нужен ATR)
+    const tfs = Array.from(new Set(runAccs.filter((a) => !a.manual).map((a) => a.tf || '1d')));   // 3.0: ручному счёту свечи не нужны — позиции и цены со счёта
     const dataBy = {}, mktBy = {};
     for (const tf of tfs) {
       const dd = dataBy[tf] = {};
@@ -754,7 +754,6 @@
       }
       mktBy[tf] = buildMarket(tf, 200);
     }
-    const data = dataBy['1d'] || dataBy[tfs[0]];
     const T = (an, i) => (an.bars[i] ? an.bars[i].t : 0);
     for (const a of V.accs) {
       if (!runSet.has(a)) continue;
@@ -823,37 +822,19 @@
               else if (want < have) { const px = r ? r.cur : (a.px[id] || mine(id)[0].entry); closeQty(id, have - want, px, now); nCut++; }
             }
             log('robot', `${a.name}: сверка со счётом — акций на счёте ${real.size}${nOps ? ', новых сделок ' + nOps : ''}${nAdd ? ', добавлено позиций ' + nAdd : ''}${nCut ? ', закрыто ' + nCut : ''}${nOps || nAdd || nCut ? '' : ', изменений нет'}`);
+            // 3.0: здесь только то, что лежит на счёте — виртуальные позиции прежних версий убираем (без записи в закрытые)
+            const virt = a.pos.filter((z) => z.src !== 'счёт');
+            if (virt.length) { a.pos = a.pos.filter((z) => z.src === 'счёт'); log('robot', `${a.name}: убраны виртуальные позиции (${virt.map((z) => z.ticker).join(', ')}) — дальше только сделки со счёта`); }
+            // капитал = стоимость счёта у брокера: цены — из портфеля, деньги и прочее (облигации, фонды) = итог − акции
+            let inShares = 0;
+            for (const [id, r] of real) { a.px[id] = r.cur; inShares += r.qty * r.cur; }
+            if (acc.total > 0) {
+              a.cash = acc.total - inShares;
+              if (!a.realCap) { a.realCap = now; a.dep = vEquity(a); a.hist = [{ t: now, eq: a.dep, dep: a.dep }]; log('robot', `${a.name}: капитал теперь со счёта — ${Math.round(a.dep)} ₽, результат считаем с этой минуты`); }
+            }
             a.syncAt = now; a.opAt = now;
           } catch (e) { log('robot', `${a.name}: сверка со счётом не удалась — ${e.message}`); say('ваши сделки со счёта: ' + e.message); }
           ev.length = n0;
-        }
-        for (const p of a.pos.slice()) {
-          try {
-            const from = Math.max(p.lastChk || p.entryT, now - 5 * 86400000);
-            const bars = await loadCandles(s.token, p.id, '5m', 0, from);
-            // безубыток 3×ATR (кнопка 🛡 у ручного счёта): ATR — по дневкам до дня входа
-            let beLv = 0, atrLim = 0;
-            if (a.be && !p.beOn) {
-              const dd = data[p.id] && data[p.id].bars, k = dd ? dd.findIndex((x) => x.t > p.entryT) : -1, end = k < 0 ? (dd ? dd.length : 0) : k;
-              if (dd && end > 15) { let sm = 0; for (let j = end - 14; j < end; j++) sm += Math.max(dd[j].h - dd[j].l, Math.abs(dd[j].h - dd[j - 1].c), Math.abs(dd[j].l - dd[j - 1].c)); atrLim = 3 * sm / 14; }
-              beLv = p.entry * (1 + (p.side < 0 ? -1 : 1) * (2 * VFEE + 0.0005));
-            }
-            const sd = p.side < 0 ? -1 : 1;
-            for (const b of bars) {
-              if (b.t < from) continue;
-              const hs = p.stop && (p.side > 0 ? b.l <= p.stop : b.h >= p.stop), ht = p.target && (p.side > 0 ? b.h >= p.target : b.l <= p.target);
-              if (hs) { sold(p, p.side > 0 ? Math.min(b.o, p.stop) : Math.max(b.o, p.stop), b.t, p.beOn && Math.abs(p.stop - p.beLv) < 1e-9 ? 'безубыток' : 'ваш стоп'); break; }
-              if (ht) { sold(p, p.side > 0 ? Math.max(b.o, p.target) : Math.min(b.o, p.target), b.t, 'ваша цель'); break; }
-              p.best = sd > 0 ? Math.max(p.best || p.entry, b.h) : Math.min(p.best || p.entry, b.l);
-              if (atrLim > 0 && !p.beOn && sd * (p.best - p.entry) >= atrLim && sd * (b.c - beLv) > 0 && (!p.stop || sd * (beLv - p.stop) > 0)) {
-                p.stop = beLv; p.beOn = b.t; p.beLv = beLv;
-                const msg = `${p.ticker}: стоп в безубыток ${fmtPrice(beLv, [{ c: beLv }])} — цена ушла на 3×ATR от входа`;
-                log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': безубыток · ' + tag, text: msg, open: { id: p.id, ticker: p.ticker, classCode: 'TQBR', tf: '1d' }, kind: 'robot' });
-              }
-            }
-            if (bars.length) a.px[p.id] = bars[bars.length - 1].c;
-            p.lastChk = bars.length ? bars[bars.length - 1].t : now;
-          } catch (e) { say(p.ticker + ': ' + e.message); }
         }
       }
       for (const [id, d] of a.manual ? [] : Object.entries(dataBy[atf] || {})) {
@@ -895,6 +876,9 @@
           if (Math.abs(tr.stop - p.stop) > 1e-9) { log('robot', `${a.name}: ${p.ticker} стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}`); if (tr.runner && !p.runner) ev.push({ title: p.ticker + ': цель пройдена — держим · ' + tag, text: 'Стоп переносится на ' + fmtPrice(tr.stop, an.bars), open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           // «неделя»: в пятницу сделка в плюсе — остаётся на следующую неделю, стоп в безубытке
           if (tr.wkCarry && tr.wkCarry !== (p.wk || 0)) { p.wk = tr.wkCarry; const msg = `${p.ticker}: пятница, сделка в плюсе — переносим на следующую неделю, стоп ${fmtPrice(tr.stop, an.bars)} (безубыток)`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': на следующую неделю · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
+          // 3.0: без прибыли, но канал цел — тоже на следующую неделю (стоп прежний); канал пробит — закрытие по открытию следующей свечи
+          if (tr.wkHold && tr.wkHold !== (p.wkh || 0)) { p.wkh = tr.wkHold; const msg = `${p.ticker}: пятница, сделка без прибыли, но канал подсчёта цел — переносим на следующую неделю, стоп ${fmtPrice(tr.stop, an.bars)}`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': на следующую неделю (канал цел) · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
+          if (tr.wkOut && !p.wko) { p.wko = 1; const msg = `${p.ticker}: пятница, сделка без прибыли — закроем по открытию следующей свечи (утро понедельника)`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': закроем в понедельник · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           p.stop = tr.stop; p.runner = !!tr.runner;
           if (!p.addOf && !p.legacy && tr.add && a.cfg.addPyramid) openAdd(p, tr);
         }
@@ -908,12 +892,13 @@
           let val = Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE));
           const qty = Math.floor(val / (tr.entry * lot)) * lot;
           if (qty < lot) { a.skipped++; log('robot', `${a.name}: ${d.x.ticker} — сигнал пропущен, не хватает свободных денег`); continue; }
-          const cost = qty * tr.entry * (1 + VFEE); a.cash -= cost;
-          const p = { id, ticker: d.x.ticker, lot, qty, entry: tr.entry, entryT: tIn, stop0: tr.stop0, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner , be: !!a.be };
+          const side = tr.side < 0 ? -1 : 1, cost = side < 0 ? qty * tr.entry * (1 - VFEE) : qty * tr.entry * (1 + VFEE);
+          a.cash += side < 0 ? cost : -cost;   // шорт: деньги от продажи на счёте, при закрытии бумаги откупаем (sold)
+          const p = { id, ticker: d.x.ticker, lot, qty, side, entry: tr.entry, entryT: tIn, stop0: tr.stop0, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner , be: !!a.be };
           a.pos.push(p);
           if (tr.add && a.cfg.addPyramid) openAdd(p, tr);
-          const msg = `купил ${p.ticker} ${qty} шт по ${fmtPrice(tr.entry, an.bars)}, стоп ${fmtPrice(tr.stop0, an.bars)}${tr.notgt ? '' : ', цель ' + fmtPrice(tr.target, an.bars)}`;
-          log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': купил · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+          const msg = `${side < 0 ? 'продал (шорт)' : 'купил'} ${p.ticker} ${qty} шт по ${fmtPrice(tr.entry, an.bars)}, стоп ${fmtPrice(tr.stop0, an.bars)}${tr.notgt ? '' : ', цель ' + fmtPrice(tr.target, an.bars)}`;
+          log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': ' + (side < 0 ? 'продал (шорт)' : 'купил') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
           if (tr.reason !== 3) sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]);   // вошёл и вышел между проверками
         }
         // в) сигнал на последней закрытой свече — заявка «купить на открытии» (чтобы успеть повторить)
@@ -923,8 +908,8 @@
           if (!a.pend[id] || a.pend[id].sigT !== sigT) {
             const eq = vEquity(a), dist = Math.abs(an.plan.entry - an.plan.stop) / an.plan.entry, lot = d.x.lot || 1;
             const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash) / (an.plan.entry * lot)) * lot;
-            a.pend[id] = { sigT, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty };
-            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} купит ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
+            a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty };
+            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} ${an.plan.side < 0 ? 'продаст (шорт)' : 'купит'} ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
             log('robot', a.name + ': ' + msg); ev.push({ title: d.x.ticker + ': ' + (qty >= lot ? (atf === '1d' ? 'сигнал, завтра на открытии' : 'сигнал — вход сейчас') : 'сигнал, пропуск — нет денег') + ' · ' + tag, text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
           }
         }
@@ -957,10 +942,11 @@
       if (a.closed.length > 3000) a.closed.splice(0, a.closed.length - 3000);
     }
     // без связи ход не засчитываем: иначе после долгого перерыва робот «забыл» бы сделки, случившиеся без него
-    if (!Object.keys(data).length && list.length) { log('robot', 'нет связи — ход отложен'); vaccSet(V); return ev; }
+    const nData = Math.max(0, ...Object.values(dataBy).map((d) => Object.keys(d).length));   // бумаг со свечами (по таймфрейму, где их больше всего)
+    if (tfs.length && !nData && list.length) { log('robot', 'нет связи — ход отложен'); vaccSet(V); return ev; }
     for (const a of runAccs) a.lastRun = now;
     if (runAccs.length === V.accs.length) V.lastRun = now;
-    V.lastN = Object.keys(data).length;
+    if (tfs.length) V.lastN = nData;
     vaccSet(V);
     say('робот: проверено ' + V.lastN + ' бумаг');
     return ev;

@@ -3,20 +3,21 @@
 const ROOT = require('path').resolve(__dirname, '..');
 const { evalCfg, SPLIT } = require(ROOT + '/research/strat.js');
 
-function portfolio(all, maxPos, key, fee = 0.0005) {
-  const risk = 0.01, slip = 0.0002;
+// lev — плечо: в позициях можно держать до lev × капитала; заёмная часть стоит mrate годовых (просадка — по закрытым сделкам, маржин-колл не моделируется)
+function portfolio(all, maxPos, key, fee = 0.0005, risk = 0.01, lev = 1, mrate = 0.2) {   // risk — доля капитала под риском на сделку
+  const slip = 0.0002;
   const tr = all.map((x) => ({ x, tIn: x.T, tOut: x.TOut, side: x.t.side, entry: x.t.entry, stop: x.t.stop0, exit: x.t.exitP, k: key(x) }))
     .sort((a, b) => a.tIn - b.tIn || a.k - b.k);
   const took = new Set();
-  let eq = 1, open = [], peak = 1, mdd = 0, taken = 0, skipped = 0, addT = 0, addS = 0, lastT = 0;
+  let eq = 1, open = [], peak = 1, mdd = 0, taken = 0, skipped = 0, addT = 0, addS = 0, lastT = 0, borrow = 0, maxExpo = 0;
   const done = [];
   const RATE = { 2019: 0.066, 2020: 0.043, 2021: 0.051, 2022: 0.098, 2023: 0.092, 2024: 0.173, 2025: 0.183, 2026: 0.143 };
-  const accrue = (t) => { if (!lastT) { lastT = t; return; } const dt = (t - lastT) / 31557600000; if (dt <= 0) return; const used = open.reduce((s, p) => s + p.val, 0); eq += Math.max(0, eq - used) * (RATE[new Date(t).getUTCFullYear()] || 0.1) * dt; lastT = t; };
+  const accrue = (t) => { if (!lastT) { lastT = t; return; } const dt = (t - lastT) / 31557600000; if (dt <= 0) return; const used = open.reduce((s, p) => s + p.val, 0), free = eq - used; eq += free > 0 ? free * (RATE[new Date(t).getUTCFullYear()] || 0.1) * dt : free * mrate * dt; borrow += Math.max(0, -free) * mrate * dt; maxExpo = Math.max(maxExpo, used / eq); lastT = t; };
   const closeUntil = (t) => { open.sort((a, b) => a.tOut - b.tOut); while (open.length && open[0].tOut <= t) { const p = open.shift(); accrue(p.tOut); const g = p.val * (p.side * (p.exit - p.entry) / p.entry - 2 * fee - 2 * slip); eq += g; if (!p.x.of) done.push({ t: p.tOut, g }); if (eq > peak) peak = eq; mdd = Math.max(mdd, 1 - eq / peak); } };
   for (const t of tr) {
     if (t.x.of && !took.has(t.x.of)) continue;
     closeUntil(t.tIn); accrue(t.tIn); const dist = Math.abs(t.entry - t.stop) / t.entry;
-    const used = open.reduce((s, p) => s + p.val, 0); const val = Math.min(eq * risk / dist, eq * maxPos, Math.max(0, eq - used));
+    const used = open.reduce((s, p) => s + p.val, 0); const val = Math.min(eq * risk / dist, eq * maxPos, Math.max(0, eq * lev - used));
     if (val < eq * 0.02) { if (t.x.of) addS++; else skipped++; continue; }
     if (t.x.of) addT++; else { taken++; took.add(t.x); }
     open.push(Object.assign({ val }, t));
@@ -24,7 +25,7 @@ function portfolio(all, maxPos, key, fee = 0.0005) {
   closeUntil(Infinity);
   let st = 0, c = 0; for (const d of done.sort((a, b) => a.t - b.t)) { if (d.g < 0) { c++; st = Math.max(st, c); } else c = 0; }
   const yrs = (tr[tr.length - 1].tIn - tr[0].tIn) / 31557600000;
-  return { cagr: Math.pow(eq, 1 / yrs) - 1, mdd, taken, skipped, addT, addS, st };
+  return { cagr: Math.pow(eq, 1 / yrs) - 1, mdd, taken, skipped, addT, addS, st, borrow, maxExpo };
 }
 
 module.exports = { portfolio };
