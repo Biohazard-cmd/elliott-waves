@@ -323,6 +323,21 @@ body.chartfull #panel { display: none; }
 .jrow .row { justify-content: space-between; }
 .watch { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .watch span { flex: 1; }
+/* 3.6: программа для компьютера в широком окне — график слева на всю высоту, панель справа, экраны выезжают справа */
+body.desk { display: grid; grid-template-columns: minmax(0, 1fr) 460px; grid-template-rows: auto auto auto minmax(0, 1fr); }
+body.desk > header { grid-column: 1 / -1; }
+body.desk #chartWrap { grid-column: 1; grid-row: 2 / 5; height: auto !important; border-right: 1px solid var(--line); }
+body.desk #grip { display: none; }
+body.desk #chips { grid-column: 2; grid-row: 2; }
+body.desk #trBar { grid-column: 2; grid-row: 3; }
+body.desk #panel { grid-column: 2; grid-row: 4; padding-bottom: 24px; }
+body.desk .sheet { left: auto; width: min(640px, 100vw); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0,0,0,.45); }
+body.desk #robots { width: min(860px, 100vw); }
+body.desk button, body.desk [role="button"], body.desk label.sw { cursor: pointer; }
+body.desk ::-webkit-scrollbar { width: 10px; height: 10px; }
+body.desk ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+body.desk ::-webkit-scrollbar-track { background: transparent; }
+@media (min-width: 1600px) { body.desk { grid-template-columns: minmax(0, 1fr) 540px; } }
 </style>
 </head>
 <body>

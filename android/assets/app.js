@@ -3,6 +3,7 @@
   'use strict';
   const $ = (s) => document.querySelector(s);
   const A = window.Android || null;
+  const DESK = !!(A && A.desktop);   // 3.6: программа для компьютера (Electron) — мост тот же, раскладка шире, проверка идёт и в свёрнутом окне
   const D = window.EWData, E = window.EW2;
   const TFK = ['5m', '15m', '1h', '4h', '1d', '1w'];
   const FIG_COLOR = ['#3fbf7f', '#35b8b0', '#f0703a', '#b07cf0', '#d9b443'];
@@ -1156,7 +1157,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.5';
+  const APP_VER = '3.6';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1547,6 +1548,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
   function bgLine() {
     if (!A) return 'Фоновая проверка работает только в приложении на телефоне.';
+    if (DESK) { const l = D.store.get('lastcheck', 0); return 'Программа проверяет каждые 5 минут, пока открыта или свёрнута к часам' + (l ? ' · последняя ' + fmtT(l, true) : '') + '.'; }
     if (!S.bgMinutes) return '<span class="warn">Фоновая проверка выключена.</span>';
     const l = D.store.get('lastcheck', 0);
     return 'Проверка каждые ' + (S.bgMinutes >= 60 ? S.bgMinutes / 60 + ' ч' : S.bgMinutes + ' мин') + (l ? ' · последняя ' + fmtT(l, true) : '') + '. Android может сдвигать время проверки.';
@@ -2133,7 +2135,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   const trMiniH = () => { const b = $('#trBar'); if (!tr || !b || b.hidden) return 0; const r = b.querySelector('.row'); return (r ? r.offsetHeight : 40) + 18; };
   function fullH() { const hd = document.querySelector('body > header'), ch = $('#chips'), gr = $('#grip'); return Math.max(200, vh() - (hd ? hd.offsetHeight : 50) - (ch ? ch.offsetHeight : 44) - 18 - trMiniH()); }
   const snapPx = (k) => SNAPS[k] === 'full' ? fullH() : SNAPS[k] * vh();
+  // 3.6: на компьютере в широком окне график слева на всю высоту, панель справа — высоту задаёт раскладка, а не ручка
+  const deskWide = () => DESK && window.innerWidth >= 900;
   function setChartH(px, anim) {
+    document.body.classList.toggle('desk', deskWide());
+    if (deskWide()) { const w = $('#chartWrap'); w.style.height = ''; chartH = w.getBoundingClientRect().height; document.body.classList.remove('chartbig', 'chartfull'); resize(); return; }
     const wrap = $('#chartWrap'), max = fullH();
     chartH = Math.max(0, Math.min(max, px));
     wrap.classList.toggle('anim', !!anim);
@@ -3094,7 +3100,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
 
   function bgStatus() {
-    if (!A || !S.bgMinutes) return '';
+    if (!A || DESK || !S.bgMinutes) return '';
     const lb = D.store.get('lastbg', null), now = Date.now(), lim = Math.max(S.bgMinutes, 15) * 60000 * 2.5;
     let h = '<div class="small" style="margin-top:4px">';
     if (!lb) h += '<span class="warn">Фоновая проверка ещё ни разу не запускалась.</span>';
@@ -3199,14 +3205,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="row"><button id="caBtn">${A.caInfo() ? 'Скачать заново' : 'Скачать с gu-st.ru'}</button></div></div>` : ''}
 `;
     if (tab === 'alerts') h = `<div class="card"><h3>Как это работает</h3>
-      <div class="small">Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
+      <div class="small">${DESK ? 'Пока программа открыта или свёрнута к часам, она каждые 5 минут' : 'Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно'} скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
       <div class="card${foldC('notifs')}" data-fold="notifs"><h3>📨 История оповещений</h3><div class="small">Все уведомления, что приходили (последние 50). Нажмите — откроется график бумаги.</div>${notifRows(50)}</div>
       <div class="card"><h3>Сигналы системы</h3>
       <div class="small">Бумаги и таймфреймы, по которым присылать вход, выход и уровни. Каждая проверяется по тем настройкам, что стояли, когда её добавили.</div>
       <div id="watchList"></div>
       <div class="row" style="margin-top:8px"><button id="wAdd">+ Добавить ${esc(S.inst.ticker)} ${D.TF[S.tf].name}</button><button id="wTest">Проверить сейчас</button></div>
-      <div class="field" style="margin-top:10px"><label>Как часто проверять</label><select id="bg">${[[0, 'Выключено'], [15, 'Каждые 15 минут'], [30, 'Каждые 30 минут'], [60, 'Каждый час'], [240, 'Каждые 4 часа']].map(([m, t]) => `<option value="${m}" ${S.bgMinutes === m ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div class="small">${A ? (sched ? 'Фоновая проверка включена.' : 'Фоновая проверка выключена.') : 'Фоновая проверка работает только в приложении на телефоне.'} ${(() => { const l = D.store.get('lastcheck', 0); return l ? 'Последняя проверка ' + fmtT(l, true) + '.' : ''; })()}</div>
+      ${DESK ? '' : `<div class="field" style="margin-top:10px"><label>Как часто проверять</label><select id="bg">${[[0, 'Выключено'], [15, 'Каждые 15 минут'], [30, 'Каждые 30 минут'], [60, 'Каждый час'], [240, 'Каждые 4 часа']].map(([m, t]) => `<option value="${m}" ${S.bgMinutes === m ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`}
+      <div class="small">${DESK ? 'На компьютере программа проверяет сигналы и роботов каждые 5 минут, пока она открыта или свёрнута к часам (значок рядом с часами Windows). Когда компьютер выключен или спит, проверок нет.' : A ? (sched ? 'Фоновая проверка включена.' : 'Фоновая проверка выключена.') : 'Фоновая проверка работает только в приложении на телефоне.'} ${(() => { const l = D.store.get('lastcheck', 0); return l ? 'Последняя проверка ' + fmtT(l, true) + '.' : ''; })()}</div>
       <div id="bgStat">${bgStatus()}</div>
       ${(() => { const le = D.store.get('lasterr', null); return le && Date.now() - le.at < 86400000 ? `<div class="note">Ошибка проверки ${fmtT(le.at, true)}: ${esc(le.msg)}</div>` : ''; })()}
       <label class="sw"><input type="checkbox" data-n="signal" ${S.notify.signal ? 'checked' : ''}><span>Новый сигнал на вход<small>Покупка/продажа с входом, стопом и целью</small></span></label>
@@ -3227,6 +3233,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div class="field"><label>Дробная часть чисел</label><select id="decSel"><option value="dot" ${S.decComma ? '' : 'selected'}>Точка: 43.54</option><option value="comma" ${S.decComma ? 'selected' : ''}>Запятая: 43,54</option></select></div>
       <label class="sw"><input type="checkbox" id="divAdj" ${c.divAdj !== false ? 'checked' : ''}><span>Учитывать дивиденды<small>Свечи до отсечки уменьшаются на размер дивиденда, чтобы гэп отсечки не считался падением. Так делают терминалы.</small></span></label></div>
+<div class="card"><h3>Перенос на другое устройство</h3>
+      <div class="small">Роботы (счета, позиции, сделки, журнал), мои сделки, список слежения, уровни, избранное, оповещения и настройки — одним файлом. Без токена и номера счёта: на новом устройстве токен вводится заново.</div>
+      <div class="row" style="margin-top:8px"><button id="xferExp">Выгрузить в файл</button>${!A || DESK ? '<button id="xferImp">Загрузить из файла</button>' : ''}</div>
+      <input type="file" id="xferFile" accept=".json,application/json" hidden>
+      <div class="small" id="xferRes">${DESK ? 'С телефона: ⚙ → Данные → «Выгрузить в файл», файл из «Загрузок» перенесите на компьютер (Telegram, почта, кабель) и нажмите здесь «Загрузить из файла».' : 'Для программы на компьютере: файл появится в «Загрузках», отправьте его себе (Telegram, почта) и загрузите в программе.'} После переноса роботы на двух устройствах ведутся отдельно.</div></div>
 <div class="card"><h3>Журнал работы (лог)</h3>
       ${(() => { const L = D.logRead(), all2 = L.app.items.concat(L.bg.items), errN = all2.filter((x) => x.k === 'error' || x.k === 'crash').length, sigN = all2.filter((x) => x.k === 'signal').length, first = all2.reduce((m, x) => Math.min(m, x.t), Infinity);
         return `<div class="small">Приложение само записывает: ошибки, сбои связи с брокером, фоновые проверки, отправленные уведомления, новые сигналы (чтобы потом сверить, как они отработали) и смену настроек. Без токена, номеров счетов и сумм. Хранятся последние 3000 записей.</div>
@@ -3296,6 +3307,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('#acctSel', 'change', () => { const a = (S.accounts || []).find((x) => x.id === $('#acctSel').value); if (a) { S.account = a; save(); refreshAccount(true); } });
     on('#capital', 'change', () => { S.capital = Math.max(0, Number($('#capital').value) || 0); save(); if (an) renderPanel(); });
     on('#logExp', 'click', exportLog);
+    on('#xferExp', 'click', exportXfer);
+    on('#xferImp', 'click', () => $('#xferFile').click());
+    on('#xferFile', 'change', () => { const f = $('#xferFile').files[0]; if (f) f.text().then(importXfer).catch((e) => { $('#xferRes').innerHTML = '<span class="neg">' + esc(e.message) + '</span>'; }); });
     on('#logClr', 'click', () => { D.logClear(); D.log('start', 'лог очищен'); renderSettings(); });
     on('#decSel', 'change', () => { S.decComma = $('#decSel').value === 'comma'; D.setDec(S.decComma); save(); renderHead(); renderChips(); if (an) { renderPanel(); draw(); renderQuote(); } renderSettings(); });
     on('#fibTime', 'change', () => { S.view.fibT = $('#fibTime').checked; save(); renderPanel(); draw(); });
@@ -3364,13 +3378,15 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
   // 2.43: пока приложение открыто — проверка сигналов и роботов каждые 5 минут (роботы ходят, только когда закрылась новая свеча их таймфрейма)
   let fgBusy = false;
-  setInterval(async () => {
-    if (fgBusy || robotBusy || tr || document.hidden || !D.bgLock(8 * 60000)) return;
+  async function fgCheck() {
+    if (fgBusy || robotBusy || tr || (document.hidden && !DESK) || !D.bgLock(8 * 60000)) return;
     fgBusy = true;
     try { const ev = await D.checkAll(() => {}); sendNotes(ev, 900); if (ev.length) { renderBell(); renderRobIcon(); if (!$('#robots').hidden) renderRobot(); } }
     catch (e) { D.log('error', 'проверка в приложении: ' + e.message); }
     finally { D.bgUnlock(); fgBusy = false; D.logFlush(); if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm())); }
-  }, 5 * 60000);
+  }
+  setInterval(fgCheck, 5 * 60000);
+  window.appAlarm = fgCheck;   // 3.6: на компьютере «будильник» робота (закрытие свечи) и пробуждение компьютера — проверка сразу
   window.appResume = () => { renderBell(); renderRobIcon(); if (Date.now() - lastLoad > 30000) load(false); };
   setInterval(() => { if (!document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
   // 2.42: живая цена — последняя (незакрытая) свеча растёт каждые 5 с: запрос последней цены лёгкий; свечи целиком и анализ — по-прежнему раз в минуту
@@ -3395,6 +3411,36 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   window.addEventListener('error', (e) => D.log('crash', (e.message || 'ошибка') + ' @' + String(e.filename || '').split('/').pop() + ':' + e.lineno + ':' + e.colno, { stack: e.error && e.error.stack ? String(e.error.stack).slice(0, 1200) : undefined }));
   window.addEventListener('unhandledrejection', (e) => D.log('crash', 'promise: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), { stack: e.reason && e.reason.stack ? String(e.reason.stack).slice(0, 1200) : undefined }));
   document.addEventListener('visibilitychange', () => { if (document.hidden) D.logFlush(); });
+  // 3.6: перенос на другое устройство (телефон → компьютер): роботы, мои сделки, настройки — без токена и номера счёта
+  const XFER_FILES = ['vacc.json'], XFER_STORE = ['journal', 'notifHist', 'wcolors', 'jfired', 'pfired'];
+  const XFER_SECRET = ['token', 'account', 'accounts', 'acct'];
+  const xferKey = (k) => XFER_STORE.includes(k) || k.startsWith('last.') || k.startsWith('siglog.');
+  function exportXfer() {
+    const st = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('ew2.') && xferKey(k.slice(4))) st[k.slice(4)] = D.store.get(k.slice(4), null); } } catch (e) { /* нет хранилища */ }
+    const set = Object.assign({}, S); for (const k of XFER_SECRET) delete set[k];
+    const fl = {}; for (const n of XFER_FILES) { const v = D.files.get(n); if (v != null) fl[n] = v; }
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+    const name = `ew-perenos-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
+    const txt = JSON.stringify({ kind: 'ew-transfer', v: 1, app: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), settings: set, store: st, files: fl });
+    const say = (h) => { const el = $('#xferRes'); if (el) el.innerHTML = h; };
+    D.log('settings', 'перенос: выгрузка в файл');
+    if (A && A.saveDownload) { const r = A.saveDownload(name, 'application/json', txt).split('|'); say(r[0] === 'ok' ? 'Сохранено: ' + esc(r[1]) : '<span class="neg">' + esc(r[1]) + '</span>'); if (r[0] === 'ok' && A.shareLast) A.shareLast('application/json'); }
+    else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); say('Сохранено: ' + esc(name)); }
+  }
+  function importXfer(txt) {
+    let doc = null; try { doc = JSON.parse(txt); } catch (e) { /* ниже */ }
+    if (!doc || doc.kind !== 'ew-transfer' || !doc.settings) throw new Error('Это не файл переноса (нужен файл ew-perenos-….json из «Выгрузить в файл»).');
+    const V = doc.files && doc.files['vacc.json'], nRob = V && V.accs ? V.accs.length : 0, nJ = ((doc.store && doc.store.journal) || []).length;
+    if (!window.confirm(`Заменить данные на этом устройстве данными из файла?\n\n${doc.app || ''}, выгружено ${fmtT(Date.parse(doc.exportedAt), true)}.\nРоботов: ${nRob}, моих сделок: ${nJ}.\n\nТокен и выбранный счёт останутся здешние.`)) return;
+    for (const [k, v] of Object.entries(doc.store || {})) if (xferKey(k)) D.store.set(k, v);
+    for (const n of XFER_FILES) if (doc.files && doc.files[n] != null) D.files.set(n, doc.files[n]);
+    const keep = {}; for (const k of XFER_SECRET) if (S[k] !== undefined) keep[k] = S[k];
+    const ns = Object.assign({}, doc.settings); for (const k of XFER_SECRET) delete ns[k];
+    D.saveSettings(Object.assign(ns, keep));
+    D.log('settings', 'перенос: загружены данные из файла (' + (doc.app || '?') + ', роботов ' + nRob + ')'); D.logFlush();
+    location.reload();
+  }
   function exportLog() {
     const L = D.logRead(), d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const name = `ew-log-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
