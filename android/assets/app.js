@@ -1044,7 +1044,7 @@
     if (err) h += `<div class="banner err" id="errRetry" role="button">${esc(err)}<div class="small" style="margin-top:6px;opacity:.85">${retrying ? '⟳ Проверяю связь…' : '↻ Нажмите, чтобы проверить связь' + (lastTry ? ' · последняя попытка ' + new Date(lastTry).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')}</div>${/Минцифры/.test(err) && A && A.installRussianCA ? '<div style="margin-top:8px"><button id="caQuick">Скачать сертификат с gu-st.ru</button></div>' : ''}</div>`;
     if (tr) h += trainerCard();
     if (tr && !tr.waves) { h += '<div class="card"><div class="small">🌊 Разметка и анализ скрыты, чтобы вы размечали волны сами. Нажмите 🌊 на панели тренажёра, чтобы сверить свой подсчёт с системой.</div></div>'; P.innerHTML = h; bindPanel(); bindTrainerCard(); return; }
-    if (!an) { P.innerHTML = h; bindPanel(); return; }
+    if (!an) { P.innerHTML = h + '<button class="manl" data-man="">📖 Инструкция — как пользоваться приложением</button>'; bindPanel(); return; }
     const ad = addonsList();
     // 1. фаза, выход, план, открытая сделка
     const ph = an.phase;
@@ -1148,6 +1148,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     h += `<div class="card${foldC('dbg')}" data-fold="dbg"><h3>Разбор ошибок</h3><div class="small">Выгрузит свечи, настройки и результат анализа этой бумаги в файл (без токена). Его можно прислать в чат вместе со скриншотом — разберём, где подсчёт ошибся.</div>
       <div class="row" style="margin-top:8px"><button id="expBtn">Выгрузить для разбора</button><button id="expShare" ${lastExport ? '' : 'hidden'}>Отправить</button></div>
       <div class="small" id="expRes">${lastExport ? 'Сохранено: ' + esc(lastExport) : ''}</div></div>`;
+    h += '<button class="manl" data-man="">📖 Инструкция — как пользоваться приложением</button>';
     h += `<div class="small" style="text-align:center;margin-top:10px">${lastLoad && !demo ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
     // перерисовка панели не должна сдвигать то, что сейчас на экране
     const anchor = panelAnchor; panelAnchor = '';
@@ -1160,7 +1161,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.7';
+  const APP_VER = '3.8';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -2026,7 +2027,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="kv"><div><small>Вы</small><b class="${ret >= 0 ? 'pos' : 'neg'}">${spc(ret)}</b></div><div><small>Система</small><b class="${sysR >= 0 ? 'pos' : 'neg'}">${f2(sysR)} R</b></div><div><small>Купил и держал</small><b class="${bh >= 0 ? 'pos' : 'neg'}">${spc(bh)}</b></div>
       <div><small>Ваших сделок</small><b>${tr.trades.length}${tr.trades.length ? ' · ' + Math.round(w / tr.trades.length * 100) + '%' : ''}</b></div><div><small>Сделок системы</small><b>${sysN}${sysN ? ' · ' + Math.round(sysW / sysN * 100) + '%' : ''}</b></div><div><small>Капитал</small><b>${Math.round(eq).toLocaleString('ru-RU')} ₽</b></div></div>
       ${tr.trades.slice(-6).reverse().map((t) => `<div class="small">${t.side > 0 ? '▲' : '▼'} ${fmtT(t.t0, false)} ${pr(t.entry)} → ${fmtT(t.t1, false)} ${pr(t.exit)} · ${esc(t.why)} · <span class="${t.pl >= 0 ? 'pos' : 'neg'}">${t.pl >= 0 ? '+' : '−'}${Math.round(Math.abs(t.pl)).toLocaleString('ru-RU')} ₽</span></div>`).join('')}
-      <details class="trev" data-keep="trHelpOpen"${S.trHelpOpen ? ' open' : ''}><summary>Как пользоваться</summary><div class="small mut">Как в тестере MT5: <b>Buy/Sell</b> — по рынку; <b>Ордер ▾</b> — объём (% капитала), SL и TP, отложенные ордера по цене (лимит или стоп — определится сам). Линии SL, TP и ордеров на графике <b>перетаскиваются пальцем</b>. Долгое нажатие на график — отложенный ордер или SL/TP в этой точке. <b>БУ</b> — стоп в безубыток. Позиций может быть <b>несколько</b>, у каждой свои SL/TP — нажмите на строку позиции, чтобы править её. <b>🔗 SL/TP всем</b> — один стоп и цель на все позиции: тянете одну линию — двигаются все. Без плеча: всего в позициях не больше капитала. Комиссия 0,05%.</div></details>
+      <details class="trev" data-keep="trHelpOpen"${S.trHelpOpen ? ' open' : ''}><summary>Как пользоваться</summary><div class="small mut">Как в тестере MT5: <b>Buy/Sell</b> — по рынку; <b>Ордер ▾</b> — объём (% капитала), SL и TP, отложенные ордера по цене (лимит или стоп — определится сам). Линии SL, TP и ордеров на графике <b>перетаскиваются пальцем</b>. Долгое нажатие на график — отложенный ордер или SL/TP в этой точке. <b>БУ</b> — стоп в безубыток. Позиций может быть <b>несколько</b>, у каждой свои SL/TP — нажмите на строку позиции, чтобы править её. <b>🔗 SL/TP всем</b> — один стоп и цель на все позиции: тянете одну линию — двигаются все. Без плеча: всего в позициях не больше капитала. Комиссия 0,05%.</div><button class="manl" data-man="trainer">📖 Тренажёр в инструкции</button></details>
       ${tr.ev.length ? `<details class="trev" data-keep="trEvOpen"${S.trEvOpen ? ' open' : ''}><summary>События тренировки (${tr.ev.length})</summary>${tr.ev.slice(-30).reverse().map((e) => `<div class="small"><span class="mut">${fmtT(e.t, S.tf !== '1d' && S.tf !== '1w')}</span> ${e.kind === 'вы' ? '👤' : '🤖'} ${esc(e.text)}</div>`).join('')}${tr.ev.length > 30 ? '<div class="small mut">…ещё ' + (tr.ev.length - 30) + ' — все в выгрузке</div>' : ''}</details>` : ''}
       <div class="row" style="margin-top:8px">${tr.finished ? '<button id="trResume">Продолжить</button>' : ''}<button id="trCsv">⬇ Выгрузить CSV</button><button id="trJson">⬇ JSON</button><button id="trExit">Выйти из тренажёра</button></div><div class="small" id="trRes"></div>
       <details class="trev" data-keep="trExpHelp"${S.trExpHelp ? ' open' : ''}><summary>Какой формат выбрать: CSV или JSON?</summary><div class="small mut">
@@ -2702,6 +2703,27 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function openSheet(id) { $('#' + id).hidden = false; }
   function closeSheet(id) { $('#' + id).hidden = true; }
   document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => closeSheet(b.dataset.close); });
+  // 3.8: инструкция — manual.html (та же, что manual/Инструкция.html) экраном поверх остальных. Грузится при первом открытии и не выгружается:
+  // открыли снова без раздела — читаете с того же места. Цвета — темы приложения; раздел и новые цвета — сообщением в страницу
+  function manColors() {
+    const sk = (SKINS[S.skin] || SKINS.night).css, c = { chbg: K.bg, grid: K.grid, axis: K.axis };
+    for (const k of ['bg', 'bg2', 'bg3', 'line', 'ink', 'mut', 'dim', 'acc', 'accl']) if (sk[k]) c[k] = sk[k];
+    return c;
+  }
+  function openManual(sec) {
+    const f = $('#manFrame');
+    closePop();
+    openSheet('manual');
+    if (!f.getAttribute('src')) f.src = 'manual.html?app=1&c=' + encodeURIComponent(JSON.stringify(manColors())) + (sec ? '#' + sec : '');
+    else if (f.contentWindow) f.contentWindow.postMessage({ ew: 'go', sec: sec || '', c: manColors() }, '*');
+  }
+  // любая кнопка или ссылка с data-man="раздел" (и в шапках экранов, и в панели, которую перерисовывают)
+  document.addEventListener('click', (e) => {
+    const m = e.target && e.target.closest ? e.target.closest('[data-man]') : null;
+    if (!m) return;
+    e.preventDefault();
+    openManual(m.dataset.man);
+  });
   // клавиатура не выскакивает сама: поиск активируется, только когда нажмёте на поле
   $('#instBtn').onclick = () => { openSheet('search'); $('#q').value = ''; $('#q').blur(); $('#qres').innerHTML = quickList(); bindRes(); };
   const POPULAR = [['SBER', 'Сбербанк'], ['GAZP', 'Газпром'], ['LKOH', 'Лукойл'], ['ROSN', 'Роснефть'], ['GMKN', 'Норникель'], ['NVTK', 'Новатэк'], ['YDEX', 'Яндекс'], ['T', 'Т-Технологии'], ['MOEX', 'Мосбиржа'], ['VTBR', 'ВТБ'], ['MGNT', 'Магнит'], ['PLZL', 'Полюс'], ['TATN', 'Татнефть'], ['SNGS', 'Сургутнефтегаз'], ['ALRS', 'Алроса'], ['CHMF', 'Северсталь'], ['NLMK', 'НЛМК'], ['AFLT', 'Аэрофлот'], ['OZON', 'Озон'], ['MTSS', 'МТС']];
@@ -3253,6 +3275,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     skinBind($('#setBody'), renderSettings);
     { const ao = $('#animOn'); if (ao) ao.onchange = () => { S.anim = ao.checked; save(); applyAnim(); draw(); }; }
     const sv = $('#setVer'); if (sv) sv.textContent = 'v' + APP_VER;
+    $('#manBtn').dataset.man = { ready: 'sets', acct: 'token', alerts: 'alerts' }[tab] || 'settings';   // раздел инструкции про эту вкладку
     renderWatch();
     const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
     on('#caBtn', 'click', () => { const b = $('#caBtn'); b.disabled = true; b.textContent = 'Скачиваю…'; A.installRussianCA(); });
@@ -3358,7 +3381,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- кнопка «назад», возврат в приложение, автообновление ----------
   window.appBack = () => {
-    for (const id of ['journal', 'robots', 'scanner', 'search', 'settings']) if (!$('#' + id).hidden) { closeSheet(id); if (id === 'settings') renderPanel(); return true; }
+    for (const id of ['manual', 'journal', 'robots', 'scanner', 'search', 'settings']) if (!$('#' + id).hidden) { closeSheet(id); if (id === 'settings') renderPanel(); return true; }
     if (sel >= 0) { sel = -1; renderPanel(); draw(); return true; }
     return false;
   };
@@ -3371,7 +3394,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   };
   // открыть бумагу на графике: { id, ticker, tf } — из уведомления, у роботов, в списке слежения
   function goChart(o) {
-    for (const id of ['journal', 'robots', 'scanner', 'search', 'settings']) closeSheet(id);
+    for (const id of ['manual', 'journal', 'robots', 'scanner', 'search', 'settings']) closeSheet(id);
     closePop();
     const ch = o.id !== S.inst.id || (o.tf && o.tf !== S.tf);
     S.inst = D.isCrypto(o.id) ? { id: o.id, ticker: 'BTC', name: 'Биткоин', classCode: 'CRYPTO' } : { id: o.id, ticker: o.ticker, name: o.name || o.ticker, classCode: o.classCode || 'TQBR' };

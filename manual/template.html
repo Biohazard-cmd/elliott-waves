@@ -31,9 +31,9 @@ main { max-width: 860px; margin: 0 auto; padding: 0 16px 80px; }
 .badge.ok { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
 .sample { margin: 14px 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--warn); color: var(--ink); background: color-mix(in srgb, var(--warn) 8%, var(--bg2)); font-size: 15px; }
 nav.toc { margin: 18px 0 8px; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 6px; }
-nav.toc a, nav.toc span { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; text-decoration: none; color: var(--ink); }
+nav.toc > a, nav.toc > span { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; text-decoration: none; color: var(--ink); }
 nav.toc a:hover { background: var(--bg3); }
-nav.toc span { color: var(--dim); }
+nav.toc > span { color: var(--dim); }
 nav.toc .n { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--bg3); border: 1px solid var(--line); }
 nav.toc a .n { background: var(--acc); border-color: var(--accl); }
 nav.toc .grow { flex: 1; }
@@ -56,7 +56,7 @@ kbd { font: inherit; font-size: 14px; padding: 1px 6px; border-radius: 6px; back
 /* скриншот с номерами */
 .shot { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 12px 0 4px; }
 .shot .pic { position: relative; flex: none; width: min(340px, 100%); border-radius: 18px; overflow: hidden; border: 6px solid #0b0d10; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
-.shot .pic img { display: block; width: 100%; height: auto; }
+.shot .pic img { display: block; width: 100%; height: auto; aspect-ratio: 390 / 844; }   /* место под картинку заранее — переход к разделу не съезжает */
 .shot .dot { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: #e8590c; color: #fff; font: 700 12px/20px system-ui, sans-serif; text-align: center; padding: 0; box-shadow: 0 1px 6px rgba(0,0,0,.6); animation: pulse 2.4s infinite; }
 .shot .dot.sel { background: #2f7bf0; animation: none; transform: translate(-50%, -50%) scale(1.25); z-index: 2; }
 @keyframes pulse { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(232,89,12,.7); } 35% { box-shadow: 0 0 0 7px rgba(232,89,12,0); } }
@@ -125,6 +125,14 @@ ul.news li { margin: 6px 0; }
 .quiz .ctl { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
 @media (max-width: 520px) { .quiz canvas { height: 250px; } dl.dict { grid-template-columns: 1fr; gap: 2px; } dl.dict dd { margin-bottom: 8px; } }
 footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: center; }
+/* 3.8: внутри приложения (manual.html?app=1) — без своей шапки, у приложения своя; кнопка «к оглавлению» */
+nav.toc, .step[id] { scroll-margin-top: 60px; }
+.inapp header.top { display: none; }
+.inapp section.ch, .inapp nav.toc, .inapp .step[id] { scroll-margin-top: 8px; }
+.inapp .film, .inapp .quiz { scroll-margin-top: 12px; }
+.inapp .hero { padding-top: 16px; }
+a.totoc { position: fixed; right: 14px; bottom: 16px; z-index: 9; padding: 8px 14px; border-radius: 20px; background: var(--bg3); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s; }
+a.totoc.on { opacity: .96; pointer-events: auto; }
 @media (max-width: 520px) {
   .step { padding: 12px 12px 12px 50px; }
   .step > .sn { left: 10px; width: 30px; height: 30px; }
@@ -135,7 +143,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
 </head>
 <body>
 <header class="top">
-  <div class="ttl">Волны Эллиотта<small>инструкция · для версии 3.4</small></div>
+  <div class="ttl">Волны Эллиотта<small>инструкция · для версии 3.8</small></div>
   <button id="themeBtn" aria-label="Светлая или тёмная тема">☀︎ Светлая</button>
 </header>
 <main>
@@ -143,10 +151,10 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
 <div class="hero">
   <h1>Как пользоваться приложением «Волны Эллиотта»</h1>
   <p>Приложение само размечает волны на графике по книге Пректера и Фроста «Волновой принцип Эллиотта», показывает сигналы, считает стоп, цель и сколько акций брать, и ведёт виртуальных роботов. Написано для тех, кто никогда не торговал на бирже: всё по шагам, а все графики — настоящие цены Мосбиржи.</p>
-  <p><span class="badge">📱 телефон Android</span> <span class="badge">💻 Windows — позже</span></p>
+  <p><span class="badge">📱 телефон Android</span> <span class="badge">💻 программа для Windows</span></p>
 </div>
 
-<nav class="toc" aria-label="Оглавление">
+<nav class="toc" id="toc" aria-label="Оглавление">
   <a href="#start"><span class="n">1</span><span class="grow">Быстрый старт</span></a>
   <a href="#candles"><span class="n">2</span><span class="grow">График и свечи — с нуля</span><span class="badge ok">ролик</span></a>
   <a href="#waves"><span class="n">3</span><span class="grow">Волны по книге — простыми словами</span><span class="badge ok">ролик</span></a>
@@ -175,7 +183,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     <div class="note safe">Для изучения волн, роботов и тренажёра задержка не мешает. Роботы тоже работают на ценах Мосбиржи.</div>
   </div>
 
-  <div class="step"><span class="sn">2</span>
+  <div class="step" id="token"><span class="sn">2</span>
     <h3>По желанию: вставьте токен Т-Инвестиций «только для чтения»</h3>
     <p>Токен — это ключ, по которому приложение получает котировки у брокера. С ним цены без задержки, приложение видит ваш портфель, а робот «мой (вручную)» повторяет ваш настоящий счёт. Нужен токен <b>только для чтения</b>: с ним нельзя ни купить, ни продать, ни вывести деньги.</p>
     <ol>
@@ -208,7 +216,23 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
       <div class="pic"><img src="img/main.jpg" alt="Главный экран приложения"></div>
       <ol class="lst"></ol>
     </figure>
-    <div class="plat"><span class="badge">📱 Телефон: <b>нажать на номер</b></span><span class="badge">💻 Windows: появится в своей версии инструкции</span></div>
+    <div class="plat"><span class="badge">📱 Телефон: <b>нажать на номер</b></span><span class="badge">💻 Windows: <b>то же мышкой</b> — в широком окне график слева, панель справа</span></div>
+  </div>
+
+  <div class="step"><span class="sn">5</span>
+    <h3>Эта инструкция — в самом приложении</h3>
+    <p>Откройте <kbd>⚙</kbd> Настройки → кнопка <b>«📖 Инструкция»</b> вверху. Она открывает раздел про ту вкладку настроек, где вы сейчас.</p>
+    <p>Ещё кнопки <kbd>📖</kbd> есть на экранах «Роботы», «Мои сделки» и «Сканер», в тренажёре (в «Как пользоваться») и в самом низу панели «Сейчас». Каждая открывает нужный раздел. Кнопка <kbd>←</kbd> или «Назад» на телефоне закрывает инструкцию, а при следующем открытии она продолжится с того же места. <b>«↑ Оглавление»</b> внизу справа возвращает к списку разделов.</p>
+  </div>
+
+  <div class="step"><span class="sn">6</span>
+    <h3>Программа для компьютера (Windows)</h3>
+    <p>С версии 3.6 то же приложение есть для Windows. Ставится файлом <b>«Установить.cmd»</b>, а новые версии — файлом <b>«Обновить.cmd»</b>. Если окно шире обычного, график стоит слева на всю высоту, а панель «Сейчас» справа.</p>
+    <ul>
+      <li>Крестик не закрывает программу, а сворачивает её к часам. Значок программы — рядом с часами Windows. Выйти совсем — правой кнопкой по значку → «Выход». Там же галочка «Запускать вместе с Windows».</li>
+      <li>Пока программа открыта или свёрнута к часам, она проверяет сигналы и роботов каждые 5 минут и сразу после закрытия свечи. Когда компьютер выключен или спит, проверок нет.</li>
+      <li>Перенести роботов, сделки и настройки с телефона: на телефоне <kbd>⚙</kbd> → «Данные» → «Перенос на другое устройство» → «Выгрузить в файл». Файл из «Загрузок» перешлите на компьютер, а в программе там же нажмите «Загрузить из файла». Токен и номер счёта не переносятся: их вводят на каждом устройстве.</li>
+    </ul>
   </div>
 </section>
 
@@ -445,7 +469,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
   <h2><span class="n">8</span> Мои сделки, оповещения, виджет</h2>
   <p class="lead">Как не пропустить сигнал и как вести свои настоящие сделки рядом с подсказками системы.</p>
 
-  <div class="step"><span class="sn">1</span>
+  <div class="step" id="alerts"><span class="sn">1</span>
     <h3>Оповещения по бумаге — кнопка 🔔</h3>
     <p>Откройте нужную бумагу и таймфрейм, нажмите <kbd>🔔</kbd> вверху и «+ Следить». Приложение будет само проверять эту бумагу и пришлёт уведомление, когда появится сигнал на вход, выход, сделка дойдёт до цели или стопа.</p>
     <figure class="shot" data-pts='[[222,26,"Кнопка 🔔."],[24,155,"«Следить» — получать сигналы системы по этой бумаге с текущими настройками."],[24,354,"Свой уровень цены: придёт уведомление, когда цена до него дойдёт. Можно и долгим нажатием на графике."],[24,393,"Последние оповещения — всё, что приходило."],[24,522,"Все оповещения и как часто проверять — откроется вкладка «Сигналы» в настройках."]]'>
@@ -460,7 +484,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     <p>Все отправленные уведомления хранятся: внизу окна 🔔 и в <kbd>⚙</kbd> → «Сигналы» → «📨 История оповещений». Нажмите на любое — откроется график этой бумаги. Пригодится, если смахнули уведомление не глядя.</p>
   </div>
 
-  <div class="step"><span class="sn">3</span>
+  <div class="step" id="mytrades"><span class="sn">3</span>
     <h3>Мои сделки — кнопка 📒</h3>
     <p>Дневник ваших настоящих сделок. Если вставлен токен, покупки и продажи со счёта подтягиваются сами. Можно добавить сделку и вручную — кнопкой «+ Сделка» или долгим нажатием на графике → «моя покупка здесь».</p>
     <figure class="shot" data-pts='[[340,23,"Добавить сделку вручную."],[24,77,"Достижения — значки за хорошие привычки: стоп в каждой сделке, вход по сигналу, маленький убыток."],[24,478,"Итоги: сколько сделок, сколько прибыльных и общий результат. Отдельно — сделки по сигналу системы и без."],[24,604,"Открытые сделки: цена сейчас и результат. Что видела система, когда вы входили."],[24,730,"Закрыть, показать на графике или удалить запись."]]'>
@@ -481,7 +505,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     <div class="note">Виджет обновляется после каждой фоновой проверки.</div>
   </div>
 
-  <div class="step"><span class="sn">5</span>
+  <div class="step" id="scan"><span class="sn">5</span>
     <h3>Сканер — где сигнал прямо сейчас</h3>
     <p>Нажмите на название бумаги вверху → «Сканер» → «Сканировать». Приложение проверит самые торгуемые акции и покажет, где сейчас сигнал, какая фаза и как система торговала бы на каждой бумаге.</p>
     <figure class="shot" data-pts='[[12,138,"Какие бумаги проверять: избранное или топ по обороту."],[12,393,"Запустить проверку."],[12,465,"Табель: как текущие настройки работали на всех бумагах сразу — в обеих половинах истории."],[12,657,"Папки «надёжные / под вопросом / не подходят» — только справка, а не совет."],[12,790,"Таблица бумаг. Сверху — бумаги, где есть сигнал. Нажмите строку — откроется график."]]'>
@@ -653,6 +677,10 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
 <section class="ch" id="news">
   <h2><span class="n">★</span> Что нового в версиях 3</h2>
   <ul class="news">
+    <li><b>3.8</b> — эта инструкция внутри приложения: ⚙ Настройки → «📖 Инструкция», а кнопки 📖 на экранах «Роботы», «Мои сделки», «Сканер», в тренажёре и внизу панели «Сейчас» открывают нужный раздел.</li>
+    <li><b>3.7</b> — проверка кода: два хода робота больше не мешают друг другу, робот «Биткоин» не пропускает решение за день, одна бумага без свечей не останавливает проверку уровней цены; в программе для компьютера — галочка автозапуска и выключение Windows.</li>
+    <li><b>3.6</b> — программа для Windows и перенос данных между телефоном и компьютером файлом.</li>
+    <li><b>3.5</b> — исправлено: на экране «Роботы» нажатие на бумагу снова открывает её график.</li>
     <li><b>3.4</b> — экран «Роботы» переделан: панель роботов внизу, обзор «Все», у каждого робота свой экран в его цвете.</li>
     <li><b>3.3</b> — работа без токена: цены с сайта Мосбиржи. Если сервер брокера не отвечает, приложение само переходит на Мосбиржу.</li>
     <li><b>3.2</b> — робот «Биткоин · тренд» и график биткоина.</li>
@@ -661,7 +689,8 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
   </ul>
 </section>
 
-<footer>Волны Эллиотта · инструкция · для версии 3.4 · 26 октября 2026<br>Графики — настоящие цены акций Мосбиржи (выгрузка из Т-Инвестиций, с поправкой на дивиденды). Волны, сигналы и сделки посчитаны движком приложения.</footer>
+<a href="#toc" class="totoc" id="toToc">↑ Оглавление</a>
+<footer>Волны Эллиотта · инструкция · для версии 3.8 · 26 октября 2026<br>Графики — настоящие цены акций Мосбиржи (выгрузка из Т-Инвестиций, с поправкой на дивиденды). Волны, сигналы и сделки посчитаны движком приложения.</footer>
 </main>
 
 <script>
@@ -669,11 +698,37 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
   'use strict';
   // ---------- тема ----------
   const root = document.documentElement, tb = document.getElementById('themeBtn');
+  // 3.8: внутри приложения (manual.html?app=1&c={цвета темы}) — тёмная тема в цветах приложения, своей шапки нет;
+  // приложение шлёт { ew: 'go', sec, c } — перейти к разделу sec и взять цвета c (тему могли сменить)
+  const qs = new URLSearchParams(location.search), inApp = qs.get('app') === '1';
+  const skin = (c) => { for (const k in c || {}) if (/^[a-z0-9]{2,8}$/.test(k) && /^[#a-z0-9(),. ]{3,40}$/i.test(String(c[k]))) root.style.setProperty('--' + k, c[k]); };
   let theme = 'dark';
-  try { theme = localStorage.getItem('ewman.theme') || 'dark'; } catch (e) { /* без хранилища */ }
-  const setTheme = (t) => { theme = t; root.dataset.theme = t; tb.textContent = t === 'dark' ? '☀︎ Светлая' : '☾ Тёмная'; try { localStorage.setItem('ewman.theme', t); } catch (e) { /* ничего */ } films.forEach((f) => f.draw()); };
+  if (inApp) { root.classList.add('inapp'); try { skin(JSON.parse(qs.get('c') || '{}')); } catch (e) { /* цвета по умолчанию */ } }
+  else try { theme = localStorage.getItem('ewman.theme') || 'dark'; } catch (e) { /* без хранилища */ }
+  const setTheme = (t) => { theme = t; root.dataset.theme = t; tb.textContent = t === 'dark' ? '☀︎ Светлая' : '☾ Тёмная'; if (!inApp) try { localStorage.setItem('ewman.theme', t); } catch (e) { /* ничего */ } films.forEach((f) => f.draw()); };
   tb.onclick = () => setTheme(theme === 'dark' ? 'light' : 'dark');
   const css = (v) => getComputedStyle(root).getPropertyValue(v).trim();
+  // к разделу сразу (без плавной прокрутки) и ещё дважды, если над ним что-то успело поменять высоту (картинки, ролики), а вы не двигали страницу
+  const go = (id) => {
+    const n = id && document.getElementById(id);
+    if (!n) return;
+    let y = 0;
+    const f = () => { n.scrollIntoView({ block: 'start', behavior: 'instant' }); y = scrollY; };
+    const again = () => { if (Math.abs(scrollY - y) < 2) f(); };
+    f(); setTimeout(again, 300); setTimeout(again, 1000);
+  };
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!inApp || !m || m.ew !== 'go') return;
+    if (m.c) { skin(m.c); films.forEach((f) => f.draw()); }
+    if (m.sec) go(String(m.sec));
+  });
+  // «↑ Оглавление» — когда оглавление ушло вверх
+  const toToc = document.getElementById('toToc'), tocEl = document.getElementById('toc');
+  const tocBtn = () => toToc.classList.toggle('on', tocEl.getBoundingClientRect().bottom < 0);
+  window.addEventListener('scroll', tocBtn, { passive: true });
+  // открыли сразу на разделе (manual.html#robots) — после загрузки ещё раз к нему: картинки и ролики уже на местах
+  window.addEventListener('load', () => { if (location.hash) go(location.hash.slice(1)); });
 
   // ---------- скриншоты с номерами ----------
   document.querySelectorAll('figure.shot').forEach((fig) => {
@@ -1088,6 +1143,7 @@ footer { margin-top: 40px; color: var(--dim); font-size: 13px; text-align: cente
     films.push(self); show(0);
   })(document.getElementById('quiz1'));
   setTheme(theme);
+  tocBtn();
 })();
 </script>
 </body>

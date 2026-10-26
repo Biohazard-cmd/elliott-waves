@@ -1,5 +1,5 @@
 # Собирает инструкцию в один файл: картинки из img/ вставляются внутрь (работает без интернета).
-# python3 build.py → «Инструкция.html»
+# python3 build.py → «Инструкция.html» и та же страница в приложении: android/assets/manual.html (3.8, кнопки 📖)
 import base64, re, pathlib
 here = pathlib.Path(__file__).parent
 html = (here / 'template.html').read_text(encoding='utf-8')
@@ -11,4 +11,5 @@ html = html.replace('/*@EX4@*/null', (here / 'data' / 'examples4h.json').read_te
 html = html.replace('/*@EXAMPLES@*/null', (here / 'data' / 'examples.json').read_text(encoding='utf-8'))   # настоящие примеры: research/manual_examples.js
 out = here / 'Инструкция.html'
 out.write_text(html, encoding='utf-8')
-print(out.name, round(out.stat().st_size / 1024), 'КБ')
+(here.parent / 'android' / 'assets' / 'manual.html').write_text(html, encoding='utf-8')   # одинаковый файл — git хранит его один раз
+print(out.name, round(out.stat().st_size / 1024), 'КБ, и android/assets/manual.html')
