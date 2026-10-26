@@ -77,7 +77,7 @@
   const skinBind = (root, after) => root.querySelectorAll('[data-skin]').forEach((b) => { b.onclick = () => { S.skin = b.dataset.skin; save(); applySkin(); draw(); if (after) after(); }; });
   let all = [];          // все свечи с биржи, включая формирующуюся
   let an = null;         // результат анализа
-  let demo = false;
+  let demo = false, mxSrc = 0;   // mxSrc — когда свечи графика взяты с Мосбиржи (0 — у брокера)
   let sel = -1;          // выбранная сделка
   let err = '';
   let divAdj = [], allRaw = [], lotInfo = null;   // allRaw — те же свечи без поправки на дивиденды (для тренажёра)
@@ -153,11 +153,15 @@
     if (loading) return;
     loading = true; $('#busy').hidden = false; err = '';
     try {
-      if (!S.token) { demo = true; all = demoBars(S.tf); }
-      else {
-        demo = false; lotInfo = null;
-        const raw = await D.getBars(S.token, S.inst, S.tf, S.cfg.maxBars || 2000, force);
-        if (raw.offline) { err = 'Нет связи с брокером — показаны сохранённые свечи' + (raw.length ? ' до ' + fmtT(raw[raw.length - 1].t, true) : '') + '. Обновятся сами, когда появится интернет.'; D.log('api', 'офлайн: показан кэш ' + S.inst.ticker); }
+      demo = false; lotInfo = null;
+      const t0 = Date.now();
+      let raw = null;
+      // без токена — цены с Мосбиржи; не ответила и она — учебный пример
+      try { raw = await D.getBars(S.token, S.inst, S.tf, S.cfg.maxBars || 2000, force); }
+      catch (e) { if (S.token || e.fatal) throw e; demo = true; all = demoBars(S.tf); err = 'Нет связи с Мосбиржей — показан учебный пример. ' + e.message; }
+      mxSrc = raw && D.mxState().at >= t0 ? Date.now() : 0;
+      if (raw) {
+        if (raw.offline) { err = 'Нет связи' + (S.token ? ' с брокером' : ' с Мосбиржей') + ' — показаны сохранённые свечи' + (raw.length ? ' до ' + fmtT(raw[raw.length - 1].t, true) : '') + '. Обновятся сами, когда появится интернет.'; D.log('api', 'офлайн: показан кэш ' + S.inst.ticker); }
         const r = await D.withDividends(S.token, S.inst, raw, S.cfg.divAdj !== false);
         all = r.bars; divAdj = r.adj; allRaw = raw;
         D.instInfo(S.token, S.inst).then((x) => { lotInfo = x; if (an) renderPanel(); }).catch(() => {});
@@ -439,7 +443,7 @@
   }
   // цены открытых сделок дневника — раз в минуту, одним запросом
   async function refreshLive() {
-    if (!S.token || demo) return;
+    if (!S.token || demo || mxSrc) return;
     const open = jList().filter((j) => !j.closeT); if (!open.length) return;
     try {
       const ids = [...new Set(open.map((j) => j.instId))], uidOf = {};
@@ -657,8 +661,8 @@
         <div class="small">${S.acct ? 'Капитал подставлен со счёта «' + esc(S.account.name) + '».' : 'Подключите счёт (⚙ → Счёт → «Взять с брокерского счёта»), чтобы робот повторял ваши пополнения.'}</div>
         ${cap < 60000 ? '<div class="note">При капитале меньше ~60 000 ₽ роботы будут пропускать большинство сигналов: позиция ограничена 25% счёта, а лот многих акций стоит дороже. Для проверки стратегии можно поставить ту сумму, с которой планируете торговать, — пополнения реального счёта всё равно добавятся.</div>' : ''}
         <div class="small" style="margin-top:6px">Вместе с роботами появится счёт <b>«мой (вручную)»</b>: в нём — ваши настоящие сделки и деньги со счёта Т-Инвестиций, чтобы сравнивать себя с роботами.</div>
-        <div class="row" style="margin-top:10px"><button id="vStart" ${S.token ? '' : 'disabled'}>🤖 Запустить роботов</button></div>
-        ${S.token ? '' : '<div class="note">Нужен токен (⚙ → Счёт).</div>'}</div>`;
+        <div class="row" style="margin-top:10px"><button id="vStart">🤖 Запустить роботов</button></div>
+        ${S.token ? '' : '<div class="note">Без токена роботы ходят по ценам Мосбиржи (задержка ~15 мин); пополнения и сделки вашего счёта не повторяются.</div>'}</div>`;
       $('#robBody').innerHTML = h;
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
@@ -993,6 +997,7 @@
     const P = $('#panel');
     let h = '';
     if (demo) h += `<div class="banner">Это демо-данные. Введите токен Т-Инвестиций в настройках ⚙ — появятся настоящие котировки.</div>`;
+    if (mxSrc && !demo) h += `<div class="banner">Цены с Мосбиржи, задержка ~15 мин — ${S.token ? 'сервер брокера сейчас не отвечает. Когда ответит, приложение само вернётся к нему.' : 'токена нет. С токеном Т-Инвестиций (⚙ → Счёт) цены без задержки и видны сделки со счёта.'}</div>`;
     if (err) h += `<div class="banner err" id="errRetry" role="button">${esc(err)}<div class="small" style="margin-top:6px;opacity:.85">${retrying ? '⟳ Проверяю связь…' : '↻ Нажмите, чтобы проверить связь' + (lastTry ? ' · последняя попытка ' + new Date(lastTry).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')}</div>${/Минцифры/.test(err) && A && A.installRussianCA ? '<div style="margin-top:8px"><button id="caQuick">Скачать сертификат с gu-st.ru</button></div>' : ''}</div>`;
     if (tr) h += trainerCard();
     if (tr && !tr.waves) { h += '<div class="card"><div class="small">🌊 Разметка и анализ скрыты, чтобы вы размечали волны сами. Нажмите 🌊 на панели тренажёра, чтобы сверить свой подсчёт с системой.</div></div>'; P.innerHTML = h; bindPanel(); bindTrainerCard(); return; }
@@ -1100,7 +1105,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     h += `<div class="card${foldC('dbg')}" data-fold="dbg"><h3>Разбор ошибок</h3><div class="small">Выгрузит свечи, настройки и результат анализа этой бумаги в файл (без токена). Его можно прислать в чат вместе со скриншотом — разберём, где подсчёт ошибся.</div>
       <div class="row" style="margin-top:8px"><button id="expBtn">Выгрузить для разбора</button><button id="expShare" ${lastExport ? '' : 'hidden'}>Отправить</button></div>
       <div class="small" id="expRes">${lastExport ? 'Сохранено: ' + esc(lastExport) : ''}</div></div>`;
-    h += `<div class="small" style="text-align:center;margin-top:10px">${S.token && lastLoad ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
+    h += `<div class="small" style="text-align:center;margin-top:10px">${lastLoad && !demo ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
     // перерисовка панели не должна сдвигать то, что сейчас на экране
     const anchor = panelAnchor; panelAnchor = '';
     const aTop = anchorTop;
@@ -1112,7 +1117,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.2';
+  const APP_VER = '3.3';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1503,7 +1508,6 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
   function bgLine() {
     if (!A) return 'Фоновая проверка работает только в приложении на телефоне.';
-    if (!S.token) return '<span class="warn">Нужен токен (⚙ → Счёт).</span>';
     if (!S.bgMinutes) return '<span class="warn">Фоновая проверка выключена.</span>';
     const l = D.store.get('lastcheck', 0);
     return 'Проверка каждые ' + (S.bgMinutes >= 60 ? S.bgMinutes / 60 + ' ч' : S.bgMinutes + ' мин') + (l ? ' · последняя ' + fmtT(l, true) : '') + '. Android может сдвигать время проверки.';
@@ -1574,7 +1578,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function trSetupPop() {
     const P = D.TF[S.tf].ms, iso = (d) => d.toISOString().slice(0, 10);
     const keep = $('#trDate') && $('#trDate').value, keepE = $('#trEnd') && $('#trEnd').value;
-    const d0 = new Date(Date.now() - 365 * 86400000), live = S.token && !demo, base = trBase();
+    const d0 = new Date(Date.now() - 365 * 86400000), live = !demo, base = trBase();
     return `<div class="pgrp">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}</div>
       <div class="pnote">С выбранной даты будущее скрыто. Текущая свеча нарастает ${SUB_TF[S.tf] ? 'по свечам ' + D.TF[SUB_TF[S.tf]].name : 'по пути открытие → максимум/минимум → закрытие'}, скорость регулируется. Система торгует рядом по своим сигналам, вы — кнопками. Деньги ненастоящие.</div>
       <div style="padding:4px 6px"><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Начать с</label><input type="date" id="trDate" value="${keep || iso(d0)}" min="${live ? '2005-01-01' : base.length ? iso(new Date(base[0].t + 100 * P)) : ''}" max="${iso(new Date(Date.now() - 2 * P))}"></div>
@@ -1590,7 +1594,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // догрузить историю, чтобы до старта было достаточно свечей для анализа
   async function trEnsureHist(startT, msg) {
     const need = (S.cfg.maxBars || 2000) + 50, from = startT - need / (BARS_PER_DAY[S.tf] || 1) * 86400000 * 1.1, base = trBase();
-    if (!S.token || demo || (base.length && base[0].t <= from)) return;
+    if (demo || (base.length && base[0].t <= from)) return;
     if (trHist && trHist.key === trHistKey() && trHist.from <= from) return;   // уже пробовали так глубоко — старее нет
     msg('загружаю историю с ' + fmtT(from, false) + '…');
     const bars = (await D.loadCandles(S.token, S.inst.id, S.tf, Infinity, from)).filter((b) => b.done !== false);
@@ -1625,7 +1629,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     closePop(); document.body.classList.add('training');
     if (early) tr.note = 'Такой ранней истории у брокера нет — начали с ' + fmtT(full[i0].t, false) + '.';
     if (endT) tr.endT = endT;
-    if (SUB_TF[S.tf] && S.token && !demo) { tr.subTo = full[i0].t - 1; msg('загружаю свечи ' + D.TF[SUB_TF[S.tf]].name + '…'); await trSubLoad(); }
+    if (SUB_TF[S.tf] && !demo) { tr.subTo = full[i0].t - 1; msg('загружаю свечи ' + D.TF[SUB_TF[S.tf]].name + '…'); await trSubLoad(); }
     D.log('trainer', 'старт ' + S.inst.ticker + ' ' + S.tf + ' с ' + fmtT(full[i0].t, false));
     trSaveBars(); trSaveState();
     trShow(true); trRenderBar();
@@ -2049,7 +2053,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     S.inst = st.inst; S.tf = st.tr.tf; save();
     tr = Object.assign({}, st.tr, { full: bf.full.map(unc), sub, playing: false, timer: 0, subLoading: false });
     if (!tr.adj) trFixSub(tr, Object.keys(tr.sub));
-    demo = !S.token; err = ''; sel = -1; an = null; view.init = false;
+    demo = false; err = ''; sel = -1; an = null; view.init = false;
     document.body.classList.add('training'); renderHead();
     tr.note = 'Тренировка восстановлена (сохранена ' + new Date(st.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '). ▶ — продолжить';
     trShow(true); trRenderBar(); renderPanel();
@@ -2749,8 +2753,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const loc = univList().filter((x) => x.ticker.startsWith(up) || (x.name || '').toLowerCase().includes(low)).sort((a, b) => (b.ticker === up) - (a.ticker === up) || b.turn - a.turn).slice(0, 20);
     let h = loc.map((x) => resRow(x.id, x.ticker, x.name, 'TQBR', ` <span class="small">${fmtTurn(x.turn)}${x.turn < 1e9 ? ' млн' : ''} ₽/день</span>`)).join('');
     if (!loc.length && /^[A-Z0-9.]{1,12}$/.test(up)) h += resRow(up + '_TQBR', up, 'акция Мосбиржи', 'TQBR', ' <span class="small">тикер на Мосбирже (TQBR)</span>');
-    $('#qres').innerHTML = h + (S.token ? '<div class="small" style="padding:10px">поиск…</div>' : ''); bindRes();
-    if (!S.token) return;
+    $('#qres').innerHTML = h + '<div class="small" style="padding:10px">поиск…</div>'; bindRes();
     qTimer = setTimeout(async () => {
       try {
         const list = await D.findInstrument(S.token, v);
@@ -2801,10 +2804,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     let h = `<div class="small">Таймфрейм <b>${esc(D.TF[tf].name)}</b> (как на графике) · настройки и дополнения — текущие.</div>
       <div class="field" style="margin-top:8px"><label>Какие бумаги</label><select id="scanListSel">${LISTS.map(([k, t]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       ${mode !== 'fav' ? `<div class="field"><label>Мин. средний оборот, млн ₽ в день</label><input type="number" id="scanMinTurn" min="0" step="10" value="${S.scanMinTurn == null ? 50 : S.scanMinTurn}"></div>
-      <div class="small">${univ ? `Список акций от брокера: ${univ.list.length} шт., обновлён ${fmtTurnDate(univ.at)}. Подходит под фильтр: ${list.length}.` : 'Список акций ещё не загружен — сейчас взяты 20 популярных. Нажмите «Обновить список акций» (≈ 1–2 мин, раз в сутки).'} <button id="univBtn" ${scanBusy || !S.token ? 'disabled' : ''}>Обновить список акций</button></div>` : `<div class="small">Бумаг в избранном: ${list.length}.</div>`}
+      <div class="small">${univ ? `Список акций от брокера: ${univ.list.length} шт., обновлён ${fmtTurnDate(univ.at)}. Подходит под фильтр: ${list.length}.` : 'Список акций ещё не загружен — сейчас взяты 20 популярных. Нажмите «Обновить список акций» (≈ 1–2 мин, раз в сутки).'} <button id="univBtn" ${scanBusy ? 'disabled' : ''}>Обновить список акций</button></div>` : `<div class="small">Бумаг в избранном: ${list.length}.</div>`}
       <label class="sw"><input type="checkbox" id="scanOpt" ${S.scanOpt ? 'checked' : ''}><span>Подбирать порог для каждой бумаги<small>Дольше примерно в 10 раз. Без галочки — сохранённый порог бумаги или «Авто»</small></span></label>
-      <div class="row" style="margin:10px 0"><button id="scanGo" ${scanBusy || !S.token || !list.length ? 'disabled' : ''}>${scanBusy ? 'Сканирую…' : 'Сканировать ' + list.length}</button><span class="small" id="scanMsg">${esc(scanMsg)}</span></div>`;
-    if (!S.token) h += '<div class="banner">Нужен токен T-Invest API (в настройках).</div>';
+      <div class="row" style="margin:10px 0"><button id="scanGo" ${scanBusy || !list.length ? 'disabled' : ''}>${scanBusy ? 'Сканирую…' : 'Сканировать ' + list.length}</button><span class="small" id="scanMsg">${esc(scanMsg)}</span></div>`;
+    if (!S.token) h += '<div class="small">Без токена свечи и список акций — с Мосбиржи (задержка ~15 мин).</div>';
     if (last) {
       // Δ R и динамика — только по сканам тем же набором и тем же списком
       const same = (x) => (x.preset || '') === (last.preset || '') && (x.list || '') === (last.list || '');
@@ -2932,7 +2935,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
 
   async function loadUniverse(force) {
-    if (scanBusy || !S.token) return;
+    if (scanBusy) return;
     scanBusy = true; scanMsg = 'загружаю список…'; renderScanner();
     try {
       univ = await D.getUniverse(S.token, (k, n, t) => { scanMsg = `оборот ${k}/${n}: ${t}`; const m = $('#scanMsg'); if (m) m.textContent = scanMsg; }, force);
@@ -2941,7 +2944,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     scanBusy = false; renderScanner();
   }
   async function runScan() {
-    if (scanBusy || !S.token) return;
+    if (scanBusy) return;
     scanBusy = true; const tf = S.tf, list = scanList(), out = [];
     const hist = scanHist().filter((x) => x.tf === tf);
     renderScanner();
@@ -3206,9 +3209,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       const t = $('#tok').value.trim().replace(/\s+/g, '');
       $('#tokRes').textContent = 'Проверяю…';
       try {
-        const bars = await D.loadCandles(t, 'SBER_TQBR', '1d', 5, Date.now() - 10 * 86400000);
+        const t0 = Date.now(), bars = await D.loadCandles(t, 'SBER_TQBR', '1d', 5, Date.now() - 10 * 86400000);
         S.token = t; save();
-        $('#tokRes').innerHTML = `<span class="pos">Токен работает: получено ${bars.length} дневных свечей SBER.</span>`;
+        $('#tokRes').innerHTML = D.mxState().at >= t0 ? '<span class="warn">Сервер брокера сейчас не отвечает — токен сохранён, но не проверен. Пока цены с Мосбиржи.</span>'
+          : `<span class="pos">Токен работает: получено ${bars.length} дневных свечей SBER.</span>`;
         load(true);
       } catch (e) {
         if (e.cert) { S.token = t; save(); }
@@ -3322,22 +3326,22 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // 2.43: пока приложение открыто — проверка сигналов и роботов каждые 5 минут (роботы ходят, только когда закрылась новая свеча их таймфрейма)
   let fgBusy = false;
   setInterval(async () => {
-    if (fgBusy || robotBusy || tr || !S.token || document.hidden || !D.bgLock(8 * 60000)) return;
+    if (fgBusy || robotBusy || tr || document.hidden || !D.bgLock(8 * 60000)) return;
     fgBusy = true;
     try { const ev = await D.checkAll(() => {}); sendNotes(ev, 900); if (ev.length) { renderBell(); renderRobIcon(); if (!$('#robots').hidden) renderRobot(); } }
     catch (e) { D.log('error', 'проверка в приложении: ' + e.message); }
     finally { D.bgUnlock(); fgBusy = false; D.logFlush(); if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm())); }
   }, 5 * 60000);
-  window.appResume = () => { renderBell(); renderRobIcon(); if (S.token && Date.now() - lastLoad > 30000) load(false); };
-  setInterval(() => { if (S.token && !document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
+  window.appResume = () => { renderBell(); renderRobIcon(); if (Date.now() - lastLoad > 30000) load(false); };
+  setInterval(() => { if (!document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
   // 2.42: живая цена — последняя (незакрытая) свеча растёт каждые 5 с: запрос последней цены лёгкий; свечи целиком и анализ — по-прежнему раз в минуту
   let liveBusy = false, liveFail = 0;
   setInterval(async () => {
-    if (liveBusy || tr || demo || loading || err || !S.token || document.hidden || !lotInfo || !lotInfo.uid || !all.length || Date.now() - liveFail < 60000) return;
+    if (liveBusy || tr || demo || loading || err || document.hidden || !lotInfo || D.isCrypto(S.inst.id) || !all.length || Date.now() - liveFail < 60000) return;
     const b = all[all.length - 1]; if (b.done !== false) return;   // свеча закрыта (биржа закрыта) — обновлять нечего
     liveBusy = true;
     try {
-      const id = S.inst.id, uid = lotInfo.uid, m = await D.getLastPrices(S.token, [uid]), v = m[uid];
+      const id = S.inst.id, uid = lotInfo.uid || id, m = await D.getLastPrices(S.token, [uid]), v = m[uid];
       if (v && v.price > 0 && id === S.inst.id && all[all.length - 1] === b) { b.c = v.price; if (v.price > b.h) b.h = v.price; if (v.price < b.l) b.l = v.price; draw(); renderQuote(); }
     } catch (e) { liveFail = Date.now(); } finally { liveBusy = false; }
   }, 5000);
