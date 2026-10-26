@@ -59,7 +59,7 @@
       body: JSON.stringify(body),
     }).then(async (r) => ({ status: r.status, text: await r.text() }));
   }
-  // 3.2: открытые данные без токена (цены биткоина): GET без авторизации
+  // открытые данные без токена (цены биткоина, Мосбиржа): GET без авторизации
   function httpGet(url) {
     const A = root.Android;
     if (A && A.getAsync) return new Promise((res) => { const id = ++seq; pending[id] = res; A.getAsync(id, url); }).then((r) => { if (r.status === 0) throw new Error(r.text || 'нет связи'); return r; });
@@ -91,8 +91,144 @@
   }
   function logClear() { files.set('log_app.json', { items: [], api: {} }); files.set('log_bg.json', { items: [], api: {} }); logBuf = []; apiStat = {}; }
 
+  // ---------- запасной источник цен: открытый сайт Мосбиржи (ISS, без токена) ----------
+  // Цены те же, биржевые, но бесплатно — с задержкой ~15 мин. Работает без токена и подхватывает, когда сервер брокера не отвечает.
+  // Ответы приводятся к виду API брокера, чтобы остальной код не знал, откуда свечи: время свечей — как у брокера (UTC), объём — в лотах.
+  // Дивидендов у Мосбиржи бесплатно нет — без токена берём встроенную таблицу (divs.js) и то, что брокер отдал раньше.
+  const ISS = 'https://iss.moex.com/iss', MSK = 3 * 3600000, MX_DELAY = 16 * 60000;
+  let mxAt = 0, mxUntil = 0;
+  const mxFatal = (m) => Object.assign(new Error(m), { fatal: true });
+  async function iss(path) {
+    const t0 = Date.now(), m = 'ISS ' + path.split('?')[0].split('/').pop().replace('.json', '');
+    let r;
+    const url = ISS + path + (path.includes('?') ? '&' : '?') + 'iss.meta=off';
+    for (let k = 0; !r; k++) {   // обрыв связи — ещё раз через 1,5 с
+      try { r = await httpGet(url); }
+      catch (e) { if (k >= 1) { apiNote(m, Date.now() - t0, false); throw new Error('Нет связи с Мосбиржей: ' + e.message); } await new Promise((ok) => setTimeout(ok, 1500)); }
+    }
+    apiNote(m, Date.now() - t0, r.status >= 200 && r.status < 300);
+    if (r.status < 200 || r.status >= 300) throw new Error('Мосбиржа: ответ ' + r.status);
+    try { return JSON.parse(r.text); } catch (e) { throw new Error('Мосбиржа: непонятный ответ'); }
+  }
+  const issRows = (blk) => (blk && blk.data ? blk.data : []).map((d) => { const o = {}; blk.columns.forEach((c, i) => { o[c.toUpperCase()] = d[i]; }); return o; });
+  const mskStr = (t) => new Date(t + MSK).toISOString().slice(0, 19).replace('T', ' ');
+  const pq = (x) => ({ units: x, nano: 0 });   // цена в виде брокера (q() её прочитает)
+
+  // какая бумага на бирже: «ТИКЕР_РЕЖИМ» читается сразу, uid брокера — по тому, что уже встречалось
+  function mxRemember(uid, ticker, board) {
+    if (!uid || !ticker || !/^[0-9a-f]{8}-/.test(uid)) return;
+    const m = store.get('mxIds', {}); if (m[uid] && m[uid][0] === ticker) return;
+    m[uid] = [ticker, board || 'TQBR']; store.set('mxIds', m);
+  }
+  function mxSec(id) {
+    const s = String(id || '');
+    if (!/^[0-9a-f]{8}-/.test(s)) { const k = s.match(/^(.+)_([A-Z0-9]+)$/); if (k) return { tk: k[1], board: k[2] }; }
+    const m = store.get('mxIds', {})[s]; if (m) return { tk: m[0], board: m[1] };
+    const D = root.EW_DIVS || {};
+    for (const key in D) if (D[key].u === s) { const k = key.match(/^(.+)_([A-Z0-9]+)$/); return { tk: k[1], board: k[2] }; }
+    const U = files.get('universe.json'), x = U && U.list ? U.list.find((z) => z.uid === s) : null;
+    if (x) return { tk: x.ticker, board: x.classCode || 'TQBR' };
+    throw mxFatal('Мосбиржа: не знаю тикер этой бумаги — найдите её заново через поиск.');
+  }
+  // лот, название и вид бумаги (кэш на 7 дней)
+  async function mxInfo(sec) {
+    const key = 'mxSec.' + sec.tk + '_' + sec.board, c = store.get(key, null);
+    if (c && Date.now() - c.at < 7 * 86400000) return c;
+    const js = await iss(`/engines/stock/markets/shares/boards/${sec.board}/securities/${encodeURIComponent(sec.tk)}.json?iss.only=securities&securities.columns=SECID,SHORTNAME,SECNAME,LOTSIZE,SECTYPE`);
+    const x = issRows(js.securities)[0];
+    if (!x) throw mxFatal('Мосбиржа: бумага ' + sec.tk + ' не найдена в режиме ' + sec.board);
+    const info = { at: Date.now(), lot: Number(x.LOTSIZE || 1), name: x.SHORTNAME || x.SECNAME || sec.tk, type: /^TQTF/.test(sec.board) ? 'etf' : 'share' };
+    store.set(key, info);
+    return info;
+  }
+  // свечи: у Мосбиржи нет 4ч, 5м и 15м — собираем их из часовых и минутных (корзины по UTC, как у брокера)
+  const MX_TF = { CANDLE_INTERVAL_5_MIN: [1, 300000], CANDLE_INTERVAL_15_MIN: [1, 900000], CANDLE_INTERVAL_HOUR: [60, 0], CANDLE_INTERVAL_4_HOUR: [60, 14400000], CANDLE_INTERVAL_DAY: [24, 0], CANDLE_INTERVAL_WEEK: [7, 0] };
+  async function mxCandles(body) {
+    const sec = mxSec(body.instrumentId), tf = MX_TF[body.interval];
+    if (!tf) throw mxFatal('Мосбиржа: такой таймфрейм не поддерживается');
+    const [iv, agg] = tf, daily = iv === 24 || iv === 7, now = Date.now();
+    const span = agg || (daily ? 0 : iv * 60000);
+    let from = Date.parse(body.from), to = Math.min(Date.parse(body.to), now);
+    if (agg) from = Math.floor(from / agg) * agg;
+    if (daily) from -= iv === 7 ? 7 * 86400000 : 0;
+    const lot = (await mxInfo(sec)).lot || 1;
+    const f = daily ? mskStr(from).slice(0, 10) : mskStr(from), t = daily ? mskStr(to).slice(0, 10) : mskStr(to);
+    const rows = [];
+    for (let start = 0; start < 50000; start += 500) {
+      const js = await iss(`/engines/stock/markets/shares/boards/${sec.board}/securities/${encodeURIComponent(sec.tk)}/candles.json?from=${encodeURIComponent(f)}&till=${encodeURIComponent(t)}&interval=${iv}&candles.columns=begin,open,high,low,close,volume&start=${start}`);
+      const d = (js.candles && js.candles.data) || [];
+      for (const r of d) rows.push(r);
+      if (d.length < 500) break;
+    }
+    // время ISS — московское; дневная и недельная свеча у брокера — с полуночи UTC
+    let bars = rows.map(([b, o, h, l, c, v]) => ({ t: daily ? Date.parse(b.slice(0, 10) + 'T00:00:00Z') : Date.parse(b.replace(' ', 'T') + 'Z') - MSK, o, h, l, c, v: v / lot }))
+      .filter((b) => b.t && b.h > 0);
+    if (agg) {
+      const m = new Map();
+      for (const b of bars) {
+        const k = Math.floor(b.t / agg) * agg, x = m.get(k);
+        if (!x) m.set(k, { t: k, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+        else { x.h = Math.max(x.h, b.h); x.l = Math.min(x.l, b.l); x.c = b.c; x.v += b.v; }
+      }
+      bars = Array.from(m.values());
+    }
+    // свеча закрыта, когда кончилось её время и прошла задержка Мосбиржи; день кончается в полночь по МСК
+    const endOf = (b) => (daily ? b.t + (iv === 7 ? 7 : 1) * 86400000 - MSK : b.t + span);
+    const out = bars.filter((b) => endOf(b) > Date.parse(body.from) && b.t <= to).sort((a, b) => a.t - b.t);
+    mxAt = now;
+    return {
+      candles: out.map((b) => ({ time: new Date(b.t).toISOString(), open: pq(b.o), high: pq(b.h), low: pq(b.l), close: pq(b.c), volume: Math.round(b.v), isComplete: endOf(b) + MX_DELAY <= now })),
+    };
+  }
+  async function mxFind(body) {
+    const js = await iss(`/securities.json?q=${encodeURIComponent(body.query || '')}&engine=stock&market=shares&is_trading=1&limit=30&securities.columns=secid,shortname,name,primary_boardid,type`);
+    const D = root.EW_DIVS || {};
+    return {
+      instruments: issRows(js.securities).filter((x) => /^TQ/.test(x.PRIMARY_BOARDID || '')).map((x) => {
+        const id = x.SECID + '_' + x.PRIMARY_BOARDID;
+        return { uid: '', ticker: x.SECID, classCode: x.PRIMARY_BOARDID, name: x.SHORTNAME || x.NAME, instrumentType: /ppif|etf/i.test(x.TYPE || '') ? 'etf' : 'share', lot: D[id] ? D[id].l : 1, apiTradeAvailableFlag: true };
+      }),
+    };
+  }
+  async function mxInstrument(body) {
+    const sec = body.idType === 'INSTRUMENT_ID_TYPE_UID' ? mxSec(body.id) : { tk: body.id, board: body.classCode || 'TQBR' };
+    const info = await mxInfo(sec), D = root.EW_DIVS || {}, known = D[sec.tk + '_' + sec.board];
+    return { instrument: { uid: body.idType === 'INSTRUMENT_ID_TYPE_UID' ? body.id : known ? known.u : '', figi: '', lot: info.lot, instrumentType: info.type, ticker: sec.tk, classCode: sec.board, name: info.name, currency: 'rub', mx: true } };
+  }
+  async function mxDividends(body) {
+    const sec = mxSec(body.instrumentId), x = (root.EW_DIVS || {})[sec.tk + '_' + sec.board];
+    return { dividends: x ? x.d.map(([d, v]) => ({ lastBuyDate: d + 'T00:00:00Z', dividendNet: Object.assign(pq(v), { currency: 'rub' }) })) : [] };
+  }
+  async function mxLastPrices(body) {
+    const ids = body.instrumentId || [], by = {};
+    for (const id of ids) { try { const s = mxSec(id); (by[s.board] = by[s.board] || []).push([id, s.tk]); } catch (e) { /* неизвестная бумага — пропускаем */ } }
+    const out = [];
+    for (const [board, list] of Object.entries(by)) {
+      const js = await iss(`/engines/stock/markets/shares/boards/${board}/securities.json?securities=${encodeURIComponent(list.map((z) => z[1]).join(','))}&iss.only=marketdata&marketdata.columns=SECID,LAST,LCURRENTPRICE,SYSTIME`);
+      const px = new Map(issRows(js.marketdata).map((r) => [r.SECID, r]));
+      for (const [id, tk] of list) {
+        const r = px.get(tk), p = r && (r.LAST || r.LCURRENTPRICE);
+        if (p) out.push({ instrumentUid: id, price: pq(p), time: r.SYSTIME ? new Date(Date.parse(r.SYSTIME.replace(' ', 'T') + 'Z') - MSK - MX_DELAY).toISOString() : '' });
+      }
+    }
+    return { lastPrices: out };
+  }
+  async function mxShares() {
+    const D = root.EW_DIVS || {};
+    const js = await iss('/engines/stock/markets/shares/boards/TQBR/securities.json?iss.only=securities&securities.columns=SECID,SHORTNAME,LOTSIZE,STATUS,SECTYPE');
+    // только торгуемые обыкновенные и привилегированные акции (без фондов)
+    return { instruments: issRows(js.securities).filter((x) => x.STATUS === 'A' && /^[12D]$/.test(x.SECTYPE || '')).map((x) => ({ uid: (D[x.SECID + '_TQBR'] || {}).u || '', ticker: x.SECID, classCode: 'TQBR', name: x.SHORTNAME, lot: Number(x.LOTSIZE || 1), currency: 'rub', buyAvailableFlag: true })) };
+  }
+  const MX = { GetCandles: mxCandles, FindInstrument: mxFind, GetInstrumentBy: mxInstrument, GetDividends: mxDividends, GetLastPrices: mxLastPrices, Shares: mxShares };
+  // откуда последние цены: { at — когда брали с Мосбиржи, token — есть ли токен }
+  function mxState() { return { at: mxAt, down: Date.now() < mxUntil, delay: MX_DELAY }; }
+
   async function call(token, path, body) {
-    const method = path.split('/').pop(), t0 = Date.now();
+    const method = path.split('/').pop(), t0 = Date.now(), mx = MX[method];
+    // без токена — биржевые данные с Мосбиржи, остальное (счёт, операции) недоступно
+    if (!token) { if (!mx) throw mxFatal('Нужен токен Т-Инвестиций (⚙ → Счёт).'); return mx(body); }
+    // брокер недавно не отвечал — 5 мин не ждём его, сразу берём с Мосбиржи
+    if (mx && Date.now() < mxUntil) return mx(body);
     try {
       const js = await call0(token, path, body);
       const ms = Date.now() - t0; apiNote(method, ms, true);
@@ -101,7 +237,11 @@
     } catch (e) {
       apiNote(method, Date.now() - t0, false);
       log('api', method + ': ' + e.message, { ms: Date.now() - t0 });
-      throw e;
+      if (!mx || e.fatal) throw e;
+      // нет связи с брокером или сбой на его стороне — цены с Мосбиржи
+      mxUntil = Date.now() + 5 * 60000;
+      log('api', 'брокер не отвечает — цены с Мосбиржи (задержка ~15 мин)');
+      try { return await mx(body); } catch (e2) { throw new Error(e.message + ' Мосбиржа тоже не ответила: ' + e2.message); }
     }
   }
   async function call0(token, path, body) {
@@ -241,6 +381,7 @@
 
   async function findInstrument(token, query) {
     const js = await call(token, INS + 'FindInstrument', { query, apiTradeAvailableFlag: false });
+    for (const x of js.instruments || []) mxRemember(x.uid, x.ticker, x.classCode);
     return (js.instruments || []).map((x) => ({
       id: x.uid || (x.ticker + '_' + x.classCode), ticker: x.ticker, classCode: x.classCode, name: x.name,
       type: x.instrumentType, lot: Number(x.lot || 1), api: x.apiTradeAvailableFlag,
@@ -381,12 +522,13 @@
   async function instInfo(token, inst) {
     if (isCrypto(inst.id)) return { at: Date.now(), uid: '', figi: '', lot: 1, type: 'crypto', currency: 'usd' };
     const key = 'ins.' + inst.id, c = store.get(key, null);
-    if (c && Date.now() - c.at < 7 * 86400000) return c;
+    if (c && Date.now() - c.at < (c.mx ? 3600000 : 7 * 86400000)) return c;   // сведения с Мосбиржи — на час: появится токен, возьмём у брокера
     const isUid = /^[0-9a-f]{8}-/.test(inst.id);
     const body = isUid ? { idType: 'INSTRUMENT_ID_TYPE_UID', id: inst.id } : { idType: 'INSTRUMENT_ID_TYPE_TICKER', classCode: inst.classCode || 'TQBR', id: inst.ticker };
     const js = await call(token, INS + 'GetInstrumentBy', body);
     const x = js.instrument || {};
     const info = { at: Date.now(), uid: x.uid || '', figi: x.figi || '', lot: Number(x.lot || 1), type: x.instrumentType || '', currency: x.currency || 'rub' };
+    if (x.mx) info.mx = true; else mxRemember(x.uid, x.ticker || inst.ticker, x.classCode || inst.classCode);
     store.set(key, info);
     return info;
   }
@@ -537,7 +679,7 @@
     const js = await call(token, INS + 'GetInstrumentBy', { idType: 'INSTRUMENT_ID_TYPE_UID', id: uid });
     const x = js.instrument || {};
     const info = { uid, ticker: x.ticker || '?', classCode: x.classCode || '', name: x.name || x.ticker || '', lot: Number(x.lot || 1), type: x.instrumentType || '' };
-    store.set(key, info);
+    if (!x.mx) { mxRemember(uid, x.ticker, x.classCode); store.set(key, info); }
     return info;
   }
 
@@ -581,8 +723,7 @@
 
   // фоновая проверка всего списка
   async function checkAll(onLog, opt) {
-    const s = settings();
-    if (!s.token) return [];
+    const s = settings();   // без токена — цены с Мосбиржи
     const all = [], t0 = Date.now(), budget = (opt && opt.budgetMs) || 0;
     // бумаги — по кругу с той, до которой не дошли в прошлый раз (если время кончилось)
     const n = s.watch.length, start = n ? (store.get('bgNext', 0) % n) : 0;
@@ -717,7 +858,7 @@
     return out;
   }
   // нужна ли фоновая проверка вообще
-  function needBg(s) { s = s || settings(); const V = files.get('vacc.json'); return !!(s.token && ((s.watch || []).length || priceItems(s).length || (V && V.on))); }
+  function needBg(s) { s = s || settings(); const V = files.get('vacc.json'); return !!(((s.watch || []).length || priceItems(s).length || (V && V.on))); }
 
   // ---------- виртуальный счёт робота ----------
   // Робот повторяет сделки бэктеста по топ-50 акциям (дневки) на общем капитале: риск на сделку, позиция ≤ 25% счёта,
@@ -747,13 +888,13 @@
   // only — ключ одного счёта (кнопка «Ход» у робота); без него ходят все
   async function robotStep(onLog, force, only) {
     const s = settings(), V = vaccGet(), ev = [];
-    if (!V || !V.on || !s.token) return ev;
+    if (!V || !V.on) return ev;
     const one = only ? V.accs.find((a) => a.key === only) : null;
     if (only && !one) return ev;
-    const now = Date.now();
+    const now = Date.now(), dly = s.token ? 0 : MX_DELAY;   // без токена свечи с Мосбиржи — закрытая свеча видна через ~15 мин
     // 2.43: счёт ходит, когда у его таймфрейма закрылась новая свеча (4ч — в 03/07/11/15/19/23 МСК, дневки — после конца дня по МСК),
     // но не чаще раза в 4 мин; без новой свечи — раз в 50 мин (стопы ручного счёта, пополнения). Грузим свечи только тех, кому пора.
-    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(accTf(a), now)); };
+    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(accTf(a), now - dly)); };
     const runAccs = force ? V.accs.filter((a) => !one || a === one) : V.accs.filter(due);
     if (!runAccs.length) return ev;
     const runSet = new Set(runAccs);
@@ -1058,9 +1199,10 @@
   const accTf = (a) => (a.crypto ? 'u1d' : a.manual ? '1d' : a.tf || '1d');
   // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
   function nextAlarm() {
-    const V = vaccGet(); if (!V || !V.on || !settings().token) return 0;
+    const V = vaccGet(); if (!V || !V.on) return 0;
+    const dly = settings().token ? 0 : MX_DELAY;   // без токена свечи с Мосбиржи видны через ~15 мин после закрытия
     const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map(accTf)); let t = 0;
-    for (const tf of tfs) { const c = lastClose(tf, now) + (tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5) + 90e3; if (!t || c < t) t = c; }
+    for (const tf of tfs) { const d = tf === 'u1d' ? 0 : dly, c = lastClose(tf, now - d) + (tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5) + 90e3 + d; if (!t || c < t) t = c; }
     return t;
   }
   // история всех отправленных уведомлений (для списка в приложении)
@@ -1074,5 +1216,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { CRYPTO_ID, isCrypto, nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { mxState, CRYPTO_ID, isCrypto, nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);
