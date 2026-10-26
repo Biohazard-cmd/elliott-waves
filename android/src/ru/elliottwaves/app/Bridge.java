@@ -229,6 +229,41 @@ public class Bridge {
         }).start();
     }
 
+    // 3.2: открытые данные без токена (цены биткоина): GET без авторизации, ответ — так же через __httpDone
+    @JavascriptInterface
+    public void getAsync(final int id, final String url) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int code;
+                String text;
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                    if (c instanceof HttpsURLConnection) {
+                        SSLContext sc = russianContext(ctx);
+                        if (sc != null) ((HttpsURLConnection) c).setSSLSocketFactory(sc.getSocketFactory());
+                    }
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(40000);
+                    c.setRequestMethod("GET");
+                    c.setRequestProperty("Accept", "application/json");
+                    code = c.getResponseCode();
+                    InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    text = is == null ? "" : readAll(is);
+                    c.disconnect();
+                } catch (Exception e) {
+                    code = 0;
+                    text = e.toString();
+                }
+                final String js = "window.__httpDone && window.__httpDone(" + id + "," + code + "," + JSONObject.quote(text) + ")";
+                MAIN.post(new Runnable() {
+                    @Override
+                    public void run() { try { web.evaluateJavascript(js, null); } catch (Exception e) { /* WebView уже закрыт */ } }
+                });
+            }
+        }).start();
+    }
+
     // ---------- сертификат Минцифры (Russian Trusted Root CA) ----------
     // API Т-Банка подписан российским удостоверяющим центром, которому Android не доверяет.
     // Сертификат скачивается с официального сайта gu-st.ru и используется только для запросов приложения.
