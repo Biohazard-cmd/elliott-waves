@@ -74,6 +74,30 @@ body > header .icon { width: 32px; }
 .rsay { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
 .rsay .bub { position: relative; flex: 1; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; font-size: 13px; }
 .rsay .bub:before { content: ''; position: absolute; left: -7px; top: 14px; border: 6px solid transparent; border-right-color: var(--line); border-left: 0; }
+/* 3.4: экран «Роботы» — панель внизу, цвет робота */
+.robnav { position: relative; flex: none; display: flex; gap: 2px; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--bg2); border-top: 1px solid var(--line); }
+.robnav[hidden] { display: none; }
+.rnb { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 2px 4px; background: none; border: 0; border-top: 3px solid transparent; border-radius: 6px 6px 8px 8px; color: var(--mut); }
+.rnb.on { background: color-mix(in srgb, var(--rc) 18%, transparent); border-top-color: var(--rc); color: var(--ink); }
+.rnb .bot, .rnb .me { width: 24px; height: 24px; font-size: 18px; line-height: 24px; text-align: center; }
+.rnb span { font-size: 10.5px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.rnb small { font-size: 10px; line-height: 1.1; }
+.rnb .rdot { position: absolute; top: 3px; right: calc(50% - 18px); width: 8px; height: 8px; border-radius: 50%; background: #f5d742; box-shadow: 0 0 0 2px var(--bg2); }
+.robmore { position: absolute; left: 6px; right: 6px; bottom: calc(100% + 4px); display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; background: var(--bg3); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 -6px 18px rgba(0,0,0,.35); }
+.robmore .rnb { flex: 0 0 calc(25% - 3px); }
+.rrow { display: flex; align-items: center; gap: 8px; padding: 8px 6px 8px 8px; margin: 4px 0; border-left: 4px solid var(--rc); border-radius: 6px; background: color-mix(in srgb, var(--rc) 8%, transparent); cursor: pointer; }
+.rrow .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rrow small { color: var(--mut); font-size: 11px; }
+.rrow .me { font-size: 20px; width: 26px; text-align: center; }
+.sigc { color: #f5d742; }
+.card.robhd { border-left: 4px solid var(--rc); background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 12%, var(--bg2)), var(--bg2) 70%); }
+.card.robhd h3 { color: var(--rc); font-size: 14px; text-transform: none; letter-spacing: 0; }
+.card.pendc { border-color: #a8902a; background: color-mix(in srgb, #f5d742 10%, var(--bg2)); }
+.card.pendc h3 { color: #f5d742; }
+.jrow.jp, .jrow.jn, .jrow.jz { border-left: 3px solid; padding-left: 8px; }
+.jrow.jp { border-left-color: #3fbf7f; } .jrow.jn { border-left-color: #ef5b5b; } .jrow.jz { border-left-color: var(--dim); }
+.jrow.jc.jp { background: rgba(63,191,127,.06); } .jrow.jc.jn { background: rgba(239,91,91,.06); }
+.shrt { font-size: 11px; padding: 0 5px; border-radius: 4px; background: rgba(239,91,91,.18); color: #ff8a8a; }
 .race { display: flex; align-items: center; gap: 6px; height: 40px; margin: 2px 0; border-bottom: 1px dashed var(--line); }
 .race .lname { width: 92px; flex: none; font-size: 11px; color: var(--mut); line-height: 1.2; }
 .race .track { position: relative; flex: 1; height: 100%; }
@@ -352,6 +376,7 @@ body.chartfull #panel { display: none; }
 <section class="sheet" id="robots" hidden>
   <header><button class="icon" data-close="robots" aria-label="Назад">←</button><b>🤖 Роботы</b></header>
   <div class="body" id="robBody"></div>
+  <nav class="robnav" id="robNav" hidden></nav>
 </section>
 
 <!-- сканер бумаг -->

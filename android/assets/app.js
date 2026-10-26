@@ -645,6 +645,38 @@
     const t = g ? `Закрытие дня ${fmtT(g.t, false)}: ${usd0(g.c)} — <b class="${g.share > 0 ? 'pos' : 'neg'}">${g.share > 0 ? 'выше' : 'ниже'}</b> средней за 100 дней (${usd0(g.sma)}). Волатильность ${pc(g.vol)} в год → ${g.share > 0 ? 'держать <b>' + pc(g.share) + '</b> счёта в биткоине, остальное в долларах' : 'всё в долларах'}.` : 'Ещё не смотрел биткоин — нажмите «⟳ Ход».';
     return `<div class="small" style="margin:4px 0">${t}</div><div class="row" style="margin:4px 0 2px"><button data-ropen="${D.CRYPTO_ID}|1d" style="flex:none">📈 График биткоина</button></div>`;
   }
+  // 3.4: панель роботов внизу экрана и обзор «Все»; дневные (основной, агрессивный) — в конце
+  const ROB_SHORT = { d_long: 'Основной', d_aggr: 'Агрессив.', h4_week: '4ч неделя', h4_tri: 'Треуг.', btc_trend: 'Биткоин', manual: 'Мой счёт' };
+  const robDaily = (a) => a.key === 'd_long' || a.key === 'd_aggr';
+  const robOrder = (V) => V.accs.filter((a) => !robDaily(a)).concat(V.accs.filter(robDaily));
+  const robPc = (a) => { const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0); return a.dep > 0 ? eq / a.dep - 1 : 0; };
+  const robIco = (a, V) => (a.manual ? '<span class="me">✋</span>' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle'));
+  let robMore = false;   // открыт ли список «Ещё»
+  function robTable(V) {
+    const row = (a) => { const pc = robPc(a), np = Object.keys(a.pend || {}).length;
+      return `<div class="rrow" data-racc="${a.key}" role="button" style="--rc:${rmStyle(a.key).c}">${robIco(a, V)}<span class="grow"><b>${esc(a.name)}</b><small>${a.pos.length ? 'позиций ' + a.pos.length : 'без позиций'}${np ? ' · <span class="sigc">сигнал ' + np + '</span>' : ''} · закрыто ${a.closed.length}</small></span><b class="${pc >= 0 ? 'pos' : 'neg'}">${spc(pc)}</b></div>`; };
+    const main = V.accs.filter((a) => !robDaily(a)), day = V.accs.filter(robDaily);
+    let h = `<div class="card"><h3>Все роботы</h3>${main.map(row).join('')}<div class="small mut" style="margin-top:4px">Нажмите на робота — откроется всё о нём. Переключаться — панелью внизу.</div></div>`;
+    if (day.length) h += `<div class="card${foldC('robDay', true)}" data-fold="robDay"><h3>Дневные роботы (${day.length})</h3>${day.map(row).join('')}</div>`;
+    return h;
+  }
+  function robNav(V) {
+    const nav = $('#robNav'); if (!nav) return;
+    if (!V) { nav.hidden = true; nav.innerHTML = ''; return; }
+    const cur = V.accs.some((a) => a.key === S.robotAcc) ? S.robotAcc : 'all', L = robOrder(V), MAX = 6;
+    const vis = L.length + 1 > MAX ? L.slice(0, MAX - 2) : L, rest = L.slice(vis.length);
+    const btn = (a) => { const pc = robPc(a), dot = (robFresh[a.key] && robFresh[a.key].length) || Object.keys(a.pend || {}).length;
+      return `<button class="rnb${a.key === cur ? ' on' : ''}" data-rnav="${a.key}" style="--rc:${rmStyle(a.key).c}">${dot ? '<i class="rdot"></i>' : ''}${robIco(a, V)}<span>${esc(ROB_SHORT[a.key] || a.name)}</span><small class="${pc >= 0 ? 'pos' : 'neg'}">${spc(pc)}</small></button>`; };
+    nav.hidden = false;
+    nav.innerHTML = (robMore && rest.length ? `<div class="robmore">${rest.map(btn).join('')}</div>` : '')
+      + `<button class="rnb${cur === 'all' ? ' on' : ''}" data-rnav="all" style="--rc:var(--accl)"><span class="me">📋</span><span>Все</span><small class="mut">обзор</small></button>${vis.map(btn).join('')}`
+      + (rest.length ? `<button class="rnb${rest.some((a) => a.key === cur) || robMore ? ' on' : ''}" data-rnav="more" style="--rc:var(--mut)"><span class="me">${robMore ? '✕' : '⋯'}</span><span>Ещё</span><small class="mut">${rest.length}</small></button>` : '');
+    nav.querySelectorAll('[data-rnav]').forEach((b) => { b.onclick = () => {
+      const k = b.dataset.rnav;
+      if (k === 'more') { robMore = !robMore; robNav(D.vaccGet()); return; }
+      robMore = false; S.robotAcc = k; save(); renderRobot(); $('#robBody').scrollTop = 0;
+    }; });
+  }
   function renderRobot() {
     const V = D.vaccGet();
     let h = '';
@@ -663,7 +695,7 @@
         <div class="small" style="margin-top:6px">Вместе с роботами появится счёт <b>«мой (вручную)»</b>: в нём — ваши настоящие сделки и деньги со счёта Т-Инвестиций, чтобы сравнивать себя с роботами.</div>
         <div class="row" style="margin-top:10px"><button id="vStart">🤖 Запустить роботов</button></div>
         ${S.token ? '' : '<div class="note">Без токена роботы ходят по ценам Мосбиржи (задержка ~15 мин); пополнения и сделки вашего счёта не повторяются.</div>'}</div>`;
-      $('#robBody').innerHTML = h;
+      $('#robBody').innerHTML = h; robNav(null);
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
         const mk = (key, name) => ({ key, name, tf: robotTf(key), cfg: robotCfg(key), be: key !== 'h4_tri', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
@@ -673,53 +705,20 @@
       };
       return;
     }
-    const ra = V.accs.find((a) => a.key === S.robotAcc) || V.accs[0];
-    { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
-    h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
-    // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
-    const vimTot = V.accs.filter((a) => !a.manual && !a.crypto).reduce((s, a) => s + (a.mm || 0), 0);
-    h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual && !a.crypto).length)) + ' на робота'}</span></div>`;
-    h += raceCard(V);
-    for (const a of V.accs) {
-      const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), pl = eq - a.dep, inPos = a.pos.reduce((s, p) => s + p.qty * (a.px[p.id] || p.entry), 0);
-      h += `<div class="card" data-racc="${a.key}" style="${a === ra ? 'border-color:#3f6fb3' : ''};cursor:pointer"><h3><span class="grow" style="display:flex;align-items:center;gap:6px">${a.manual ? '✋' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle')} ${esc(a.name)}${a.pos.some((p) => p.wk) ? ' <span class="wk">🧳</span>' : ''}</span>${eqSpark(a.hist)}</h3>
-        <div class="kv"><div><small>Капитал</small><b>${money(a, eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(a, Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
-        <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${money(a, a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
-        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : a.crypto ? 'решает раз в сутки, после закрытия дня в 03:00 МСК · последний ход ' + (a.lastRun ? fmtT(a.lastRun, true) : '—') : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
-        ${a.crypto ? btcInfo(a) : ''}
-        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:6px 0 2px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>`}
-        <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div>
-        ${a.crypto ? `<div class="small">Счёт в долларах (условно ${usd0(a.dep)} на старте), свободные доллары — без процентов, комиссия 0,1%. Пополнения рублёвого счёта сюда не идут. Робот сам не торгует — по уведомлению повторяйте на своей бирже.</div></div>` : `<div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего счёта Т-Инвестиций (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', без пополнений и выводов. ' : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`}`;
-    }
-    if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
-    if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
-    // подробности выбранного робота
-    const pend = Object.entries(ra.pend || {});
-    // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
-    // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
-    const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
-    const pendRow = (id, p) => {
-      const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
-      if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
-      const t1 = p.sigT + rP, now = Date.now();
-      return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
-        <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
-    };
-    if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
-    h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
-      const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
-      if (p.crypto) { const v = p.qty * px * (1 - 0.001), q = v - p.cost, eqA = D.vEquity(ra);
-        return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>BTC</b> ${p.qty.toFixed(5).replace('.', DEC())} · ${Math.round(p.qty * px / (eqA || 1) * 100)}% счёта</span><span class="${q >= 0 ? 'pos' : 'neg'}">${q >= 0 ? '+' : '−'}${usd0(Math.abs(q))} · ${spc(px / (p.cost / p.qty) - 1)}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${usd0(p.entry)}${Math.abs(p.entry / (p.cost / p.qty) - 1) > 0.005 ? ' (средняя ' + usd0(p.cost / p.qty) + ')' : ''} · сейчас ${usd0(px)} · ${days} дн. · стопа нет: выход, когда дневное закрытие ниже средней-100</div></div>`; }
-      if (ra.manual) return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
-      return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : ra.crypto ? '<div class="small">Нет — все деньги в долларах. Робот купит, когда дневное закрытие биткоина будет выше средней за 100 дней.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
-    const cl = ra.closed.slice(-40).reverse();
-    if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
-      h += `<div class="card"><h3>Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '▼ шорт ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
-    h += robFeed();
-    h += `<div class="card"><h3>Управление</h3>
+    // 3.4: внизу панель роботов — «Все» (обзор) или один робот на весь экран
+    const sel = V.accs.find((a) => a.key === S.robotAcc), ra = sel || V.accs[0];
+    if (!sel) {
+      { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
+      h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
+      // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
+      const vimTot = V.accs.filter((a) => !a.manual && !a.crypto).reduce((s, a) => s + (a.mm || 0), 0);
+      h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual && !a.crypto).length)) + ' на робота'}</span></div>`;
+      h += raceCard(V);
+      h += robTable(V);
+      if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
+      if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
+      h += robFeed();
+      h += `<div class="card"><h3>Управление</h3>
       <div class="row"><button id="vRun" ${robotBusy ? 'disabled' : ''}>${robotBusy ? 'Роботы думают…' : '⟳ Ход всех роботов'}</button><button id="vToggle">${V.on ? '⏸ Остановить' : '▶ Продолжить'}</button></div>
       <div class="small" id="vMsg">${esc(robotMsg) || 'Робот ходит сам: сразу после закрытия свечи своего таймфрейма (4 часа — в 3, 7, 11, 15, 19 и 23 ч МСК; телефон будит его, даже когда спит), а при открытом приложении проверка каждые 5 минут (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
       <div class="field" style="margin-top:10px"><label>Пополнить (+) или вывести (−) вручную, ₽ — если деньги не через этот счёт</label><div class="row"><input type="number" id="vFlow" step="1000" style="flex:1"><button id="vFlowOk">Внести</button></div></div>
@@ -731,13 +730,53 @@
       <div class="row" style="margin-top:8px"><button id="vCsv">⬇ Отчёт CSV</button><button id="vJson">⬇ JSON</button></div>
       <div class="small" id="vExpRes">Все сделки роботов и ваши виртуальные: открытые и закрытые, вход, стоп, цель, выход, причина, ₽, дивиденды, доливки, плюс итоги по каждому счёту. CSV — открыть в таблице; JSON — прислать на разбор.</div>
       <div class="row" style="margin-top:6px"><button id="vReset">${robotArm === 'reset' ? 'Точно стереть? Нажмите ещё раз' : 'Сбросить роботов'}</button></div></div>`;
-    $('#robBody').innerHTML = h;
+    } else {
+      const a = ra;
+      const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), pl = eq - a.dep, inPos = a.pos.reduce((s, p) => s + p.qty * (a.px[p.id] || p.entry), 0);
+      h += `<div class="card robhd" style="--rc:${rmStyle(a.key).c}"><h3><span class="grow" style="display:flex;align-items:center;gap:6px">${a.manual ? '✋' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle')} ${esc(a.name)}${a.pos.some((p) => p.wk) ? ' <span class="wk">🧳</span>' : ''}</span>${eqSpark(a.hist)}</h3>
+        <div class="kv"><div><small>Капитал</small><b>${money(a, eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(a, Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
+        <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${money(a, a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
+        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : a.crypto ? 'решает раз в сутки, после закрытия дня в 03:00 МСК · последний ход ' + (a.lastRun ? fmtT(a.lastRun, true) : '—') : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
+        ${a.crypto ? btcInfo(a) : ''}
+        ${a.crypto ? `<div class="small">Счёт в долларах (условно ${usd0(a.dep)} на старте), свободные доллары — без процентов, комиссия 0,1%. Пополнения рублёвого счёта сюда не идут. Робот сам не торгует — по уведомлению повторяйте на своей бирже.</div></div>` : `<div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего счёта Т-Инвестиций (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', без пополнений и выводов. ' : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`}`;
+
+      // подробности выбранного робота
+      const pend = Object.entries(ra.pend || {});
+      // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
+      // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
+      const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
+      const pendRow = (id, p) => {
+        const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
+        if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
+        const t1 = p.sigT + rP, now = Date.now();
+        return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
+          <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
+      };
+      if (pend.length) h += `<div class="card pendc"><h3>⏳ ${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
+      h += `<div class="card"><h3>📂 Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
+        const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
+        if (p.crypto) { const v = p.qty * px * (1 - 0.001), q = v - p.cost, eqA = D.vEquity(ra);
+          return `<div class="jrow ${q >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>BTC</b> ${p.qty.toFixed(5).replace('.', DEC())} · ${Math.round(p.qty * px / (eqA || 1) * 100)}% счёта</span><span class="${q >= 0 ? 'pos' : 'neg'}">${q >= 0 ? '+' : '−'}${usd0(Math.abs(q))} · ${spc(px / (p.cost / p.qty) - 1)}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${usd0(p.entry)}${Math.abs(p.entry / (p.cost / p.qty) - 1) > 0.005 ? ' (средняя ' + usd0(p.cost / p.qty) + ')' : ''} · сейчас ${usd0(px)} · ${days} дн. · стопа нет: выход, когда дневное закрытие ниже средней-100</div></div>`; }
+        if (ra.manual) return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
+        return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : ra.crypto ? '<div class="small">Нет — все деньги в долларах. Робот купит, когда дневное закрытие биткоина будет выше средней за 100 дней.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
+      const cl = ra.closed.slice(-40).reverse();
+      if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
+        h += `<div class="card"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
+      h += `<div class="card${foldC('robSet', true)}" data-fold="robSet"><h3>⚙ Настройки · ${esc(a.name)}</h3>
+        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>`}
+        <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
+    }
+    $('#robBody').innerHTML = h; robNav(V);
     $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); runRobot(b.dataset.rrun); }; });
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
-    $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; save(); renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; robMore = false; save(); renderRobot(); $('#robBody').scrollTop = 0; }; });
     $('#robBody').querySelectorAll('[data-rgo]').forEach((r) => { r.onclick = () => { const id = r.dataset.rgo; if (D.isCrypto(id)) { goChart({ id, tf: '1d' }); return; } closeSheet('robots'); const rtf = ra.tf || '1d'; if (S.inst.id !== id || S.tf !== rtf) { S.inst = { id, ticker: id.split('_')[0], name: id.split('_')[0], classCode: 'TQBR' }; S.tf = rtf; save(); sel = -1; an = null; view.init = false; renderHead(); load(false); } }; });
     $('#robBody').querySelectorAll('[data-ropen]').forEach((r) => { r.onclick = (e) => { e.stopPropagation(); const [id, tf] = r.dataset.ropen.split('|'); goChart({ id, ticker: id.split('_')[0], tf }); }; });
-    $('#vRun').onclick = () => runRobot();
+    const on = (id, f) => { const el = $(id); if (el) el.onclick = f; };
+    on('#vRun', () => runRobot());
     { const vb = $('#vVim'); if (vb) vb.onclick = () => { S.vimOn = !S.vimOn; save(); renderRobot(); }; }
     $('#robBody').querySelectorAll('[data-rbe]').forEach((b) => { b.onclick = (e) => {
       e.stopPropagation(); const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
@@ -747,7 +786,7 @@
     $('#robBody').querySelectorAll('[data-rms],[data-rmc]').forEach((b) => { b.onclick = (e) => {
       e.stopPropagation(); const [key, v] = (b.dataset.rms || b.dataset.rmc).split('|'); S.rmStyle = Object.assign({}, S.rmStyle); S.rmStyle[key] = Object.assign({}, rmStyle(key), b.dataset.rms ? { sh: v } : { c: v }); save(); robCache.at = 0; renderRobot(); draw();
     }; });
-    $('#vCsv').onclick = () => robotExport('csv'); $('#vJson').onclick = () => robotExport('json');
+    on('#vCsv', () => robotExport('csv')); on('#vJson', () => robotExport('json'));
     const up = $('#vUpd'); if (up) up.onclick = () => {
       const W = D.vaccGet(); let n = 0;
       for (const a of W.accs) {
@@ -765,9 +804,9 @@
     const ab = $('#vAddB'); if (ab) ab.onclick = () => { const W = D.vaccGet(), now = Date.now(), cap = 1000; W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'btc_trend', name: 'Биткоин · тренд', crypto: true, tf: '1d', cfg: {}, be: false, startAt: now, cash: cap, dep: cap, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap, dep: cap }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «Биткоин · тренд»'); S.robotAcc = 'btc_trend'; save(); robotMsg = 'Робот «Биткоин · тренд» добавлен — сейчас посмотрит последний закрытый день биткоина.'; renderRobot(); runRobot('btc_trend'); };
     const at = $('#vAddT'); if (at) at.onclick = () => addRob('h4_tri', 'продажи · треугольник', '4h', false, 'Робот «продажи по треугольнику» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).');
     const aw = $('#vAddW'); if (aw) aw.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
-    $('#vToggle').onclick = () => { const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); };
-    $('#vFlowOk').onclick = () => { const v = Number($('#vFlow').value); if (!v) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) if (!a.crypto) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); };
-    $('#vReset').onclick = () => { if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); };
+    on('#vToggle', () => { const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); });
+    on('#vFlowOk', () => { const v = Number($('#vFlow').value); if (!v) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) if (!a.crypto) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); });
+    on('#vReset', () => { if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); });
   }
   // отчёт по роботам: все счета, позиции и закрытые сделки
   function robotExport(kind) {
@@ -1117,7 +1156,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.3';
+  const APP_VER = '3.4';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
