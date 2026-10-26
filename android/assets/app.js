@@ -751,7 +751,7 @@
         if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
         const t1 = p.sigT + rP, now = Date.now();
         return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
-          <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
+          <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)} — робот ходит сразу после закрытия свечи${S.token ? '' : ', без токена — через ~15 мин'}).</div>`;
       };
       if (pend.length) h += `<div class="card pendc"><h3>⏳ ${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
       h += `<div class="card"><h3>📂 Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
@@ -780,7 +780,7 @@
     on('#vRun', () => runRobot());
     { const vb = $('#vVim'); if (vb) vb.onclick = () => { S.vimOn = !S.vimOn; save(); renderRobot(); }; }
     $('#robBody').querySelectorAll('[data-rbe]').forEach((b) => { b.onclick = (e) => {
-      e.stopPropagation(); const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
+      e.stopPropagation(); if (robWait()) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
       a.be = !a.be; D.vaccSet(W); D.log('robot', a.name + ': безубыток 3×ATR ' + (a.be ? 'включён' : 'выключен') + (a.manual ? '' : ' для новых сделок'));
       robotMsg = a.name + ': безубыток ' + (a.be ? 'включён — ' + (a.manual ? 'ваши позиции' : 'новые сделки') + ' переводятся в безубыток, когда цена уйдёт на 3×ATR от входа.' : 'выключен.') + (!a.manual && a.pos.length ? ' Открытые позиции ведутся так, как были открыты.' : ''); renderRobot();
     }; });
@@ -789,6 +789,7 @@
     }; });
     on('#vCsv', () => robotExport('csv')); on('#vJson', () => robotExport('json'));
     const up = $('#vUpd'); if (up) up.onclick = () => {
+      if (robWait()) return;
       const W = D.vaccGet(); let n = 0;
       for (const a of W.accs) {
         if (a.manual || a.crypto) continue;
@@ -800,14 +801,14 @@
       }
       D.vaccSet(W); robotMsg = n ? 'Настройки обновлены у ' + n + ' робота(ов). Новые сделки — по новым правилам.' : ''; renderRobot();
     };
-    const am = $('#vAddMan'); if (am) am.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0]; W.accs.push({ key: 'manual', name: 'мой (вручную)', manual: true, cfg: {}, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: Date.now(), eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); S.robotAcc = 'manual'; save(); renderRobot(); };
-    const addRob = (key, name, tf, be, msg) => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key, name, tf, cfg: robotCfg(key), be, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «' + name + '»'); S.robotAcc = key; save(); robotMsg = msg; renderRobot(); runRobot(key); };
-    const ab = $('#vAddB'); if (ab) ab.onclick = () => { const W = D.vaccGet(), now = Date.now(), cap = 1000; W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'btc_trend', name: 'Биткоин · тренд', crypto: true, tf: '1d', cfg: {}, be: false, startAt: now, cash: cap, dep: cap, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap, dep: cap }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «Биткоин · тренд»'); S.robotAcc = 'btc_trend'; save(); robotMsg = 'Робот «Биткоин · тренд» добавлен — сейчас посмотрит последний закрытый день биткоина.'; renderRobot(); runRobot('btc_trend'); };
+    const am = $('#vAddMan'); if (am) am.onclick = () => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0]; W.accs.push({ key: 'manual', name: 'мой (вручную)', manual: true, cfg: {}, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: Date.now(), eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); S.robotAcc = 'manual'; save(); renderRobot(); };
+    const addRob = (key, name, tf, be, msg) => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key, name, tf, cfg: robotCfg(key), be, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «' + name + '»'); S.robotAcc = key; save(); robotMsg = msg; renderRobot(); runRobot(key); };
+    const ab = $('#vAddB'); if (ab) ab.onclick = () => { if (robWait()) return; const W = D.vaccGet(), now = Date.now(), cap = 1000; W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'btc_trend', name: 'Биткоин · тренд', crypto: true, tf: '1d', cfg: {}, be: false, startAt: now, cash: cap, dep: cap, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap, dep: cap }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «Биткоин · тренд»'); S.robotAcc = 'btc_trend'; save(); robotMsg = 'Робот «Биткоин · тренд» добавлен — сейчас посмотрит последний закрытый день биткоина.'; renderRobot(); runRobot('btc_trend'); };
     const at = $('#vAddT'); if (at) at.onclick = () => addRob('h4_tri', 'продажи · треугольник', '4h', false, 'Робот «продажи по треугольнику» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).');
-    const aw = $('#vAddW'); if (aw) aw.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
-    on('#vToggle', () => { const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); });
-    on('#vFlowOk', () => { const v = Number($('#vFlow').value); if (!v) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) if (!a.crypto) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); });
-    on('#vReset', () => { if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); });
+    const aw = $('#vAddW'); if (aw) aw.onclick = () => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
+    on('#vToggle', () => { if (robWait()) return; const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); });
+    on('#vFlowOk', () => { const v = Number($('#vFlow').value); if (!v || robWait()) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) if (!a.crypto) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); });
+    on('#vReset', () => { if (robWait()) return; if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); });
   }
   // отчёт по роботам: все счета, позиции и закрытые сделки
   function robotExport(kind) {
@@ -870,8 +871,10 @@
     robCache = { at: now, id: S.inst.id, list }; return list;
   }
   const a0trades = (V) => V.accs.some((a) => !a.manual && (a.pos.length || a.closed.length || Object.keys(a.pend || {}).length));
+  // 3.7: пока идёт ход робота (по расписанию, в фоне), счета роботов не трогаем — ход в конце записал бы поверх старые данные
+  function robWait() { if (!D.robBusy()) return false; alertMsg('Сейчас идёт ход робота — подождите минуту и нажмите ещё раз.'); return true; }
   async function runRobot(only) {   // only — ключ одного робота (кнопка «⟳ Ход» на его карточке)
-    if (robotBusy) return;
+    if (robotBusy || robWait()) return;
     const V0 = D.vaccGet(), nm = only && V0 ? (V0.accs.find((a) => a.key === only) || {}).name : '';
     robotBusy = only || 'all'; robotMsg = nm ? '«' + nm + '» проверяет бумаги…' : 'роботы проверяют бумаги…'; if (!$('#robots').hidden) renderRobot(); renderRobIcon();
     try {
@@ -1157,7 +1160,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.6';
+  const APP_VER = '3.7';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();

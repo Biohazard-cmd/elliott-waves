@@ -23,9 +23,9 @@ const tail = `
   console.log('запросов к Binance:', bnCalls, '| сигнал:', A.sig && { доля: A.sig.share.toFixed(2), выше: A.sig.c > A.sig.sma }, '| позиций', A.pos.length, '| капитал $' + Math.round(A.cash + A.pos.reduce((s, x) => s + x.qty * (A.px[x.id] || x.entry), 0)));
   const card = await p.textContent('#robBody');
   console.log('карточка: $', /\\$1\\s000/.test(card), '| средней за 100', /средней за 100 дней/.test(card), '| 03:00', /03:00 МСК/.test(card));
-  await (await p.$('[data-racc="btc_trend"]')).screenshot({ path: __dirname + '/shots/AX1-btc-card.png' });
-  console.log('элементов:', await p.evaluate(() => [...document.querySelectorAll('[data-racc="btc_trend"]')].map((e) => e.tagName + ':' + e.textContent.length).join(',')));
-  console.log('текст карточки:', (await p.textContent('[data-racc="btc_trend"]')).replace(/\\s+/g, ' ').slice(0, 600));
+  await (await p.$('.robhd')).screenshot({ path: __dirname + '/shots/AX1-btc-card.png' });
+  console.log('элементов:', await p.evaluate(() => [...document.querySelectorAll('.robhd')].map((e) => e.tagName + ':' + e.textContent.length).join(',')));
+  console.log('текст карточки:', (await p.textContent('.robhd')).replace(/\\s+/g, ' ').slice(0, 600));
   // история: робот 200 дней не ходил — разбирает пропущенные дни по порядку (входы, выходы, подгонка доли)
   await p.evaluate(() => { const V = window.EWData.vaccGet(), a = V.accs.find((x) => x.key === 'btc_trend'); Object.assign(a, { lastT: a.lastT - 200 * 864e5, pos: [], closed: [], cash: 1000, dep: 1000, lastRun: 0 }); window.EWData.vaccSet(V); });
   const ev = await p.evaluate(async () => (await window.EWData.robotStep(null, true, 'btc_trend')).map((e) => e.title));
@@ -35,7 +35,7 @@ const tail = `
   console.log('журнал:', await p.evaluate(() => window.EWData.logRead().app.items.filter((x) => x.k === 'robot').slice(-3).map((x) => x.m).join(' / ')));
   console.log('рубли не тронуты: основной', await p.evaluate(() => window.EWData.vaccGet().accs[0].cash));
   await p.evaluate(() => { document.querySelector('#robots').hidden = true; }); await p.click('#robBtn'); await p.waitForTimeout(600);
-  await p.click('[data-racc="btc_trend"]'); await p.waitForTimeout(400);
+  await p.click('[data-rnav="btc_trend"]'); await p.waitForTimeout(400);
   await p.screenshot({ path: __dirname + '/shots/AX2-btc-history.png', fullPage: true });
   const lst = await p.textContent('#robBody');
   console.log('закрытые в $:', /Закрытые · Биткоин/.test(lst) && /\\$/.test(lst), '| лента:', /Биткоин · тренд: (купил|продал|воскресенье)/.test(lst));

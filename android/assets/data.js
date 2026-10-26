@@ -830,10 +830,14 @@
     const now = Date.now(), lastP = store.get('lastpcheck', 0), byInst = {};
     for (const it of items) (byInst[it.instId] = byInst[it.instId] || []).push(it);
     const pf = store.get('pfired', {}), jf = store.get('jfired', {});
+    let fail = 0;
     for (const [id, list] of Object.entries(byInst)) {
       // с прошлой проверки (с запасом 10 мин), но не раньше создания уровня и не дальше 3 суток назад
       const from = Math.max(now - 3 * 86400000, Math.min(...list.map((x) => Math.max(x.since, lastP ? lastP - 600000 : 0))));
-      const bars = await loadCandles(s.token, id, '5m', 0, from);
+      // 3.7: одна бумага без свечей (нет связи, бумагу убрали с биржи) больше не останавливает проверку уровней остальных
+      let bars;
+      try { bars = await loadCandles(s.token, id, '5m', 0, from); }
+      catch (e) { fail++; log('error', 'уровни ' + list[0].ticker + ': ' + e.message); if (onLog) onLog(list[0].ticker + ': ' + e.message); continue; }
       if (!bars.length) continue;
       const fx = (p) => fmtPrice(p, bars), last = bars[bars.length - 1].c;
       for (const it of list) {
@@ -854,7 +858,8 @@
         if (onLog) onLog(it.ticker + ': уровень ' + fx(it.price) + ' достигнут');
       }
     }
-    store.set('pfired', pf); store.set('jfired', jf); store.set('lastpcheck', now);
+    // не проверили какую-то бумагу — в следующий раз смотрим с того же места (уже сработавшие уровни не повторятся: они отмечены)
+    store.set('pfired', pf); store.set('jfired', jf); if (!fail) store.set('lastpcheck', now);
     return out;
   }
   // нужна ли фоновая проверка вообще
@@ -885,8 +890,16 @@
     return out;
   }
   function vEquity(a) { return a.cash + a.pos.reduce((s, p) => s + (p.side < 0 ? -1 : 1) * p.qty * (a.px[p.id] || p.entry), 0); }
+  // 3.7: ход робота идёт (в приложении, в фоне или по кнопке «Ход»). Второй ход одновременно не начинаем, а правки роботов в приложении
+  // ждут конца хода: ход в конце записывает счета целиком и иначе затёр бы и чужой ход, и правку (пополнение, «Обновить настройки», нового робота)
+  const robBusy = () => Date.now() - store.get('robRun', 0) < 8 * 60000;
   // only — ключ одного счёта (кнопка «Ход» у робота); без него ходят все
   async function robotStep(onLog, force, only) {
+    if (robBusy()) { log('robot', 'ход робота уже идёт — этот пропускаем'); if (onLog) onLog('ход робота уже идёт'); return []; }
+    store.set('robRun', Date.now());
+    try { return await robotRun(onLog, force, only); } finally { store.del('robRun'); }
+  }
+  async function robotRun(onLog, force, only) {
     const s = settings(), V = vaccGet(), ev = [];
     if (!V || !V.on) return ev;
     const one = only ? V.accs.find((a) => a.key === only) : null;
@@ -894,7 +907,8 @@
     const now = Date.now(), dly = s.token ? 0 : MX_DELAY;   // без токена свечи с Мосбиржи — закрытая свеча видна через ~15 мин
     // 2.43: счёт ходит, когда у его таймфрейма закрылась новая свеча (4ч — в 03/07/11/15/19/23 МСК, дневки — после конца дня по МСК),
     // но не чаще раза в 4 мин; без новой свечи — раз в 50 мин (стопы ручного счёта, пополнения). Грузим свечи только тех, кому пора.
-    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(accTf(a), now - dly)); };
+    // биткоин (Binance) задержки Мосбиржи не ждёт — как и его «будильник» (nextAlarm)
+    const due = (a) => { const l = a.lastRun || V.lastRun || 0, tf = accTf(a); return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(tf, now - (tf === 'u1d' ? 0 : dly))); };
     const runAccs = force ? V.accs.filter((a) => !one || a === one) : V.accs.filter(due);
     if (!runAccs.length) return ev;
     const runSet = new Set(runAccs);
@@ -923,7 +937,8 @@
     // 3) бумаги: топ-50 по обороту
     let U = files.get('universe.json');
     if (!U || !U.list || !U.list.length || now - U.at > 7 * 86400000) { try { U = await getUniverse(s.token, null, false); } catch (e) { log('robot', 'список акций: ' + e.message); } }
-    if (!U || !U.list || !U.list.length) { log('robot', 'нет списка акций — откройте сканер и обновите список'); return ev; }
+    // пополнения, проценты и ход биткоина уже сделаны — сохраняем, иначе они повторились бы (а с ними и уведомления) в следующий раз
+    if (!U || !U.list || !U.list.length) { log('robot', 'нет списка акций — откройте сканер и обновите список'); vaccSet(V); return ev; }
     const held = new Set(V.accs.flatMap((a) => a.pos.map((p) => p.id)));
     const list = U.list.filter((x) => x.turn >= 50e6).slice(0, V.top || 50);
     for (const x of U.list) if (held.has(x.id) && !list.includes(x)) list.push(x);   // бумаги в позиции — даже если выпали из топа
@@ -1094,7 +1109,7 @@
           const sigT = T(an, an.plan.sigBar);
           if (!a.pend[id] || a.pend[id].sigT !== sigT) {
             const eq = vEquity(a), dist = Math.abs(an.plan.entry - an.plan.stop) / an.plan.entry, lot = d.x.lot || 1;
-            const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash) / (an.plan.entry * lot)) * lot;
+            const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE)) / (an.plan.entry * lot)) * lot;   // как при самой покупке (пункт «б»)
             a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty };
             const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} ${an.plan.side < 0 ? 'продаст (шорт)' : 'купит'} ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
             log('robot', a.name + ': ' + msg); ev.push({ title: d.x.ticker + ': ' + (qty >= lot ? (atf === '1d' ? 'сигнал, завтра на открытии' : 'сигнал — вход сейчас') : 'сигнал, пропуск — нет денег') + ' · ' + tag, text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
@@ -1167,9 +1182,12 @@
     // дни, закрывшиеся после прошлого хода; в первый ход — только последний (робот торгует с этого дня вперёд)
     let i0 = a.lastT ? done.findIndex((b) => b.t > a.lastT) : done.length - 1;
     for (let i = i0 < 0 ? done.length : i0; i < done.length; i++) {
-      const sg = btcSignal(done, i), first = !a.lastT; a.lastT = done[i].t; if (!sg) continue;
+      const sg = btcSignal(done, i), first = !a.lastT;
+      const nb = bars.find((b) => b.t === done[i].t + 864e5);
+      if (sg && !nb && i === done.length - 1) break;   // свечи нового дня ещё нет — решение по последнему дню примем в следующий ход, а не потеряем
+      a.lastT = done[i].t; if (!sg) continue;
       a.sig = { t: done[i].t, c: done[i].c, sma: sg.sma, vol: sg.vol, share: sg.share };
-      const nb = bars.find((b) => b.t === done[i].t + 864e5); if (!nb) continue;
+      if (!nb) continue;   // пропуск в данных биржи (дня нет)
       // сделка — по открытию следующего дня; в самый первый ход — по текущей цене (открытие могло быть почти сутки назад)
       const o = first ? last.c : nb.o, t = first ? now : nb.t, p = a.pos[0], val = p ? p.qty * o : 0, eq = a.cash + val;
       const why = `закрытие ${usd(done[i].c)} ${sg.up ? 'выше' : 'ниже'} средней за 100 дней ${usd(sg.sma)}`;
@@ -1216,5 +1234,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { mxState, CRYPTO_ID, isCrypto, nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

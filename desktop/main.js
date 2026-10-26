@@ -9,7 +9,8 @@ app.setName('ElliottWaves');                     // данные — в %APPDATA
 app.setAppUserModelId('ru.elliottwaves.desktop'); // без этого Windows не показывает уведомления
 nativeTheme.themeSource = 'dark';                 // тёмная рамка окна, как у приложения
 
-if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+// --quit — выйти (так установщик закрывает программу перед обновлением: данные успевают сохраниться)
+if (!app.requestSingleInstanceLock() || process.argv.includes('--quit')) { app.quit(); process.exit(0); }
 
 const ICON = path.join(__dirname, 'icon.png');
 const prefsFile = () => path.join(app.getPath('userData'), 'desktop.json');
@@ -38,8 +39,12 @@ function createWindow() {
   win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
   win.loadFile(path.join(__dirname, 'assets', 'index.html'));
 
-  const saveBounds = () => { if (!win.isMaximized() && !win.isMinimized() && win.isVisible()) setPrefs({ bounds: win.getBounds() }); setPrefs({ maximized: win.isMaximized() }); };
+  // размер и место окна — в файл, но не на каждый сдвиг мыши: раз в полсекунды после того, как окно перестали двигать
+  let bTimer = null;
+  const saveBounds = () => { clearTimeout(bTimer); bTimer = setTimeout(() => { if (!win || win.isDestroyed()) return; const p2 = { maximized: win.isMaximized() }; if (!p2.maximized && !win.isMinimized() && win.isVisible()) p2.bounds = win.getBounds(); setPrefs(p2); }, 500); };
   win.on('resize', saveBounds); win.on('move', saveBounds);
+  // выключение или перезагрузка Windows: окно закрывается по-настоящему, иначе «крестик = свернуть» мешал бы выключению
+  win.on('query-session-end', () => { quitting = true; }); win.on('session-end', () => { quitting = true; });
   win.on('show', () => js('window.appResume && window.appResume()'));
   // крестик — не выход, а «свернуть к часам»: роботы и проверка сигналов продолжают работать
   win.on('close', (e) => {
@@ -68,7 +73,8 @@ function createTray() {
   tray.setToolTip('Волны Эллиотта');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Открыть', click: showWin },
-    { label: 'Запускать вместе с Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+    // в Windows автозапуск ищется вместе с ключом запуска: без args галочка после перезапуска показывалась бы снятой
+    { label: 'Запускать вместе с Windows', type: 'checkbox', checked: app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin,
       click: (m) => app.setLoginItemSettings({ openAtLogin: m.checked, args: ['--hidden'] }) },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
@@ -102,7 +108,7 @@ ipcMain.on('alarm', (e, at) => {
   if (dt > 0 && dt < 7 * 86400000) alarm = setTimeout(() => js('window.appAlarm && window.appAlarm()'), Math.min(dt, 2147483647));
 });
 
-app.on('second-instance', showWin);
+app.on('second-instance', (e, argv) => { if ((argv || []).includes('--quit')) { quitting = true; app.quit(); } else showWin(); });
 app.on('before-quit', () => { quitting = true; });
 app.whenReady().then(() => {
   createWindow(); createTray();
