@@ -59,6 +59,12 @@
       body: JSON.stringify(body),
     }).then(async (r) => ({ status: r.status, text: await r.text() }));
   }
+  // 3.2: открытые данные без токена (цены биткоина): GET без авторизации
+  function httpGet(url) {
+    const A = root.Android;
+    if (A && A.getAsync) return new Promise((res) => { const id = ++seq; pending[id] = res; A.getAsync(id, url); }).then((r) => { if (r.status === 0) throw new Error(r.text || 'нет связи'); return r; });
+    return fetch(url).then(async (r) => ({ status: r.status, text: await r.text() }));
+  }
 
   // ---------- журнал работы (лог) ----------
   // Приложение и фоновая проверка пишут в разные файлы, чтобы не затирать друг друга. Без токена, счетов и сумм.
@@ -133,6 +139,7 @@
   // свечи за период [from, to] окнами, от нового к старому, пока не наберём need
   // untilT — грузить не от «сейчас», а до этой даты (тренажёр подгружает младшие свечи кусками)
   async function loadCandles(token, instId, tf, need, sinceT, untilT) {
+    if (isCrypto(instId)) return cryptoCandles(instId, tf, need, sinceT, untilT);
     const T = TF[tf];
     const out = new Map();
     let to = (untilT ? Math.min(untilT, Date.now()) : Date.now()) + T.ms;
@@ -151,6 +158,38 @@
       if (!got.length && k > 2 && out.size > 0) break;          // дальше истории нет
       if (!got.length && k > 6) break;
       to = got.length ? Math.min(from, got[0].t) : from;
+    }
+    return Array.from(out.values()).sort((a, b) => a.t - b.t);
+  }
+
+  // 3.2: биткоин — свечи с открытых данных Binance (без ключа и токена), если Binance недоступен — Kraken (только BTC, до 720 свечей)
+  const CRYPTO_ID = 'BTCUSDT_CRYPTO', isCrypto = (id) => /_CRYPTO$/.test(String(id || ''));
+  async function cryptoCandles(instId, tf, need, sinceT, untilT) {
+    const sym = instId.replace(/_CRYPTO$/, ''), P = TF[tf].ms, now = Date.now(), out = new Map();
+    const put = (t, o, h, l, c, v) => { if (h > 0 && l > 0) out.set(t, { t, o, h, l, c, v, done: t + P <= now }); };
+    const iv = { '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w' }[tf] || '1d', base = 'https://data-api.binance.vision/api/v3/klines?symbol=' + sym + '&interval=' + iv + '&limit=1000';
+    try {
+      if (sinceT) {   // хвост: вперёд от sinceT
+        let st = sinceT - P;
+        for (let k = 0; k < 10; k++) {
+          const r = await httpGet(base + '&startTime=' + st); if (r.status !== 200) throw new Error('Binance: ответ ' + r.status);
+          const rows = JSON.parse(r.text); for (const x of rows) put(x[0], +x[1], +x[2], +x[3], +x[4], +x[5]);
+          if (rows.length < 1000) break; st = rows[rows.length - 1][0] + 1;
+        }
+      } else {        // история: назад от «сейчас» (или от untilT), пока не наберём need
+        let end = untilT ? Math.min(untilT, now) : now;
+        for (let k = 0; k < 10; k++) {
+          const r = await httpGet(base + '&endTime=' + end); if (r.status !== 200) throw new Error('Binance: ответ ' + r.status);
+          const rows = JSON.parse(r.text); for (const x of rows) put(x[0], +x[1], +x[2], +x[3], +x[4], +x[5]);
+          if (rows.length < 1000 || out.size >= (need || 0)) break; end = rows[0][0] - 1;
+        }
+      }
+    } catch (e) {
+      if (sym !== 'BTCUSDT') throw e;
+      const r = await httpGet('https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=' + Math.round(P / 60000)), js = JSON.parse(r.text);
+      const k = js && js.result && Object.keys(js.result).find((x) => x !== 'last');
+      if (!k) throw new Error('нет цен биткоина: ' + e.message);
+      for (const x of js.result[k]) if (!sinceT || x[0] * 1000 >= sinceT - P) put(x[0] * 1000, +x[1], +x[2], +x[3], +x[4], +x[6]);
     }
     return Array.from(out.values()).sort((a, b) => a.t - b.t);
   }
@@ -340,6 +379,7 @@
 
   // ---------- сведения об инструменте: uid, figi, лотность (кэш на 7 дней) ----------
   async function instInfo(token, inst) {
+    if (isCrypto(inst.id)) return { at: Date.now(), uid: '', figi: '', lot: 1, type: 'crypto', currency: 'usd' };
     const key = 'ins.' + inst.id, c = store.get(key, null);
     if (c && Date.now() - c.at < 7 * 86400000) return c;
     const isUid = /^[0-9a-f]{8}-/.test(inst.id);
@@ -356,6 +396,7 @@
   // Чтобы этот провал не считался падением (ложные развороты, «выбитые» стопы), умножаем
   // все свечи до даты отсечки на (1 − дивиденд / цена закрытия перед отсечкой) — как в терминалах.
   async function getDividends(token, inst) {
+    if (isCrypto(inst.id)) return [];
     const key = 'div.' + inst.id, c = store.get(key, null);
     if (c && Date.now() - c.at < 86400000) return c.list;
     let list = [];
@@ -620,7 +661,7 @@
         const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
         // характер и настроение робота: последняя сделка за 2 дня — в плюс 🎉, в минус 😢
         const lc = a.closed[a.closed.length - 1], mood = lc && Date.now() - lc.exitT < 2 * 86400000 ? (lc.pl >= 0 ? '🎉' : '😢') : '';
-        robots.push({ h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
+        robots.push({ h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
       const t = store.get('lastcheck', 0), d = new Date(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
@@ -712,7 +753,7 @@
     const now = Date.now();
     // 2.43: счёт ходит, когда у его таймфрейма закрылась новая свеча (4ч — в 03/07/11/15/19/23 МСК, дневки — после конца дня по МСК),
     // но не чаще раза в 4 мин; без новой свечи — раз в 50 мин (стопы ручного счёта, пополнения). Грузим свечи только тех, кому пора.
-    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(a.manual ? '1d' : a.tf || '1d', now)); };
+    const due = (a) => { const l = a.lastRun || V.lastRun || 0; return now - l >= 50 * 60000 || (now - l >= 4 * 60000 && l < lastClose(accTf(a), now)); };
     const runAccs = force ? V.accs.filter((a) => !one || a === one) : V.accs.filter(due);
     if (!runAccs.length) return ev;
     const runSet = new Set(runAccs);
@@ -724,7 +765,7 @@
         for (const f of fl) {
           if (f.t < V.startAt || V.flows.some((x) => x.id === f.id)) continue;
           V.flows.push(f);
-          for (const a of V.accs) { a.cash += f.amount; a.dep += f.amount; }
+          for (const a of V.accs) if (!a.crypto) { a.cash += f.amount; a.dep += f.amount; }   // счёт биткоина — в долларах, рубли туда не идут
           log('robot', (f.amount > 0 ? 'пополнение ' : 'вывод ') + Math.round(Math.abs(f.amount)) + ' ₽ — повторено на виртуальных счетах');
         }
       } catch (e) { log('robot', 'пополнения: ' + e.message); }
@@ -732,7 +773,12 @@
     // 2) проценты фонда ликвидности на свободные деньги
     const dt = (now - (V.lastAccrue || V.startAt)) / 31557600000;
     // только оценка «а если бы свободные деньги лежали в ВИМ»: в деньги робота не попадает и на размер позиций не влияет
-    if (dt > 0) { for (const a of V.accs) { const base = Math.max(0, a.cash) + (a.mm || 0); if (base > 0) a.mm = (a.mm || 0) + base * (V.mmRate / 100) * dt; } V.lastAccrue = now; }
+    if (dt > 0) { for (const a of V.accs) { if (a.crypto) continue; const base = Math.max(0, a.cash) + (a.mm || 0); if (base > 0) a.mm = (a.mm || 0) + base * (V.mmRate / 100) * dt; } V.lastAccrue = now; }
+    // 3.2: робот «Биткоин · тренд» — свои свечи (Binance), акции ему не нужны
+    for (const a of runAccs.filter((z) => z.crypto)) {
+      try { await btcStep(a, ev, now); a.lastRun = now; } catch (e) { log('robot', a.name + ': ход отложен — ' + e.message); say(a.name + ': ' + e.message); }
+    }
+    if (!runAccs.some((z) => !z.crypto)) { vaccSet(V); return ev; }
     // 3) бумаги: топ-50 по обороту
     let U = files.get('universe.json');
     if (!U || !U.list || !U.list.length || now - U.at > 7 * 86400000) { try { U = await getUniverse(s.token, null, false); } catch (e) { log('robot', 'список акций: ' + e.message); } }
@@ -741,7 +787,7 @@
     const list = U.list.filter((x) => x.turn >= 50e6).slice(0, V.top || 50);
     for (const x of U.list) if (held.has(x.id) && !list.includes(x)) list.push(x);   // бумаги в позиции — даже если выпали из топа
     // свечи — по таймфреймам роботов (дневки нужны всегда: ручной счёт берёт из них ATR); 2.39: робот «4 часа · неделя»
-    const tfs = Array.from(new Set(runAccs.filter((a) => !a.manual).map((a) => a.tf || '1d')));   // 3.0: ручному счёту свечи не нужны — позиции и цены со счёта
+    const tfs = Array.from(new Set(runAccs.filter((a) => !a.manual && !a.crypto).map((a) => a.tf || '1d')));   // 3.0: ручному счёту свечи не нужны — позиции и цены со счёта
     const dataBy = {}, mktBy = {};
     for (const tf of tfs) {
       const dd = dataBy[tf] = {};
@@ -756,7 +802,7 @@
     }
     const T = (an, i) => (an.bars[i] ? an.bars[i].t : 0);
     for (const a of V.accs) {
-      if (!runSet.has(a)) continue;
+      if (!runSet.has(a) || a.crypto) continue;
       const aLast = a.lastRun || V.lastRun || 0;   // прошлый ход этого счёта: робот мог ходить и один, по своей кнопке
       // заголовок уведомления начинается с бумаги: в шторке длинный заголовок обрезается с конца
       const tag = (a.manual ? 'вирт. счёт «' : 'робот «') + a.name + '»', atf = a.manual ? '1d' : a.tf || '1d', mkt = mktBy[atf], aStart = a.startAt || V.startAt;
@@ -944,7 +990,7 @@
     // без связи ход не засчитываем: иначе после долгого перерыва робот «забыл» бы сделки, случившиеся без него
     const nData = Math.max(0, ...Object.values(dataBy).map((d) => Object.keys(d).length));   // бумаг со свечами (по таймфрейму, где их больше всего)
     if (tfs.length && !nData && list.length) { log('robot', 'нет связи — ход отложен'); vaccSet(V); return ev; }
-    for (const a of runAccs) a.lastRun = now;
+    for (const a of runAccs) if (!a.crypto) a.lastRun = now;
     if (runAccs.length === V.accs.length) V.lastRun = now;
     if (tfs.length) V.lastN = nData;
     vaccSet(V);
@@ -952,12 +998,68 @@
     return ev;
   }
 
+  // 3.2: робот «Биткоин · тренд» — не волны, а тренд: держит биткоин, пока дневное закрытие выше средней за 100 дней, иначе всё в долларах.
+  // Доля биткоина в счёте — по волатильности: min(100%, 30% / годовая волатильность за 30 дней); по воскресеньям подгоняется, если ушла больше чем на 5% счёта.
+  // Решение — по закрытию дня (00:00 UTC = 03:00 МСК), сделка — по открытию следующего дня. Счёт в долларах, комиссия 0,1%, свободные доллары — без процентов.
+  // На истории 2018–2026: ~27%/год, просадка ~25% (research/crypto_btc.js, «доля по волатильности, цель 30%»).
+  const BTC = { n: 100, vt: 0.30, band: 0.05, fee: 0.001 };
+  function btcSignal(b, i) {
+    if (i < Math.max(BTC.n, 31)) return null;
+    let s = 0; for (let j = i - BTC.n + 1; j <= i; j++) s += b[j].c;
+    const r = []; for (let j = i - 29; j <= i; j++) r.push(Math.log(b[j].c / b[j - 1].c));
+    const m = r.reduce((x, y) => x + y, 0) / r.length, vol = Math.sqrt(r.reduce((x, y) => x + (y - m) ** 2, 0) / (r.length - 1) * 365), sma = s / BTC.n;
+    return { sma, vol, up: b[i].c > sma, share: b[i].c > sma ? Math.min(1, BTC.vt / vol) : 0 };
+  }
+  async function btcStep(a, ev, now) {
+    const bars = await loadCandles('', CRYPTO_ID, '1d', 400), done = bars.filter((b) => b.t + 864e5 <= now);
+    if (done.length < 140) throw new Error('мало свечей биткоина (' + done.length + ')');
+    const last = bars[bars.length - 1]; a.px[CRYPTO_ID] = last.c;
+    const open = { id: CRYPTO_ID, ticker: 'BTC', name: 'Биткоин', classCode: 'CRYPTO', tf: '1d' }, tag = 'робот «' + a.name + '»';
+    const usd = (x) => '$' + Math.round(x).toLocaleString('ru-RU'), pc = (x) => Math.round(x * 100) + '%';
+    const note = (title, text) => { log('robot', a.name + ': ' + text); ev.push({ title: 'BTC: ' + title + ' · ' + tag, text, open, kind: 'robot' }); };
+    const sell = (p, qty, px, t, why) => {
+      const k = qty / p.qty, cost = p.cost * k, v = qty * px * (1 - BTC.fee), pl = v - cost; a.cash += v;
+      a.closed.push({ id: CRYPTO_ID, ticker: 'BTC', crypto: true, side: 1, qty, entry: p.cost / p.qty, entryT: p.entryT, exit: px, exitT: t, why, pl, divs: 0 });
+      if (k >= 1 - 1e-9) a.pos = a.pos.filter((z) => z !== p); else { p.qty -= qty; p.cost -= cost; }
+      return pl;
+    };
+    // дни, закрывшиеся после прошлого хода; в первый ход — только последний (робот торгует с этого дня вперёд)
+    let i0 = a.lastT ? done.findIndex((b) => b.t > a.lastT) : done.length - 1;
+    for (let i = i0 < 0 ? done.length : i0; i < done.length; i++) {
+      const sg = btcSignal(done, i), first = !a.lastT; a.lastT = done[i].t; if (!sg) continue;
+      a.sig = { t: done[i].t, c: done[i].c, sma: sg.sma, vol: sg.vol, share: sg.share };
+      const nb = bars.find((b) => b.t === done[i].t + 864e5); if (!nb) continue;
+      // сделка — по открытию следующего дня; в самый первый ход — по текущей цене (открытие могло быть почти сутки назад)
+      const o = first ? last.c : nb.o, t = first ? now : nb.t, p = a.pos[0], val = p ? p.qty * o : 0, eq = a.cash + val;
+      const why = `закрытие ${usd(done[i].c)} ${sg.up ? 'выше' : 'ниже'} средней за 100 дней ${usd(sg.sma)}`;
+      if (!p && sg.share > 0) {
+        const buy = eq * sg.share; a.cash -= buy;
+        a.pos.push({ id: CRYPTO_ID, ticker: 'BTC', crypto: true, qty: buy * (1 - BTC.fee) / o, side: 1, entry: o, entryT: t, stop: 0, target: 0, cost: buy, divs: 0, share: sg.share });
+        note('вход, держать ' + pc(sg.share) + ' счёта', `купил BTC на ${pc(sg.share)} счёта (${usd(buy)}) по ~${usd(o)}: ${why}; волатильность ${pc(sg.vol)} в год — поэтому доля ${pc(sg.share)}, остальное в долларах`);
+      } else if (p && sg.share === 0) {
+        const pl = sell(p, p.qty, o, t, 'ниже средней-100');
+        note('выход, всё в доллары', `продал весь BTC по ~${usd(o)} (${pl >= 0 ? '+' : '−'}${usd(Math.abs(pl))}): ${why}. Ждём, пока закрытие снова будет выше средней`);
+      } else if (p && new Date(done[i].t).getUTCDay() === 0 && Math.abs(eq * sg.share - val) > BTC.band * eq) {
+        const d = eq * sg.share - val;
+        if (d > 0) { p.qty += d * (1 - BTC.fee) / o; p.cost += d; a.cash -= d; } else sell(p, -d / o, o, t, 'подгонка доли');
+        p.share = sg.share; p.entry = p.cost / p.qty;
+        note('доля ' + pc(val / eq) + ' → ' + pc(sg.share), `воскресенье, подгонка доли: BTC было ${pc(val / eq)} счёта, нужно ${pc(sg.share)} — ${d > 0 ? 'докупил' : 'продал'} на ${usd(Math.abs(d))} по ~${usd(o)} (волатильность ${pc(sg.vol)} в год)`);
+      }
+    }
+    // кривая капитала: точка в день
+    const eq = vEquity(a), lh = a.hist[a.hist.length - 1];
+    if (!lh || new Date(lh.t + 3 * 36e5).toISOString().slice(0, 10) !== new Date(now + 3 * 36e5).toISOString().slice(0, 10)) a.hist.push({ t: now, eq, mm: 0, dep: a.dep }); else { lh.t = now; lh.eq = eq; lh.dep = a.dep; }
+    if (a.hist.length > 2000) a.hist.splice(0, a.hist.length - 2000);
+  }
+
   // 2.43: время закрытия последней свечи таймфрейма (+1 мин, пока брокер отдаст её закрытой); 4ч — по UTC 0/4/8…, дневки — конец дня по МСК
-  function lastClose(tf, now) { const p = tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5, off = p === 864e5 ? 3 * 3600e3 : 0; return Math.floor((now - 60e3 + off) / p) * p - off; }
+  // 3.2: 'u1d' — сутки по UTC (биткоин: день закрывается в 00:00 UTC = 03:00 МСК)
+  function lastClose(tf, now) { const p = tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5, off = p === 864e5 && tf !== 'u1d' ? 3 * 3600e3 : 0; return Math.floor((now - 60e3 + off) / p) * p - off; }
+  const accTf = (a) => (a.crypto ? 'u1d' : a.manual ? '1d' : a.tf || '1d');
   // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
   function nextAlarm() {
     const V = vaccGet(); if (!V || !V.on || !settings().token) return 0;
-    const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map((a) => a.tf || '1d')); let t = 0;
+    const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map(accTf)); let t = 0;
     for (const tf of tfs) { const c = lastClose(tf, now) + (tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5) + 90e3; if (!t || c < t) t = c; }
     return t;
   }
@@ -972,5 +1074,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { CRYPTO_ID, isCrypto, nextAlarm, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);
