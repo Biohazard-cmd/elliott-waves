@@ -65,3 +65,16 @@ if (SET === 'tri') {
   rep('покупки по треугольнику (зеркало)', trades({ longOnly: true, shortOnly: false }));
   rep('покупки и продажи по треугольнику', trades({ longOnly: false, shortOnly: false }));
 }
+// SEL=1: «торговать только лучшими монетами» — лучшие K по R в одной половине, проверка на другой (и задним числом — по всей истории)
+if (process.env.SEL) {
+  const z = trades({}), half = (h) => z.filter((x) => (x.T < SPLIT) === (h === 0)), byR = (q) => { const o = {}; for (const x of q) o[x.id] = (o[x.id] || 0) + x.nr; return Object.entries(o).sort((a, b) => b[1] - a[1]); };
+  const sum = (q) => q.reduce((s, x) => s + x.nr, 0);
+  for (const K of [3, 5]) {
+    const all = new Set(byR(z).slice(0, K).map((x) => x[0]));
+    rep(`задним числом: топ-${K} (${[...all].join(', ')})`, z.filter((x) => all.has(x.id)));
+    for (const [pick, test] of [[0, 1], [1, 0]]) {
+      const sel = new Set(byR(half(pick)).slice(0, K).map((x) => x[0])), t = half(test);
+      console.log(`  топ-${K} по ${pick ? 'второй' : 'первой'} половине (${[...sel].join(', ')}): в ${test ? 'второй' : 'первой'} половине ${sum(t.filter((x) => sel.has(x.id))).toFixed(1)}R за ${t.filter((x) => sel.has(x.id)).length} сделок; остальные монеты — ${sum(t.filter((x) => !sel.has(x.id))).toFixed(1)}R за ${t.filter((x) => !sel.has(x.id)).length}; %/год у выбранных ${pct(portfolio(t.filter((x) => sel.has(x.id)), (x) => -x.turn).cagr)}`);
+    }
+  }
+}
