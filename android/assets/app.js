@@ -706,8 +706,8 @@
       return;
     }
     // 3.4: внизу панель роботов — «Все» (обзор) или один робот на весь экран
-    const sel = V.accs.find((a) => a.key === S.robotAcc), ra = sel || V.accs[0];
-    if (!sel) {
+    const rSel = V.accs.find((a) => a.key === S.robotAcc), ra = rSel || V.accs[0];
+    if (!rSel) {
       { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
       h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
       // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
@@ -1156,7 +1156,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.4';
+  const APP_VER = '3.5';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();

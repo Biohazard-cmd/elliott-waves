@@ -42,6 +42,14 @@ const tail = `
   await p.click('#robBody [data-fold="robDay"] h3'); await p.waitForTimeout(200);
   await p.click('#robBody .rrow[data-racc="d_long"]'); await p.waitForTimeout(300);
   console.log('из обзора — основной:', /Позиции · основной/.test(await p.textContent('#robBody')));
+  // 3.5: нажатие на позицию/сигнал открывает график (в 3.4 падало: const sel затенял глобальный sel)
+  await p.click('#robNav [data-rnav="h4_week"]'); await p.waitForTimeout(300);
+  await p.click('#robBody .jrow[data-rgo="TATN_TQBR"]'); await p.waitForTimeout(4000);
+  console.log('позиция → график:', await p.evaluate(() => { const S = JSON.parse(localStorage.getItem('ew2.settings')); return S.inst.id + ' ' + S.tf; }), '| лист скрыт:', await p.$eval('#robots', (e) => e.hidden), '| заголовок:', (await p.textContent('header')).replace(/\s+/g, ' ').slice(0, 60));
+  await p.screenshot({ path: __dirname + '/shots/AZ6-chart.png' });
+  await p.click('#robBtn'); await p.waitForTimeout(500);
+  await p.click('#robBody .jrow[data-rgo="SNGS_TQBR"]'); await p.waitForTimeout(4000);
+  console.log('сигнал → график:', await p.evaluate(() => { const S = JSON.parse(localStorage.getItem('ew2.settings')); return S.inst.id + ' ' + S.tf; }));
   console.log(errs.length ? 'ошибки: ' + errs.join(' | ') : 'ошибок нет');
   await b.close();
 })();`;
