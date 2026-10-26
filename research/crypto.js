@@ -6,8 +6,8 @@ process.env.V = 'x';
 require('./fri_chan.js');
 const fs = require('fs'), zlib = require('zlib'), path = require('path');
 const S = require('./store.js'), strat = require('./strat.js'), D = S.D;
-const SET = process.env.SET || 'h4', TFN = SET === 'd' ? '1d' : '4h', P = SET === 'd' ? 864e5 : 4 * 3600e3;
-const FEEP = +(process.env.FEE || 0.1), SLIPP = 0.05, FEE = (FEEP + SLIPP) / 100, RISK = +(process.env.RISK || (SET === 'tri' ? 1 : 1.5)) / 100, CASH = +(process.env.CASH || 0) / 100;
+const SET = process.env.SET || 'h4', DAYS = SET === 'd' || SET === 'trid', TFN = DAYS ? '1d' : '4h', P = DAYS ? 864e5 : 4 * 3600e3;
+const FEEP = +(process.env.FEE || 0.1), SLIPP = 0.05, FEE = (FEEP + SLIPP) / 100, RISK = +(process.env.RISK || (SET.startsWith('tri') ? 1 : 1.5)) / 100, CASH = +(process.env.CASH || 0) / 100;
 const SPLIT = Date.UTC(2022, 4, 1), LAST = Date.UTC(2025, 9, 18);
 const ser = [];
 for (const f of fs.readdirSync(path.join(__dirname, 'data', 'crypto')).filter((x) => x.endsWith('_' + TFN + '.json.gz'))) {
@@ -25,7 +25,7 @@ const DL = Object.assign({}, strat.BASE, { addAO: true, addSma200: true, maxHold
 const TRI = { longOnly: false, shortOnly: true, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, setups: { w3: false, w5: false, abc: false, tri: true } };   // робот «продажи по треугольнику» 3.0
 const turn = (b, iE) => { let s = 0; for (let j = Math.max(0, iE - 30); j < iE; j++) s += b[j].c * (b[j].v || 0); return s; };
 function trades(over) {
-  const r = strat.evalCfg(Object.assign({}, SET === 'h4' ? H4W : SET === 'tri' ? TRI : DL, { feePct: FEEP, slipPct: SLIPP }, over), { ser, mkt, tr: (t, bars) => { t._b = bars; return t.NR; } });
+  const r = strat.evalCfg(Object.assign({}, SET === 'h4' ? H4W : SET.startsWith('tri') ? TRI : DL, { feePct: FEEP, slipPct: SLIPP }, over), { ser, mkt, tr: (t, bars) => { t._b = bars; return t.NR; } });
   return r.all.map((x) => { const t = x.t, b = t._b; return { id: x.id, T: x.T, TOut: b[Math.min(t.iExit, b.length - 1)].t + P, nr: x.nr, turn: turn(b, t.iEntry), side: t.side, entry: t.entry, stop: t.stop0, exit: t.exitP }; });
 }
 // портфель (как maxpos_add.js), но доходность свободных денег — CASH
@@ -44,7 +44,8 @@ function portfolio(all, key) {
 let seed = 23; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
 const pct = (v) => (v * 100).toFixed(1).padStart(6);
 function rep(lab, z) {
-  const k = (x) => -x.turn, p = portfolio(z, k), h = [portfolio(z.filter((x) => x.T < SPLIT), k), portfolio(z.filter((x) => x.T >= SPLIT), k)];
+  if (!z.length) return console.log(lab.padEnd(30), '    0 сделок');
+  const k = (x) => -x.turn, PF = (q) => q.length ? portfolio(q, k) : { cagr: 0 }, p = portfolio(z, k), h = [PF(z.filter((x) => x.T < SPLIT)), PF(z.filter((x) => x.T >= SPLIT))];
   const rc = Array.from({ length: 10 }, () => { const m = new Map(z.map((x) => [x, rnd()])); return portfolio(z, (x) => m.get(x)).cagr; }).sort((a, b) => a - b);
   const R = z.reduce((s, x) => s + x.nr, 0), w = z.filter((x) => x.nr > 0).length, ly = z.filter((x) => x.T >= LAST), lyR = ly.reduce((s, x) => s + x.nr, 0);
   const by = {}; for (const x of z) by[x.id] = (by[x.id] || 0) + x.nr; const pos = Object.values(by).filter((v) => v > 0).length, top = Object.entries(by).sort((a, b) => b[1] - a[1]);
@@ -52,7 +53,7 @@ function rep(lab, z) {
   console.log(lab.padEnd(30), String(z.length).padStart(5), R.toFixed(0).padStart(5), (R / z.length).toFixed(3).padStart(6), pct(w / z.length) + '%', pct(p.cagr), pct(h[0].cagr), pct(h[1].cagr), pct(p.mdd) + '%', String(p.st).padStart(4), '|', `${lyR.toFixed(1)}R (${ly.length})`.padStart(12), '|', pct(rc[0]), '–', pct(rc[9]), `| взято ${p.taken}/${z.length}; в плюсе ${pos} из ${top.length} монет; без топ-3 (${top.slice(0, 3).map((x) => x[0]).join(', ')}) ${(R - top.slice(0, 3).reduce((s, x) => s + x[1], 0)).toFixed(0)}R`);
   console.log(' '.repeat(30), 'R по годам:', Object.entries(yr).map(([y, v]) => `${y}: ${v.toFixed(0)}`).join('  '));
 }
-console.log(`\nКриптовалюты, ${ser.length} рядов (${TFN}), ${{ h4: '«4 часа · неделя» 3.1', d: 'дневки · основной 3.1', tri: '«продажи по треугольнику» 3.0' }[SET]}; комиссия ${FEEP}% + ${SLIPP}%, риск ${RISK * 100}%, свободные деньги ${CASH * 100}%/год; половины до/после 01.05.2022`);
+console.log(`\nКриптовалюты, ${ser.length} рядов (${TFN}), ${{ h4: '«4 часа · неделя» 3.1', d: 'дневки · основной 3.1', tri: '«продажи по треугольнику» 3.0', trid: '«продажи по треугольнику» 3.0 на дневках' }[SET]}; комиссия ${FEEP}% + ${SLIPP}%, риск ${RISK * 100}%, свободные деньги ${CASH * 100}%/год; половины до/после 01.05.2022`);
 console.log('вариант'.padEnd(30), 'сделок    R   ср.R прибыльн.   %/год   1пол   2пол просадка серия | R посл. год    | порядок');
 rep('набор 3.1', trades({}));
 if (SET === 'h4') {
@@ -60,7 +61,8 @@ if (SET === 'h4') {
   rep('без фильтров AO и SMA200', trades({ addAO: false, addSma200: false }));
   rep('и продажи тоже', trades({ longOnly: false }));
 }
-if (SET === 'tri') {
+if (SET === 'd') rep('агрессивный (без доливок)', trades({ stopW2: true, localBars: 5, addPyramid: false }));
+if (SET.startsWith('tri')) {
   rep('+ фильтры AO и SMA200', trades({ addAO: true, addSma200: true }));
   rep('покупки по треугольнику (зеркало)', trades({ longOnly: true, shortOnly: false }));
   rep('покупки и продажи по треугольнику', trades({ longOnly: false, shortOnly: false }));
