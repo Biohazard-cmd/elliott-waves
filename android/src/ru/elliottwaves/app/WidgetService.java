@@ -3,6 +3,8 @@ package ru.elliottwaves.app;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.os.SystemClock;
+import android.view.View;
 import android.text.Html;
 import android.widget.RemoteViews;
 import android.widget.RemoteViewsService;
@@ -19,7 +21,7 @@ public class WidgetService extends RemoteViewsService {
 
     static class Rows implements RemoteViewsFactory {
         private final Context ctx;
-        private JSONArray rows = new JSONArray(), opens = new JSONArray();
+        private JSONArray rows = new JSONArray(), opens = new JSONArray(), untils = new JSONArray();
         private int ink = Color.rgb(232, 236, 241);
 
         Rows(Context ctx) { this.ctx = ctx; }
@@ -33,8 +35,9 @@ public class WidgetService extends RemoteViewsService {
                 JSONObject o = new JSONObject(ctx.getSharedPreferences("ew", Context.MODE_PRIVATE).getString("widget", "{}"));
                 rows = o.optJSONArray("rows"); if (rows == null) rows = new JSONArray();
                 opens = o.optJSONArray("opens"); if (opens == null) opens = new JSONArray();
+                untils = o.optJSONArray("untils"); if (untils == null) untils = new JSONArray();
                 ink = Color.parseColor(o.optString("ink", "#e8ecf1"));
-            } catch (Exception e) { rows = new JSONArray(); opens = new JSONArray(); }
+            } catch (Exception e) { rows = new JSONArray(); opens = new JSONArray(); untils = new JSONArray(); }
         }
 
         @Override public int getCount() { return rows.length(); }
@@ -48,7 +51,14 @@ public class WidgetService extends RemoteViewsService {
             Intent fill = new Intent();
             String open = opens.optString(k, "");
             if (open.length() > 0) fill.putExtra("open", open);
-            v.setOnClickFillInIntent(R.id.wrow, fill);
+            v.setOnClickFillInIntent(R.id.wrowbox, fill);
+            // 3.10: сигнал — живой отсчёт до закрытия свечи (тикает сам, без обновлений виджета); время прошло — прячем
+            long left = untils.optLong(k, 0) - System.currentTimeMillis();
+            if (left > 0) {
+                v.setChronometer(R.id.wcd, SystemClock.elapsedRealtime() + left, "⏱ до закрытия свечи %s", true);
+                v.setChronometerCountDown(R.id.wcd, true);
+                v.setViewVisibility(R.id.wcd, View.VISIBLE);
+            } else v.setViewVisibility(R.id.wcd, View.GONE);
             return v;
         }
 

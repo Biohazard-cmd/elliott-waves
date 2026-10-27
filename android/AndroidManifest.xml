@@ -50,6 +50,10 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- 3.10: свеча сигнала закрылась — убрать отсчёт в уведомлении и в виджете -->
+        <receiver
+            android:name=".TimerReceiver"
+            android:exported="false" />
         <service
             android:name=".AlarmService"
             android:exported="false" />

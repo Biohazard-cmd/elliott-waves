@@ -101,6 +101,12 @@ public class Bridge {
     public void widgetUpdate(String json) {
         ctx.getSharedPreferences("ew", Context.MODE_PRIVATE).edit().putString("widget", json).apply();
         try { WidgetProvider.push(ctx); } catch (Exception e) { Log.w("ElliottWaves", "widget: " + e); }
+        // 3.10: ближайшая свеча сигнала закроется — перерисовать виджет, чтобы спрятать таймер
+        try {
+            org.json.JSONArray u = new JSONObject(json).optJSONArray("untils"); long now = System.currentTimeMillis(), at = 0;
+            if (u != null) for (int k = 0; k < u.length(); k++) { long x = u.optLong(k, 0); if (x > now && (at == 0 || x < at)) at = x; }
+            TimerReceiver.widgetLater(ctx, at);
+        } catch (Exception e) { /* не важно */ }
     }
 
     @JavascriptInterface
@@ -125,12 +131,25 @@ public class Bridge {
 
     // уведомление, по нажатию открывает приложение на нужной бумаге (open — JSON { id, ticker, tf })
     @JavascriptInterface
-    public void notifyOpen(String title, String text, int id, String openJson) {
+    public void notifyOpen(String title, String text, int id, String openJson) { show(ctx, title, text, id, openJson, 0, false); }
+
+    // 3.10: уведомление о сигнале с живым отсчётом до закрытия свечи (untilMs — время закрытия, мс с 1970).
+    // Когда свеча закроется, TimerReceiver тихо заменит уведомление тем же без отсчёта (если вы его ещё не смахнули)
+    @JavascriptInterface
+    public void notifyTimer(String title, String text, int id, String openJson, String untilMs) {
+        long until = 0;
+        try { until = Long.parseLong(untilMs); } catch (Exception e) { /* без отсчёта */ }
+        show(ctx, title, text, id, openJson, until, false);
+        if (until > System.currentTimeMillis()) TimerReceiver.notifLater(ctx, title, text, id, openJson, until);
+    }
+
+    // общее для всех уведомлений; silent — замена уже показанного (без звука и всплывания)
+    static void show(Context ctx, String title, String text, int id, String openJson, long until, boolean silent) {
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= 26) {
-            boolean quiet = isQuiet();
+            boolean quiet = ctx.getSharedPreferences("ew", Context.MODE_PRIVATE).getBoolean("quiet", false);
             NotificationChannel ch = quiet
                 ? new NotificationChannel(CHANNEL_QUIET, "Сигналы без звука", NotificationManager.IMPORTANCE_LOW)
                 : new NotificationChannel(CHANNEL, "Сигналы", NotificationManager.IMPORTANCE_HIGH);
@@ -140,7 +159,7 @@ public class Bridge {
             b = new Notification.Builder(ctx, quiet ? CHANNEL_QUIET : CHANNEL);
         } else {
             b = new Notification.Builder(ctx);
-            if (isQuiet()) { b.setPriority(Notification.PRIORITY_LOW); b.setSound(null); } else b.setPriority(Notification.PRIORITY_HIGH);
+            if (ctx.getSharedPreferences("ew", Context.MODE_PRIVATE).getBoolean("quiet", false)) { b.setPriority(Notification.PRIORITY_LOW); b.setSound(null); } else b.setPriority(Notification.PRIORITY_HIGH);
         }
         Intent open = new Intent(ctx, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -152,6 +171,10 @@ public class Bridge {
          .setStyle(new Notification.BigTextStyle().bigText(text))
          .setAutoCancel(true)
          .setContentIntent(pi);
+        if (silent) b.setOnlyAlertOnce(true);
+        if (until > System.currentTimeMillis() && Build.VERSION.SDK_INT >= 24) {
+            b.setWhen(until).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true);
+        }
         nm.notify(id, b.build());
     }
 

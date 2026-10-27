@@ -22,7 +22,7 @@
     EWData.log('bg', 'фоновая проверка: готово за ' + Math.round((Date.now() - t0) / 1000) + ' с, событий ' + ev.length);
     EWData.notifSave(ev);   // всё, что отправили, — в историю оповещений приложения
     let id = 100 + (Date.now() % 1000);
-    for (const e of ev) { try { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); } catch (x) { log('notify: ' + x.message); } }
+    EWData.notifySend(ev, id);   // 3.10: у сигнала — таймер до закрытия свечи
     log('проверка: событий ' + ev.length);
   } catch (e) {
     log('ошибка проверки: ' + e.message);

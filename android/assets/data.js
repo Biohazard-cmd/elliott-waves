@@ -411,7 +411,7 @@
       const sigT = T(an.plan.sigBar);
       if (sigT && sigT !== st.sigT) {
         if (notify.signal && st.sigT !== undefined) out.push({
-          title: name + ': ' + (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА'),
+          title: name + ': ' + (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА'), sig: true,
           text: EW2.SETUP_NAME[an.plan.setup] + '. Вход ~' + fx(an.plan.entry) + ', стоп ' + fx(an.plan.stop) + (an.plan.notgt ? '' : ', цель ' + fx(an.plan.target)) + ', П/Р ' + an.plan.rr.toFixed(2),
         });
         st.sigT = sigT;
@@ -757,9 +757,11 @@
         const skey = w.wid || (w.ticker + '.' + w.tf);
         const many = s.watch.filter((x) => x.id === w.id && x.tf === w.tf).length > 1;
         const ev = events(an, w.ticker, w.tf, s.notify, skey, many ? (w.label || '') : '');
-        for (const e of ev) e.open = { id: w.id, ticker: w.ticker, name: w.name, classCode: w.classCode, tf: w.tf };
+        // 3.10: сигнал на последней закрытой свече — таймер до закрытия свечи, которая идёт сейчас (свеча входа)
+        const cd = an.plan && an.planActive && an.plan.sigBar === an.N - 1 ? candleEnd(w.tf) : 0;
+        for (const e of ev) { e.open = { id: w.id, ticker: w.ticker, name: w.name, classCode: w.classCode, tf: w.tf }; if (e.sig && cd) e.until = cd; delete e.sig; }
         all.push(...ev);
-        const lastRec = { at: Date.now(), phase: an.phase.text, plan: an.plan && an.planActive ? (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА') : '', px: done.length ? fmtPrice(done[done.length - 1].c, done) : '' };
+        const lastRec = { at: Date.now(), phase: an.phase.text, plan: an.plan && an.planActive ? (an.plan.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА') : '', px: done.length ? fmtPrice(done[done.length - 1].c, done) : '', cd };
         const prevRec = store.get('last.' + skey, null);
         store.set('last.' + skey, lastRec);
         store.set('last.' + w.ticker + '.' + w.tf, lastRec);
@@ -794,7 +796,7 @@
       const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       // порядок по важности: сигналы ▲/▼ → роботы → остальные фазы → «не ясна»; список в виджете листается.
       // У строки бумаги — что открыть по нажатию (как у уведомлений: { id, ticker, name, classCode, tf })
-      const sig = [], other = [], unclear = [], robots = [], seen = {};
+      const sig = [], other = [], unclear = [], robots = [], seen = {}, nowW = Date.now();
       const short = (ph) => { const t = String(ph || '').replace('Фаза: ', ''), m = t.match(/, идёт волна (\S+)/);
         return m ? (/вверх/.test(t) ? '↑ ' : /вниз/.test(t) ? '↓ ' : '') + 'идёт волна ' + m[1] : t.split(' — ')[0]; };
       for (const w of s.watch || []) {
@@ -802,7 +804,7 @@
         const r = store.get('last.' + key, null); if (!r) continue;
         const head = `<b>${esc(w.ticker)}</b> ${esc((TF[w.tf] || {}).name || w.tf)}${r.px ? ' · ' + esc(r.px) : ''} · `;
         const open = JSON.stringify({ id: w.id, ticker: w.ticker, name: w.name || w.ticker, classCode: w.classCode || 'TQBR', tf: w.tf });
-        if (r.plan) sig.push({ h: head + `<font color="${r.plan === 'ПОКУПКА' ? col.pos : col.neg}"><b>${r.plan === 'ПОКУПКА' ? '▲' : '▼'} ${r.plan}</b></font>`, o: open });
+        if (r.plan) sig.push({ h: head + `<font color="${r.plan === 'ПОКУПКА' ? col.pos : col.neg}"><b>${r.plan === 'ПОКУПКА' ? '▲' : '▼'} ${r.plan}</b></font>`, o: open, u: r.cd > nowW ? r.cd : 0 });
         else (/не ясна/.test(r.phase || '') ? unclear : other).push({ h: head + `<font color="${col.mut}">${esc(short(r.phase))}</font>`, o: open });
       }
       const V = vaccGet();
@@ -810,12 +812,13 @@
         const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
         // характер и настроение робота: последняя сделка за 2 дня — в плюс 🎉, в минус 😢
         const lc = a.closed[a.closed.length - 1], mood = lc && Date.now() - lc.exitT < 2 * 86400000 ? (lc.pl >= 0 ? '🎉' : '😢') : '';
-        robots.push({ h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
+        const pu = Object.values(a.pend || {}).map((z) => z.until || 0).filter((u) => u > nowW);   // 3.10: сигнал робота на 4ч — таймер до закрытия свечи входа
+        robots.push({ u: pu.length ? Math.min(...pu) : 0, h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
       const t = store.get('lastcheck', 0), d = dispDate(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
       const title = 'Волны Эллиотта · ' + (t ? 'проверено ' + p2(d.D) + '.' + p2(d.M + 1) + ' ' + p2(d.h) + ':' + p2(d.m) + (s.tz !== 'local' ? ' МСК' : '') : 'ещё не проверялось');
-      A.widgetUpdate(JSON.stringify({ title, rows: list.map((x) => x.h), opens: list.map((x) => x.o), bg: col.bg, ink: col.ink, mut: col.mut }));
+      A.widgetUpdate(JSON.stringify({ title, rows: list.map((x) => x.h), opens: list.map((x) => x.o), untils: list.map((x) => x.u || 0), bg: col.bg, ink: col.ink, mut: col.mut }));
     } catch (e) { /* виджет — не главное, проверку не ломаем */ }
   }
 
@@ -886,17 +889,34 @@
     return V;
   }
   function vaccSet(V) { files.set(VFILE, V); }
-  async function getCashFlows(token, accountId, fromMs) {
-    const from = new Date(fromMs).toISOString(), to = new Date(Date.now() + 86400000).toISOString(), out = [];
+  // 3.10: денежные операции счёта: пополнения/выводы (flows) и расходы/доходы брокера (costs: обслуживание, комиссии, налог, дивиденды и купоны).
+  // Раньше брались только OPERATION_TYPE_INPUT/OUTPUT — пополнение картой, по СБП или переводом между счетами (свои типы) не находилось
+  // и у «мой (вручную)» выглядело как прибыль. Типы не перечисляем в запросе (неизвестный брокеру тип ломает весь запрос) — разбираем ответ
+  const FLOW_RE = /^OPERATION_TYPE_(INPUT|OUTPUT)(_SWIFT|_ACQUIRING)?$|^OPERATION_TYPE_(INP|OUT)_MULTI$|^OPERATION_TYPE_TRANS_/;
+  function costKind(t) {
+    if (t === 'OPERATION_TYPE_BROKER_FEE') return 'comm';
+    if (/TAX/.test(t)) return 'tax';
+    if (/FEE|PENALTY|STAMP|OVER_COM/.test(t)) return 'fee';
+    if (/DIVIDEND$|COUPON$|DIV_EXT|DIVIDEND_TRANSFER|OVERNIGHT|OVER_INCOME/.test(t)) return 'inc';
+    return '';
+  }
+  async function getAccOps(token, accountId, fromMs) {
+    const from = new Date(fromMs).toISOString(), to = new Date(Date.now() + 86400000).toISOString(), flows = [], costs = [];
     let cursor = '';
-    for (let k = 0; k < 5; k++) {
-      const js = await call(token, OPS + 'GetOperationsByCursor', { accountId, from, to, cursor, limit: 300, state: 'OPERATION_STATE_EXECUTED', operationTypes: ['OPERATION_TYPE_INPUT', 'OPERATION_TYPE_OUTPUT'], withoutCommissions: true, withoutTrades: true, withoutOvernights: true });
-      for (const o of js.items || []) { const a = q(o.payment); if (a) out.push({ id: o.id, t: Date.parse(o.date), amount: a }); }
+    for (let k = 0; k < 10; k++) {
+      const js = await call(token, OPS + 'GetOperationsByCursor', { accountId, from, to, cursor, limit: 300, state: 'OPERATION_STATE_EXECUTED', withoutCommissions: false, withoutTrades: true, withoutOvernights: false });
+      for (const o of js.items || []) {
+        const a = q(o.payment), t = Date.parse(o.date), ty = String(o.type || '');
+        if (!a) continue;
+        if (FLOW_RE.test(ty)) flows.push({ id: o.id, t, amount: a });
+        else { const kd = costKind(ty); if (kd) costs.push({ id: o.id, t, kind: kd, amount: a }); }
+      }
       if (!js.hasNext || !js.nextCursor) break;
       cursor = js.nextCursor;
     }
-    return out;
+    return { flows, costs };
   }
+  async function getCashFlows(token, accountId, fromMs) { return (await getAccOps(token, accountId, fromMs)).flows; }
   function vEquity(a) { return a.cash + a.pos.reduce((s, p) => s + (p.side < 0 ? -1 : 1) * p.qty * (a.px[p.id] || p.entry), 0); }
   // 3.7: ход робота идёт (в приложении, в фоне или по кнопке «Ход»). Второй ход одновременно не начинаем, а правки роботов в приложении
   // ждут конца хода: ход в конце записывает счета целиком и иначе затёр бы и чужой ход, и правку (пополнение, «Обновить настройки», нового робота)
@@ -905,7 +925,7 @@
   async function robotStep(onLog, force, only) {
     if (robBusy()) { log('robot', 'ход робота уже идёт — этот пропускаем'); if (onLog) onLog('ход робота уже идёт'); return []; }
     store.set('robRun', Date.now());
-    try { return await robotRun(onLog, force, only); } finally { store.del('robRun'); }
+    try { return await robotRun(onLog, force, only); } finally { store.del('robRun'); widgetPush(); }   // 3.10: виджет — и после хода в приложении (раньше только после фоновой проверки)
   }
   async function robotRun(onLog, force, only) {
     const s = settings(), V = vaccGet(), ev = [];
@@ -924,12 +944,25 @@
     // 1) пополнения и выводы реального счёта
     if (s.account) {
       try {
-        const fl = await getCashFlows(s.token, s.account.id, V.startAt);
+        const man = V.accs.find((a) => a.manual), from = Math.min(V.startAt, man && man.realCap ? man.realCap : Infinity);
+        const { flows: fl, costs } = await getAccOps(s.token, s.account.id, from);
         for (const f of fl) {
           if (f.t < V.startAt || V.flows.some((x) => x.id === f.id)) continue;
           V.flows.push(f);
-          for (const a of V.accs) if (!a.crypto) { a.cash += f.amount; a.dep += f.amount; }   // счёт биткоина — в долларах, рубли туда не идут
-          log('robot', (f.amount > 0 ? 'пополнение ' : 'вывод ') + Math.round(Math.abs(f.amount)) + ' ₽ — повторено на виртуальных счетах');
+          // счёт биткоина — в долларах, рубли туда не идут; «мой (вручную)» — только после первой сверки 3.0 (более ранние уже в его капитале)
+          for (const a of V.accs) if (!a.crypto && !(a.manual && a.realCap && f.t < a.realCap)) { a.cash += f.amount; a.dep += f.amount; }
+          log('robot', (f.amount > 0 ? 'пополнение' : 'вывод') + ' на вашем счёте — повторено на виртуальных счетах');
+        }
+        // 3.10: расходы и доходы брокера по вашему счёту (обслуживание, комиссии, налог, дивиденды/купоны) — для отдельной строки у «мой (вручную)»;
+        // в его капитале они уже есть (капитал = итог портфеля), здесь — только чтобы показать, из чего сложился результат
+        if (man && man.realCap) {
+          man.costs = man.costs || {}; man.costSeen = man.costSeen || {};
+          const NM = { fee: 'обслуживание', comm: 'комиссия', tax: 'налог', inc: 'дивиденды/купоны' };
+          for (const c of costs) {
+            if (c.t < man.realCap || man.costSeen[c.id]) continue;
+            man.costSeen[c.id] = 1; man.costs[c.kind] = (man.costs[c.kind] || 0) + c.amount;
+            if (c.kind !== 'comm') log('robot', `${man.name}: операция брокера — ${NM[c.kind]}`);
+          }
         }
       } catch (e) { log('robot', 'пополнения: ' + e.message); }
     }
@@ -985,6 +1018,8 @@
         // 2.44: ваши сделки со счёта Т-Инвестиций повторяются здесь (без уведомлений — вы их сделали сами):
         // 1) новые покупки/продажи — по точной цене из операций; 2) сверка с портфелем — бумаги, что лежат на счёте (в т.ч. купленные
         // до запуска роботов), ставятся позициями по средней цене, а если на счёте их стало меньше — лишнее закрывается по текущей цене
+        // 3.10: сделки виртуальной эпохи (до первой сверки 3.0) — в архив: иначе итог «Закрытых» не сходится с результатом
+        if (a.realCap && !a.oldCut) { a.closedOld = (a.closedOld || []).concat(a.closed.filter((c) => c.exitT < a.realCap)); a.closed = a.closed.filter((c) => c.exitT >= a.realCap); a.oldCut = 1; }
         if (s.account) {
           const n0 = ev.length;
           try {
@@ -1042,7 +1077,7 @@
             for (const [id, r] of real) { a.px[id] = r.cur; inShares += r.qty * r.cur; }
             if (acc.total > 0) {
               a.cash = acc.total - inShares;
-              if (!a.realCap) { a.realCap = now; a.dep = vEquity(a); a.hist = [{ t: now, eq: a.dep, dep: a.dep }]; log('robot', `${a.name}: капитал теперь со счёта — ${Math.round(a.dep)} ₽, результат считаем с этой минуты`); }
+              if (!a.realCap) { a.realCap = now; a.oldCut = 1; a.closedOld = (a.closedOld || []).concat(a.closed); a.closed = []; a.dep = vEquity(a); a.hist = [{ t: now, eq: a.dep, dep: a.dep }]; log('robot', `${a.name}: капитал теперь со счёта — ${Math.round(a.dep)} ₽, результат считаем с этой минуты`); }
             }
             // 3.9: позиция, найденная сверкой (по средней цене и времени сверки), — на графике ставим на свечу и цену настоящей покупки
             // (последняя ещё не проданная покупка из истории операций за 2 года; ищем один раз на позицию)
@@ -1114,8 +1149,12 @@
           // 3.9: предупреждение заранее — на следующей свече робот, скорее всего, перенесёт стоп (один раз на каждый будущий перенос)
           try {
             const hn = EW2.stopHint(A2.bars, A2.cfg, tr), hk = hn ? (hn.kind === 'be' ? 'be' : 'trail|' + T(A2, hn.j)) : '';   // безубыток — одно предупреждение на сделку
-            if (hn && p.hint !== hk) {
-              p.hint = hk; const up = (p.side || 1) > 0, F = (x) => fmtPrice(x, an.bars);
+            // 3.10: перенос за свечу — не повторяем, пока прежнее предупреждение в силе (стоп с тех пор не двигался) и новый уровень почти тот же
+            // (у IRAO приходило дважды за 20 мин: новая свеча-кандидат, стоп 2,8280 → 2,8270)
+            const near = hn && hn.kind !== 'be' && p.hintS != null && p.hintP === p.stop && Math.abs(hn.stop - p.hintS) < (p.stop0 && p.stop0 !== p.entry ? 0.25 * Math.abs(p.entry - p.stop0) : 0.005 * p.entry);
+            if (hn && p.hint !== hk && near) p.hint = hk;
+            else if (hn && p.hint !== hk) {
+              p.hint = hk; p.hintS = hn.stop; p.hintP = p.stop; const up = (p.side || 1) > 0, F = (x) => fmtPrice(x, an.bars);
               const msg = hn.kind === 'be' ? `${p.ticker}: готовится безубыток — если цена дойдёт до ${F(hn.at)}, стоп переедет на ${F(hn.stop)} (цена входа с комиссией)`
                 : `${p.ticker}: готовится перенос стопа — если ${hn.left > 1 ? 'следующие ' + hn.left + ' свечи не уйдут' : 'следующая свеча не уйдёт'} ${up ? 'ниже' : 'выше'} ${F(hn.at)}, стоп переедет на ~${F(hn.stop)} (сейчас ${F(p.stop)})`;
               log('robot', a.name + ': ' + msg, { ticker: p.ticker, tf: atf, kind: 'stopHint', hint: hn.kind, at: hn.at, stop: hn.stop, now: p.stop });
@@ -1150,9 +1189,10 @@
           if (!a.pend[id] || a.pend[id].sigT !== sigT) {
             const eq = vEquity(a), dist = Math.abs(an.plan.entry - an.plan.stop) / an.plan.entry, lot = d.x.lot || 1;
             const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE)) / (an.plan.entry * lot)) * lot;   // как при самой покупке (пункт «б»)
-            a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty };
+            const until = atf === '1d' ? 0 : candleEnd(atf);   // 3.10: свеча входа закроется — таймер в карточке, виджете и уведомлении
+            a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty, until };
             const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} ${an.plan.side < 0 ? 'продаст (шорт)' : 'купит'} ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
-            log('robot', a.name + ': ' + msg); ev.push({ title: d.x.ticker + ': ' + (qty >= lot ? (atf === '1d' ? 'сигнал, завтра на открытии' : 'сигнал — вход сейчас') : 'сигнал, пропуск — нет денег') + ' · ' + tag, text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+            log('robot', a.name + ': ' + msg); ev.push({ title: d.x.ticker + ': ' + (qty >= lot ? (atf === '1d' ? 'сигнал, завтра на открытии' : 'сигнал — вход сейчас') : 'сигнал, пропуск — нет денег') + ' · ' + tag, text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot', until: qty >= lot && until ? until : 0 });
           }
         }
         // свеча входа уже закрылась, а сделки нет (купил бы — заявку убрал бы пункт «б») — убираем и пишем почему
@@ -1254,6 +1294,18 @@
   // 2.43: время закрытия последней свечи таймфрейма (+1 мин, пока брокер отдаст её закрытой); 4ч — по UTC 0/4/8…, дневки — конец дня по МСК
   // 3.2: 'u1d' — сутки по UTC (биткоин: день закрывается в 00:00 UTC = 03:00 МСК)
   function lastClose(tf, now) { const p = tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5, off = p === 864e5 && tf !== 'u1d' ? 3 * 3600e3 : 0; return Math.floor((now - 60e3 + off) / p) * p - off; }
+  // 3.10: когда закроется свеча, которая идёт сейчас (таймер «до закрытия свечи» у сигнала: в приложении, виджете и уведомлении).
+  // Внутри дня — по часам UTC, как свечи брокера (4ч: 03/07/11/15/19/23 МСК), но не позже конца торгов 23:50 МСК; дневка — 23:50 МСК.
+  // 0 — торгов нет (23:50–06:50 МСК: следующая свеча откроется утром) или таймфрейм крупнее дня
+  function candleEnd(tf, now) {
+    now = now || Date.now();
+    const H = 3600e3, msk = now + 3 * H, tod = ((msk % 864e5) + 864e5) % 864e5;
+    if (tod >= 23 * H + 50 * 60e3 || tod < 6 * H + 50 * 60e3) return 0;
+    const close = now - tod + 23 * H + 50 * 60e3, T = TF[tf];
+    if (tf === '1d') return close;
+    if (!T || T.ms > 4 * H) return 0;
+    return Math.min(Math.floor(now / T.ms) * T.ms + T.ms, close);
+  }
   const accTf = (a) => (a.crypto ? 'u1d' : a.manual ? '1d' : a.tf || '1d');
   // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
   function nextAlarm() {
@@ -1262,6 +1314,23 @@
     const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map(accTf)); let t = 0;
     for (const tf of tfs) { const d = tf === 'u1d' ? 0 : dly, c = lastClose(tf, now - d) + (tf === '4h' ? 4 * 3600e3 : tf === '1h' ? 3600e3 : 864e5) + 90e3 + d; if (!t || c < t) t = c; }
     return t;
+  }
+  // 3.10: отправка уведомлений (приложение и фон). У сигнала с таймером (e.until) — живой отсчёт до закрытия свечи (Bridge.notifyTimer)
+  // и время закрытия в тексте (на случай, если телефон отсчёт не показывает)
+  function notifySend(ev, id0) {
+    const A = root.Android; if (!A || !ev) return;
+    const p2 = (n) => String(n).padStart(2, '0'), msk = settings().tz !== 'local';
+    let id = id0;
+    for (const e of ev) {
+      try {
+        const op = e.open ? JSON.stringify(e.open) : '', tm = e.until > Date.now();
+        let text = e.text || '';
+        if (tm) { const d = dispDate(e.until); text += ` Свеча закроется в ${p2(d.h)}:${p2(d.m)}${msk ? ' МСК' : ''}.`; }
+        if (tm && A.notifyTimer) A.notifyTimer(e.title, text, id, op, String(e.until));
+        else if (A.notifyOpen) A.notifyOpen(e.title, text, id, op); else A.notify(e.title, text, id);
+      } catch (x) { log('error', 'уведомление: ' + x.message); }
+      id++;
+    }
   }
   // история всех отправленных уведомлений (для списка в приложении)
   function notifSave(ev) {
@@ -1274,5 +1343,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

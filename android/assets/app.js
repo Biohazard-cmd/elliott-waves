@@ -558,11 +558,21 @@
   }
   // ---------- 2.41: роботы с характером и настроением ----------
   const animOn = () => S.anim !== false;
+  // 3.10: таймер до закрытия свечи — <span data-cd="время закрытия">, тикает раз в секунду
+  const cdTxt = (ms) => { const x = Math.max(0, Math.round(ms / 1000)), h = Math.floor(x / 3600), m = Math.floor(x % 3600 / 60), p2 = (n) => String(n).padStart(2, '0'); return (h ? h + ':' + p2(m) : m) + ':' + p2(x % 60); };
+  const cdSpan = (t, pre) => t > Date.now() ? `<span class="cd" data-cd="${t}" data-pre="${esc(pre || 'до закрытия свечи')}">⏱ ${esc(pre || 'до закрытия свечи')} ${cdTxt(t - Date.now())}</span>` : '';
+  setInterval(() => { for (const el of document.querySelectorAll('[data-cd]')) { const left = +el.dataset.cd - Date.now(); if (left <= 0) { el.textContent = '⏱ свеча закрылась'; el.removeAttribute('data-cd'); } else el.textContent = '⏱ ' + el.dataset.pre + ' ' + cdTxt(left); } }, 1000);
+  // 3.10: «мой (вручную)» — расходы и доходы брокера с первой сверки (уже входят в капитал и результат, здесь — отдельной строкой)
+  function manCosts(a) {
+    const c = a.costs || {}, NM = [['fee', 'обслуживание'], ['comm', 'комиссии'], ['tax', 'налог'], ['inc', 'дивиденды и купоны']];
+    const parts = NM.filter(([k]) => Math.abs(c[k] || 0) >= 0.5).map(([k, n]) => `${n} ${(c[k] > 0 ? '+' : '−') + rub0(Math.abs(c[k]))}`);
+    return parts.length ? `В результате уже учтено: ${parts.join(' · ')}. ` : 'Обслуживания, комиссий и налога с этого дня пока не было. ';
+  }
   // 2.43: все уведомления — через одно место: шторка Android + история оповещений в приложении
   function sendNotes(ev, id0) {
     if (!ev || !ev.length) return;
     D.notifSave(ev);
-    let id = id0; for (const e of ev) { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); }
+    D.notifySend(ev, id0);
   }
   function notifRows(n) {
     const h = D.store.get('notifHist', []).slice(-n).reverse();
@@ -780,7 +790,7 @@
         <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${money(a, a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
         <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : a.crypto ? 'решает раз в сутки, после закрытия дня в 03:00 МСК · последний ход ' + (a.lastRun ? fmtT(a.lastRun, true) : '—') : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
         ${a.crypto ? btcInfo(a) : ''}
-        ${a.crypto ? `<div class="small">Счёт в долларах (условно ${usd0(a.dep)} на старте), свободные доллары — без процентов, комиссия 0,1%. Пополнения рублёвого счёта сюда не идут. Робот сам не торгует — по уведомлению повторяйте на своей бирже.</div></div>` : `<div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего счёта Т-Инвестиций (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', без пополнений и выводов. ' : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`}`;
+        ${a.crypto ? `<div class="small">Счёт в долларах (условно ${usd0(a.dep)} на старте), свободные доллары — без процентов, комиссия 0,1%. Пополнения рублёвого счёта сюда не идут. Робот сам не торгует — по уведомлению повторяйте на своей бирже.</div></div>` : `<div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего брокерского счёта (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', пополнения и выводы прибылью не считаются. ' + manCosts(a) : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`}`;
 
       // подробности выбранного робота
       const pend = Object.entries(ra.pend || {});
@@ -788,10 +798,11 @@
       // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
       const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
       const pendRow = (id, p) => {
+        const cdl = p.until > Date.now() ? `<div>${cdSpan(p.until, 'до закрытия свечи входа')}</div>` : '';
         const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
-        if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
+        if (rtf === '1d') return cdl + `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
         const t1 = p.sigT + rP, now = Date.now();
-        return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
+        return cdl + `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
           <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)} — робот ходит сразу после закрытия свечи${S.token ? '' : ', без токена — через ~15 мин'}).</div>`;
       };
       if (pend.length) h += `<div class="card pendc"><h3>⏳ ${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
@@ -1110,11 +1121,14 @@
       if (hs.small) h += `<div class="small warn">Порог ${String(hs.sw).replace('.', DEC())}% мельче 0.6 от авто (${String(hs.ref).replace('.', DEC())}%): система видит волны очень мелкой степени${S.tf === '1h' ? ', на 1ч такие сигналы в среднем убыточны' : ''}.</div>`;
       if (L) h += `<div class="small ${L.cls}" style="margin-top:2px"><b>${L.short}</b> — ${esc(L.long)}</div>`; }
     const p = an.plan;
+    // 3.10: сигнал на последней закрытой свече — сколько осталось до закрытия свечи, которая идёт сейчас (свеча входа)
+    const planCd = (age) => { if (age !== 0 || tr) return ''; const ms = D.TF[S.tf].ms, lastT = an.bars[an.N - 1].t, end = D.candleEnd(S.tf);
+      return end && lastT + 2 * ms > Date.now() ? `<div class="small">${cdSpan(end, 'до закрытия текущей свечи')} — вход по цене, близкой к открытию, ещё возможен</div>` : ''; };
     if (p && an.planActive) {
       const age = an.N - 1 - p.sigBar;
       h += `<div class="plan ${p.side > 0 ? 'buy' : 'sell'}"><div class="big ${p.side > 0 ? 'pos' : 'neg'}">ПЛАН: ${p.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА'} · ${esc(E.SETUP_NAME[p.setup])}</div>
         <div class="mono">Вход ~${pr(p.entry)} · стоп ${pr(p.stop)}${p.notgt ? '' : ' · цель ' + pr(p.target)}</div>
-        <div class="small">П/Р ${p.rr.toFixed(2).replace('.', DEC())} · сигнал ${age === 0 ? 'на последней свече' : age + ' св. назад'} (${fmtT(an.bars[p.sigBar].t, true)})</div>${staleLine(p)}${sizeLine(curPx(p), p.stop)}</div>`;
+        <div class="small">П/Р ${p.rr.toFixed(2).replace('.', DEC())} · сигнал ${age === 0 ? 'на последней свече' : age + ' св. назад'} (${fmtT(an.bars[p.sigBar].t, true)})</div>${planCd(age)}${staleLine(p)}${sizeLine(curPx(p), p.stop)}</div>`;
     } else h += `<div class="plan"><span class="mut">ПЛАН: ждать подтверждения следующего разворота</span></div>`;
     if (an.openTrade) {
       const rest = h.slice(nowTop); h = h.slice(0, nowTop);
@@ -1213,7 +1227,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.9';
+  const APP_VER = '3.10';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
