@@ -798,7 +798,7 @@
       // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
       const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
       const pendRow = (id, p) => {
-        const cdl = p.until > Date.now() ? `<div>${cdSpan(p.until, 'до закрытия свечи входа')}</div>` : '';
+        const pu = D.pendUntil(p, rtf), cdl = pu ? `<div>${cdSpan(pu, rtf === '1d' ? 'до конца торгов' : 'до закрытия свечи входа')}</div>` : '';
         const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
         if (rtf === '1d') return cdl + `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
         const t1 = p.sigT + rP, now = Date.now();
@@ -1227,7 +1227,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.10';
+  const APP_VER = '3.11';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();

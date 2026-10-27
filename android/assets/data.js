@@ -812,7 +812,7 @@
         const pc = a.dep ? (vEquity(a) / a.dep - 1) * 100 : 0;
         // характер и настроение робота: последняя сделка за 2 дня — в плюс 🎉, в минус 😢
         const lc = a.closed[a.closed.length - 1], mood = lc && Date.now() - lc.exitT < 2 * 86400000 ? (lc.pl >= 0 ? '🎉' : '😢') : '';
-        const pu = Object.values(a.pend || {}).map((z) => z.until || 0).filter((u) => u > nowW);   // 3.10: сигнал робота на 4ч — таймер до закрытия свечи входа
+        const pu = Object.values(a.pend || {}).map((z) => pendUntil(z, accTf(a), nowW)).filter((u) => u > nowW);   // 3.10: сигнал робота на 4ч — таймер до закрытия свечи входа
         robots.push({ u: pu.length ? Math.min(...pu) : 0, h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
@@ -1306,6 +1306,15 @@
     if (!T || T.ms > 4 * H) return 0;
     return Math.min(Math.floor(now / T.ms) * T.ms + T.ms, close);
   }
+  // 3.10: таймер у сигнала робота — до закрытия свечи входа. У сигналов до 3.10 времени нет — считаем по времени сигнальной свечи:
+  // 4ч и мельче — если сейчас идёт свеча сразу после сигнальной; дневка — если сейчас торги следующего дня после сигнала
+  function pendUntil(p, tf, now) {
+    now = now || Date.now();
+    if (p.until) return p.until > now ? p.until : 0;
+    const T = TF[tf]; if (!T || !p.sigT) return 0;
+    if (tf === '1d') { const day = (t) => Math.floor((t + 3 * 3600e3) / 864e5); return day(now) > day(p.sigT) && day(now) - day(p.sigT) <= 4 ? candleEnd('1d', now) : 0; }
+    return Math.floor(now / T.ms) * T.ms === Math.floor(p.sigT / T.ms) * T.ms + T.ms ? candleEnd(tf, now) : 0;
+  }
   const accTf = (a) => (a.crypto ? 'u1d' : a.manual ? '1d' : a.tf || '1d');
   // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
   function nextAlarm() {
@@ -1343,5 +1352,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { pendUntil, notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

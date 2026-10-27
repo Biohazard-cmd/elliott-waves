@@ -55,6 +55,11 @@ const URL0 = 'http://localhost:' + (process.env.PORT || 8799) + '/';
   console.log('таймер:', c1, '→', c2);
   ok(/до закрытия свечи входа (29|30):\d\d/.test(c1) && c1 !== c2, 'в карточке сигнала робота — таймер до закрытия свечи входа, тикает');
   await p.screenshot({ path: 'shots/uiBF-pend.png' });
+  // сигнал, записанный до 3.10 (без until): таймер считается по времени сигнальной свечи
+  const old = await p.evaluate(() => { const D = window.EWData, ms = 4 * 36e5, now = Date.parse('2026-10-27T09:30:00Z'), sigT = Math.floor(now / ms) * ms - ms;
+    return [D.pendUntil({ sigT }, '4h', now), D.pendUntil({ sigT: sigT - ms }, '4h', now), D.pendUntil({ sigT: Date.parse('2026-10-26T07:00:00Z') }, '1d', now)].map((t) => t ? new Date(t).toISOString().slice(0, 16) : 0); });
+  console.log('старые сигналы:', JSON.stringify(old));
+  ok(old[0] === '2026-10-27T12:00' && old[1] === 0 && old[2] === '2026-10-27T20:50', 'сигнал до 3.10: таймер по сигнальной свече (4ч — до 15:00 МСК, устаревший — нет, дневка — до 23:50)');
   // таймер: время закрытия свечи
   const ce = await p.evaluate(() => { const D = window.EWData, at = (s) => Date.parse(s), f = (t) => t ? new Date(t).toISOString().slice(0, 16) : 0;
     return [f(D.candleEnd('4h', at('2026-10-27T09:30:00Z'))), f(D.candleEnd('4h', at('2026-10-27T20:10:00Z'))), f(D.candleEnd('4h', at('2026-10-27T21:00:00Z'))), f(D.candleEnd('1h', at('2026-10-27T07:05:00Z'))), f(D.candleEnd('1d', at('2026-10-27T10:00:00Z'))), f(D.candleEnd('4h', at('2026-10-27T03:00:00Z')))]; });
