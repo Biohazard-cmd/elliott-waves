@@ -79,6 +79,13 @@ kbd { font: inherit; font-size: 14px; padding: 1px 6px; border-radius: 6px; back
 .film .tabs button small { display: block; font-size: 11px; color: var(--mut); }
 .film .cap .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .film canvas { display: block; width: 100%; height: 320px; background: var(--chbg); touch-action: pan-y; }
+.zbar { display: flex; gap: 6px; align-items: center; }
+.zbar button { min-width: 36px; padding: 6px 8px; }
+.zbar small { color: var(--mut); }
+.shot .pic { touch-action: pan-y; }
+.shot .pic .zin { position: relative; transform-origin: 0 0; }
+.shot .pic.zoomed { touch-action: none; cursor: grab; }
+.shot .zhint { font-size: 12px; color: var(--mut); margin-top: 4px; }
 .film .cap { min-height: 112px; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 15.5px; }
 .film .cap .k { display: block; font-size: 12px; color: var(--mut); margin-bottom: 3px; }
 .film .cap .rule { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; font-size: 13.5px; background: var(--bg3); border: 1px solid var(--line); }
@@ -394,7 +401,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     <h3>Стоп двигается ступеньками — по правилам, а не «на глаз»</h3>
     <ol>
       <li><b>Сразу после покупки</b> стоп стоит там, где подсчёт ломается (например, под началом волны 1 или под концом волны 2).</li>
-      <li><b>Безубыток.</b> Когда цена закрылась выше покупки на 3 обычных хода свечи (3 × ATR), стоп переезжает на цену покупки. Сделка уже не может принести убыток. У каждого робота это включается и выключается значком 🛡 в его «⚙ Настройках».</li>
+      <li><b>Безубыток.</b> Когда цена хотя бы хвостом свечи поднялась выше покупки на 3 обычных хода свечи (3 × ATR), а сама свеча закрылась выше цены покупки, — после её закрытия стоп переезжает на цену покупки (чуть выше, чтобы покрыть комиссию). Бывает, что это случается уже на первой свече после покупки. Сделка уже не может принести убыток. У каждого робота это включается и выключается значком 🛡 в его «⚙ Настройках».</li>
       <li><b>После цели</b> («бегунок») робот не продаёт, а подтягивает стоп под каждый <b>подтверждённый</b> откат: под минимум свечи, которая ниже двух соседних слева и справа. Пока следующие свечи не подтвердили такой минимум, стоп стоит на месте.</li>
     </ol>
     <p><b>Пример — IRAO, 4 часа.</b> Робот купил, стоп был 2,4915. Цена ушла вверх — стоп переехал на 2,6465. Потом появился новый подтверждённый откат — стоп поднялся на 2,6752. Между этими шагами цена росла, а стоп стоял: это нормально.</p>
@@ -405,7 +412,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     <h3>Предупреждение заранее — со звуком</h3>
     <p>С версии 3.9 робот предупреждает <b>за одну свечу</b> до переноса стопа:</p>
     <ul>
-      <li>«<b>скоро безубыток</b>» — до порога 3 × ATR осталось меньше половины обычного хода свечи; если следующая свеча закроется выше — стоп уйдёт на цену покупки;</li>
+      <li>«<b>скоро безубыток</b>» — до уровня 3 × ATR осталось меньше половины обычного хода свечи; если цена дойдёт до него — стоп уйдёт на цену покупки;</li>
       <li>«<b>скоро перенос стопа</b>» — после цели появилась свеча-кандидат в откат; если следующие свечи не уйдут ниже её минимума — стоп переедет туда.</li>
     </ul>
     <p>Само предупреждение приходит один раз на каждый будущий перенос. Когда стоп действительно перенесён, приходит второе уведомление: «стоп перенесён X → Y».</p>
@@ -720,7 +727,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
   <details class="faq"><summary>Сколько денег нужно?</summary><p>Чем больше, тем точнее работает расчёт количества акций. Со счётом около 10 000 ₽ многие лоты дороже четверти счёта, и сделок почти не будет. Комфортно — от 100 000 ₽.</p></details>
   <details class="faq"><summary>Уведомления не приходят, когда приложение закрыто</summary><p>Проверьте: <kbd>⚙</kbd> → «Сигналы» → частота проверки не «Выключено»; в настройках Android для «Волн Эллиотта» отключена экономия батареи и разрешены уведомления. На вкладке «Сигналы» видно, когда была последняя фоновая проверка.</p></details>
   <details class="faq"><summary>Что такое «мой (вручную)» среди роботов?</summary><p>Это зеркало вашего настоящего счёта у брокера (нужен токен): какие акции лежат на счёте и какой результат. Его можно сравнить с роботами в «Гонке роботов».</p></details>
-  <details class="faq"><summary>Почему робот не поставил безубыток, хотя цена хорошо ушла вверх?</summary><p>Безубыток робота — по правилу: цена должна <b>закрыться</b> выше покупки на 3 × ATR. Хвост свечи не считается, а робот видит только закрытые свечи — поэтому перенос бывает на свечу позже. За свечу до этого придёт «скоро безубыток». См. <a href="#robtrade">раздел 5, «Как робот ведёт сделку»</a>.</p></details>
+  <details class="faq"><summary>Почему робот не поставил безубыток, хотя цена хорошо ушла вверх?</summary><p>Безубыток робота — по правилу: цена должна подняться выше покупки на 3 × ATR (хвост свечи тоже считается), а свеча — закрыться выше цены покупки. Робот видит только закрытые свечи, поэтому стоп переезжает после закрытия свечи. Если до 3 × ATR цена не дошла, безубытка нет, даже если прибыль «на глаз» уже приличная. За свечу до этого придёт «скоро безубыток». См. <a href="#robtrade">раздел 5, «Как робот ведёт сделку»</a>.</p></details>
   <details class="faq"><summary>Почему стоп не подтягивается за каждой свечой?</summary><p>После цели стоп переезжает только под подтверждённый откат — так проверено на истории: частый перенос выбивает из лучших сделок. См. <a href="#robtrade">раздел 5</a>.</p></details>
   <details class="faq"><summary>На графике сделка закончилась, а робот её ещё держит</summary><p>Линии системы на графике — бэктест по всей истории, а робот торгует с дня своего старта и на свои деньги. Это разные сделки. Отметки робота — фигуры в его цвете с буквой. См. <a href="#robtrade">раздел 5</a>.</p></details>
   <details class="faq"><summary>Я в другом часовом поясе — время на графике сбилось?</summary><p>Нет: с версии 3.9 время на экране по Москве, с подписью «МСК». Роботы всегда работают по Москве. Время телефона можно включить в <kbd>⚙</kbd> → «Данные».</p></details>
@@ -828,6 +835,43 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
   // открыли сразу на разделе (manual.html#robots) — после загрузки ещё раз к нему: картинки и ролики уже на местах
   window.addEventListener('load', () => { if (location.hash) go(location.hash.slice(1)); });
 
+  // ---------- приближение: два пальца (щипок), колёсико с Ctrl, двойное нажатие; одним пальцем — сдвиг ----------
+  function gesture(el, h) {
+    const P = new Map(); let d0 = 0, moved = false, lastTap = 0, sx = 0, sy = 0;
+    const pt = (e) => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, r]; };
+    el.addEventListener('pointerdown', (e) => { P.set(e.pointerId, [e.clientX, e.clientY]); moved = false; sx = e.clientX; sy = e.clientY; if (P.size === 2) { const [a, b] = [...P.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
+    el.addEventListener('pointermove', (e) => {
+      if (!P.has(e.pointerId)) return; const old = P.get(e.pointerId); P.set(e.pointerId, [e.clientX, e.clientY]);
+      if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 6) moved = true;
+      if (P.size === 2) { const [a, b] = [...P.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), r = el.getBoundingClientRect(); if (d0 > 0 && d > 0) h.zoom(d / d0, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top); d0 = d; e.preventDefault(); }
+      else if (P.size === 1 && moved) h.pan(e.clientX - old[0], e.clientY - old[1], e);
+    });
+    const up = (e) => {
+      if (!P.has(e.pointerId)) return; const single = P.size === 1; P.delete(e.pointerId); d0 = 0;
+      if (!single || moved) return;
+      const [x, y] = pt(e), now = Date.now();
+      if (now - lastTap < 300) { lastTap = 0; h.dbl && h.dbl(x, y); } else { lastTap = now; h.tap && h.tap(x, y, e); }
+    };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', (e) => { P.delete(e.pointerId); d0 = 0; });
+    el.addEventListener('wheel', (e) => { if (!e.ctrlKey) return; e.preventDefault(); const [x, y] = pt(e); h.zoom(Math.exp(-e.deltaY / 300), x, y); }, { passive: false });
+  }
+  // свечной график: окно видимых свечей cv._v = { a, b } (по умолчанию — все); подпись «приблизить» и кнопки + − ⟲
+  function chartZoom(cv, getN, redraw, tap, bar) {
+    const lim = () => { const N = getN(), v = cv._v; if (!v) return; const w = Math.min(N - 1, Math.max(8, v.b - v.a)); if (w >= N - 1) { cv._v = null; return; } v.a = Math.max(0, Math.min(N - 1 - w, v.a)); v.b = v.a + w; };
+    const zoomAt = (f, x) => { const N = getN(), m = cv._m; if (!m) return; const v = cv._v || { a: 0, b: N - 1 }, c = v.a + (x - m.pl) / m.sw - 0.5, w = (v.b - v.a) / f; cv._v = { a: c - (c - v.a) / f, b: 0 }; cv._v.b = cv._v.a + w; lim(); redraw(); };
+    gesture(cv, {
+      zoom: (f, x) => zoomAt(f, x),
+      pan: (dx) => { if (!cv._v || !cv._m) return; cv._v.a -= dx / cv._m.sw; cv._v.b -= dx / cv._m.sw; lim(); redraw(); },
+      dbl: (x) => { if (cv._v) { cv._v = null; redraw(); } else zoomAt(2.5, x); },
+      tap: (x) => { if (tap && cv._m) tap(Math.floor((x - cv._m.pl) / cv._m.sw + cv._m.a)); },
+    });
+    if (bar) {
+      bar.innerHTML = '<button aria-label="Приблизить">＋</button><button aria-label="Отдалить">−</button><button aria-label="Весь график">⟲</button>';
+      const [bp, bm, br] = bar.querySelectorAll('button'), mid = () => cv.clientWidth / 2;
+      bp.onclick = () => zoomAt(1.6, mid()); bm.onclick = () => zoomAt(1 / 1.6, mid()); br.onclick = () => { cv._v = null; redraw(); };
+    }
+  }
+
   // ---------- скриншоты с номерами ----------
   document.querySelectorAll('figure.shot').forEach((fig) => {
     const pts = JSON.parse(fig.dataset.pts), pic = fig.querySelector('.pic'), lst = fig.querySelector('.lst');
@@ -837,7 +881,12 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     const pick = (k, scroll) => { dots.forEach((d, j) => d.classList.toggle('sel', j === k)); items.forEach((d, j) => d.classList.toggle('sel', j === k)); if (scroll) items[k].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
     dots.forEach((d, k) => { d.onclick = () => pick(k, true); });
     items.forEach((d, k) => { d.onclick = () => pick(k, false); });
-    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = 'Нажмите на номер на картинке или на строку в списке.'; fig.appendChild(hint);
+    { const zin = document.createElement('div'); zin.className = 'zin'; while (pic.firstChild) zin.appendChild(pic.firstChild); pic.appendChild(zin);
+      let k = 1, tx = 0, ty = 0;
+      const set = () => { const w = pic.clientWidth, hh = pic.clientHeight; k = Math.max(1, Math.min(4, k)); tx = Math.min(0, Math.max(w - w * k, tx)); ty = Math.min(0, Math.max(hh - hh * k, ty)); if (k === 1) { tx = 0; ty = 0; } zin.style.transform = k === 1 ? '' : `translate(${tx}px,${ty}px) scale(${k})`; pic.classList.toggle('zoomed', k > 1); };
+      const zoom = (f, x, y) => { const k1 = Math.max(1, Math.min(4, k * f)); tx = x - (x - tx) * k1 / k; ty = y - (y - ty) * k1 / k; k = k1; set(); };
+      gesture(pic, { zoom, pan: (dx, dy) => { if (k > 1) { tx += dx; ty += dy; set(); } }, dbl: (x, y) => { if (k > 1) { k = 1; set(); } else zoom(2.2, x, y); } }); }
+    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = 'Нажмите на номер на картинке или на строку в списке. Приблизить — двумя пальцами или двойным нажатием.'; fig.appendChild(hint);
   });
 
   const fmt = (x, d = 2) => x.toFixed(d).replace('.', ',');
@@ -859,23 +908,26 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     const C = { bg: css('--chbg'), grid: css('--grid'), axis: css('--axis'), ink: css('--ink'), up: '#3fbf7f', dn: '#ef5b5b', wave: css('--wave'), corr: css('--corr'), warn: css('--warn'), neg: '#ef5b5b', pos: '#3fbf7f', mut: css('--mut') };
     g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
     const B = st.bars, N = B.length, pl = 8, pr = 56, pt = 22, pbm = B[0].t ? 22 : 14;
-    let lo = Infinity, hi = -Infinity; B.forEach((b) => { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); }); (st.extra || []).forEach((p) => { lo = Math.min(lo, p); hi = Math.max(hi, p); });
+    const v = cv._v && cv._v.b - cv._v.a < N - 1 ? cv._v : { a: 0, b: N - 1 }, i0 = Math.max(0, Math.floor(v.a)), i1 = Math.min(N - 1, Math.ceil(v.b));   // приближение: видны свечи a…b
+    let lo = Infinity, hi = -Infinity; for (let i = i0; i <= i1; i++) { lo = Math.min(lo, B[i].l); hi = Math.max(hi, B[i].h); } (st.extra || []).forEach((p) => { lo = Math.min(lo, p); hi = Math.max(hi, p); });
     const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
-    const sw = (W - pl - pr) / N, X = (i) => pl + (i + 0.5) * sw, Y = (p) => pt + (hi - p) / (hi - lo) * (H - pt - pbm);
+    const sw = (W - pl - pr) / (v.b - v.a + 1), X = (i) => pl + (i - v.a + 0.5) * sw, Y = (p) => pt + (hi - p) / (hi - lo) * (H - pt - pbm);
+    cv._m = { pl, sw, a: v.a };
     g.font = '11px system-ui, sans-serif'; g.textBaseline = 'middle';
     const stepv = Math.pow(10, Math.floor(Math.log10((hi - lo) / 4))); let gs = stepv; while ((hi - lo) / gs > 6) gs *= 2;
     for (let p = Math.ceil(lo / gs) * gs; p < hi; p += gs) { g.strokeStyle = C.grid; g.lineWidth = 1; g.beginPath(); g.moveTo(pl, Y(p)); g.lineTo(W - pr, Y(p)); g.stroke(); g.fillStyle = C.axis; g.textAlign = 'left'; g.fillText(fmt(p, gs < 1 ? 1 : 0), W - pr + 6, Y(p)); }
     const intra = N > 1 && B[0].t && B[1].t - B[0].t < 864e5;
     if (B[0].t && intra) {   // 4ч: подпись у первой свечи каждого дня
       g.fillStyle = C.axis; g.textAlign = 'center'; g.textBaseline = 'bottom'; let lastX = -99;
-      for (let i = 0; i < N; i++) { const d = msk(B[i].t), dp = i ? msk(B[i - 1].t) : null; if (dp && d.getUTCDate() === dp.getUTCDate()) continue; if (X(i) - lastX < 38 || X(i) < 22) continue; lastX = X(i); g.fillText(d.getUTCDate() + ' ' + MON[d.getUTCMonth()], X(i), H - 3); }
+      for (let i = i0; i <= i1; i++) { const d = msk(B[i].t), dp = i ? msk(B[i - 1].t) : null; if (dp && d.getUTCDate() === dp.getUTCDate()) continue; if (X(i) - lastX < 38 || X(i) < 22) continue; lastX = X(i); g.fillText(d.getUTCDate() + ' ' + MON[d.getUTCMonth()], X(i), H - 3); }
     } else if (B[0].t) {   // подписи дат снизу
       g.fillStyle = C.axis; g.textAlign = 'center'; g.textBaseline = 'bottom'; let lastM = '';
-      const every = Math.max(1, Math.round(N / 5));
-      for (let i = 0; i < N; i += every) { const d = new Date(B[i].t), m = MON[d.getUTCMonth()] + ' ' + String(d.getUTCFullYear()).slice(2); if (m !== lastM) { g.fillText(m, X(i), H - 3); lastM = m; } }
+      const every = Math.max(1, Math.round((i1 - i0) / 5));
+      for (let i = i0; i <= i1; i += every) { const d = new Date(B[i].t), m = MON[d.getUTCMonth()] + ' ' + String(d.getUTCFullYear()).slice(2); if (m !== lastM) { g.fillText(m, X(i), H - 3); lastM = m; } }
     }
     const bw = Math.max(1.2, sw * 0.62);
-    for (let i = 0; i <= n; i++) { const b = B[i], col = b.c >= b.o ? C.up : C.dn; g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(X(i), Y(b.h)); g.lineTo(X(i), Y(b.l)); g.stroke(); const y1 = Y(Math.max(b.o, b.c)), y2 = Y(Math.min(b.o, b.c)); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
+    g.save(); if (v.a > 0 || v.b < N - 1) { g.beginPath(); g.rect(pl - 2, 0, W - pl - pr + 4, H); g.clip(); }   // приближено — свечи и разметка только в поле графика
+    for (let i = i0; i <= Math.min(n, i1); i++) { const b = B[i], col = b.c >= b.o ? C.up : C.dn; g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(X(i), Y(b.h)); g.lineTo(X(i), Y(b.l)); g.stroke(); const y1 = Y(Math.max(b.o, b.c)), y2 = Y(Math.min(b.o, b.c)); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
     const api = {
       g, C, X, Y, W, H, pl, pr, n, B,
       line(x1, y1, x2, y2, col, w = 2, dash = null) { g.save(); g.strokeStyle = col; g.lineWidth = w; if (dash) g.setLineDash(dash); g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); g.restore(); },
@@ -885,6 +937,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
       path(pts, col, w = 2.2, dash = null) { g.save(); g.strokeStyle = col; g.lineWidth = w; if (dash) g.setLineDash(dash); g.beginPath(); pts.forEach(([i, p], k) => (k ? g.lineTo(X(i), Y(p)) : g.moveTo(X(i), Y(p)))); g.stroke(); g.restore(); },
     };
     overlay(api, st);
+    g.restore();
     if (sel >= 0 && sel <= n) {   // свеча под пальцем: дата и четыре цены
       const b = B[sel], rows = [b.t ? fdt(b.t, intra) : 'свеча ' + (sel + 1), 'откр ' + fmtP(b.o) + '   закр ' + fmtP(b.c), 'макс ' + fmtP(b.h) + '   мин ' + fmtP(b.l)];
       g.fillStyle = 'rgba(91,156,255,.16)'; g.fillRect(X(sel) - sw / 2, pt, sw, H - pt - pbm);
@@ -900,7 +953,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
   function Film(el, sc) {
     el.innerHTML = `<div class="fh">🎬 <span class="grow">${sc.title}</span><small class="cnt"></small></div>${sc.tabs ? `<div class="tabs">${sc.tabs.map((t, k) => `<button data-tab="${k}" class="${k ? '' : 'on'}">${t}</button>`).join('')}</div>` : ''}<canvas></canvas><div class="cap"></div>
       <div class="ctl"><button class="play">▶ Играть</button><button class="prev" aria-label="Шаг назад">⏮</button><button class="next" aria-label="Шаг вперёд">⏭</button><input type="range" min="0" value="0" aria-label="Ползунок времени">
-      <label><input type="checkbox" class="stops" checked> пауза на шагах</label>${sc.variant ? `<label><input type="checkbox" class="var"> ${sc.variant}</label>` : ''}</div>`;
+      <label><input type="checkbox" class="stops" checked> пауза на шагах</label>${sc.variant ? `<label><input type="checkbox" class="var"> ${sc.variant}</label>` : ''}<span class="zbar"></span></div>`;
     const cv = el.querySelector('canvas'), cap = el.querySelector('.cap'), cnt = el.querySelector('.cnt'), rg = el.querySelector('input[type=range]');
     const pb = el.querySelector('.play'), stopsCb = el.querySelector('.stops'), varCb = el.querySelector('.var');
     let st = null, n = 0, timer = null, hold = 0, lastStep = -1, tab = 0, sel = -1;
@@ -908,6 +961,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     const stepIdx = () => { let k = 0; st.steps.forEach((s, j) => { if (s.at <= n) k = j; }); return k; };
     const self = {
       draw() {
+        if (cv._v && n > cv._v.b) { const w = cv._v.b - cv._v.a; cv._v.b = Math.min(st.bars.length - 1, n + 2); cv._v.a = cv._v.b - w; }
         const { B, intra } = paint(cv, st, n, sc.overlay, sel), N = B.length;
         const k = stepIdx(), s = st.steps[k];
         if (k !== lastStep) { cap.innerHTML = `<span class="k">Шаг ${k + 1} из ${st.steps.length}</span>${typeof s.cap === 'function' ? s.cap(st) : s.cap}`; lastStep = k; }
@@ -931,8 +985,8 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     el.querySelector('.next').onclick = () => { self.stop(); const s = st.steps.find((x) => x.at > n); self.go(s ? s.at : st.bars.length - 1); self.stop(); };
     el.querySelector('.prev').onclick = () => { self.stop(); const k = stepIdx(); self.go(st.steps[st.steps[k].at === n ? Math.max(0, k - 1) : k].at); self.stop(); };
     rg.oninput = () => { self.stop(); self.go(Number(rg.value)); self.stop(); };
-    cv.addEventListener('pointerdown', (e) => { const r = cv.getBoundingClientRect(), i = Math.floor((e.clientX - r.left - 8) / ((r.width - 64) / st.bars.length)); sel = i >= 0 && i <= n && i !== sel ? i : -1; self.draw(); });
-    el.querySelectorAll('.tabs [data-tab]').forEach((b) => { b.onclick = () => { self.stop(); sel = -1; tab = Number(b.dataset.tab); el.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b)); build(); lastStep = -1; self.go(0); self.stop(); }; });
+    chartZoom(cv, () => st.bars.length, () => self.draw(), (i) => { sel = i >= 0 && i <= n && i !== sel ? i : -1; self.draw(); }, el.querySelector('.zbar'));
+    el.querySelectorAll('.tabs [data-tab]').forEach((b) => { b.onclick = () => { self.stop(); sel = -1; tab = Number(b.dataset.tab); el.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b)); cv._v = null; build(); lastStep = -1; self.go(0); self.stop(); }; });
     if (varCb) varCb.onchange = () => { self.stop(); build(); lastStep = -1; self.go(sc.varJump ? sc.varJump(st) : 0); self.stop(); };
     build(); n = 0; self.draw();
     window.addEventListener('resize', () => self.draw());
@@ -1028,7 +1082,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
       ev.push({ at: t.iSig, cap: `<b>Сигнал!</b> Волна 2 закончилась, разворот вверх подтвердился. Вход — по открытию следующей свечи.` });
       ev.push({ at: t.iE, cap: `<b>Вход по ${fmt(t.entry)}.</b><br><span style="color:#ef5b5b">■</span> <b>Стоп ${fmt(t.stop0)}</b> — чуть ниже конца волны 2: если цена туда дойдёт, подсчёт неверный.<br><span style="color:#3fbf7f">■</span> <b>Цель ${fmt(t.target)}</b> — там волна 3 станет в 1,618 раза длиннее волны 1.<br>Прибыль до цели в ${fmt((t.target - t.entry) / risk, 1)} раза больше риска <span class="rule good">✓ «прибыль/риск ≥ 1,5»</span>` });
       if (t.add) ev.push({ at: t.add.i, cap: `<b>Доливка по ${fmt(t.add.px)}</b> (фиолетовый ▲): цена прошла 110% волны 1 — волна 3 подтвердилась, и приложение добавляет к позиции (идея Вильямса). У доливки тот же стоп.` });
-      t.path.forEach(([i, p, be], k) => ev.push({ at: i, cap: be || (k === 0 && Math.abs(p - t.entry) < 1e-6) ? `<b>Стоп → безубыток (${fmt(p)}).</b> Цена ушла вверх на 3 средних хода свечи (3×ATR) — стоп переносится на цену входа. Теперь основная позиция уже не принесёт убытка.` : `<b>Стоп подтянут до ${fmt(p)}</b> — под минимумы последних 5 свечей («бегунок»): цена растёт — стоп идёт за ней.` }));
+      t.path.forEach(([i, p, be], k) => ev.push({ at: i + 1, cap: be || (k === 0 && Math.abs(p - t.entry) < 1e-6) ? `<b>Стоп → безубыток (${fmt(p)}).</b> Цена ушла вверх на 3 средних хода свечи (3×ATR) — стоп переносится на цену входа. Теперь основная позиция уже не принесёт убытка.` : `<b>Стоп подтянут до ${fmt(p)}</b> — под минимумы последних 5 свечей («бегунок»): цена растёт — стоп идёт за ней.` }));
       if (t.iT >= 0) ev.push({ at: t.iT, cap: `<b>Цель ${fmt(t.target)} взята.</b> Но сделку не закрываем: прибыль может расти дальше, стоп подтягивается за ценой.` });
       let out = `<b>Выход по ${fmt(t.exitP)}</b> (${t.why}). Итог: <b style="color:${t.R > 0.02 ? '#3fbf7f' : t.R < -0.02 ? '#ef5b5b' : 'inherit'}">${R(t.R)}</b>${t.add ? ', доливка ' + R(t.add.R) : ''}.`;
       if (tab === 0) out += ` Если на сделку рискуете 3 000 ₽, основная позиция принесла ≈ ${Math.round(t.R * 3000).toLocaleString('ru-RU')} ₽.`;
@@ -1049,7 +1103,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
       if (t.iT < 0 || n < t.iT) a.line(a.X(t.iE), a.Y(t.target), xr, a.Y(t.target), a.C.pos, 2, [6, 4]), a.text('цель ' + fmt(t.target), xr - 4, a.Y(t.target) - 9, a.C.pos, 'right', 11);
       else a.text('🎯 цель', a.X(t.iT), a.Y(t.target) - 12, a.C.pos, 'center', 11);
       // стоп — ступеньками
-      const pts = [[t.iE, t.stop0]]; for (const [i, p] of t.path) if (i <= endI) { pts.push([i, pts[pts.length - 1][1]]); pts.push([i, p]); }
+      const pts = [[t.iE, t.stop0]]; for (const [i0, p] of t.path) { const i = i0 + 1; if (i <= endI) { pts.push([i, pts[pts.length - 1][1]]); pts.push([i, p]); } }   // стоп решается по закрытию свечи и действует со следующей
       pts.push([endI, pts[pts.length - 1][1]]); a.path(pts, a.C.neg, 2);
       const sp = pts[pts.length - 1][1];
       if (!closed) { a.line(a.X(endI), a.Y(sp), xr, a.Y(sp), a.C.neg, 2, [5, 4]); a.text('стоп ' + fmt(sp), xr - 4, a.Y(sp) + 11, a.C.neg, 'right', 11); }
@@ -1187,7 +1241,7 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
       a.text((t.side > 0 ? 'покупка ' : 'продажа ') + fmtP(t.entry), a.X(t.iE) - 6, a.Y(t.entry) - 10, a.C.wave, 'right', 11);
       if (t.iT < 0 || n < t.iT) a.line(a.X(t.iE), a.Y(t.target), xr, a.Y(t.target), a.C.pos, 2, [6, 4]), a.text('цель ' + fmtP(t.target), xr - 4, a.Y(t.target) + (t.side > 0 ? -9 : 11), a.C.pos, 'right', 11);
       else if (t.iT !== t.iX) a.text('🎯 цель', a.X(t.iT), a.Y(t.target) + (t.side > 0 ? 14 : -12), a.C.pos, 'center', 11);
-      const pts = [[t.iE, t.stop0]]; for (const [i, p] of t.path) if (i <= endI) { pts.push([i, pts[pts.length - 1][1]]); pts.push([i, p]); }
+      const pts = [[t.iE, t.stop0]]; for (const [i0, p] of t.path) { const i = i0 + 1; if (i <= endI) { pts.push([i, pts[pts.length - 1][1]]); pts.push([i, p]); } }   // стоп решается по закрытию свечи и действует со следующей
       pts.push([endI, pts[pts.length - 1][1]]); a.path(pts, a.C.neg, 2);
       const sp = pts[pts.length - 1][1];
       if (!closed) { a.line(a.X(endI), a.Y(sp), xr, a.Y(sp), a.C.neg, 2, [5, 4]); a.text('стоп ' + fmtP(sp), xr - 4, a.Y(sp) + (t.side > 0 ? 11 : -9), a.C.neg, 'right', 11); }
@@ -1240,9 +1294,10 @@ a.totoc.on { opacity: .96; pointer-events: auto; }
     const cv = el.querySelector('canvas'), qn = el.querySelector('.qn'), cnt = el.querySelector('.cnt'), qq = el.querySelector('.qq'), op = el.querySelector('.opts'), why = el.querySelector('.why');
     const more = el.querySelector('.more'), nxt = el.querySelector('.nxt'), dots = [...el.querySelectorAll('.dots i')];
     let k = 0, st = null, n = 0, Q = null, timer = null; const res = [];
+    chartZoom(cv, () => (st ? st.bars.length : 1), () => self.draw());
     const self = { draw() { if (!st) return; const { B, intra } = paint(cv, st, n, Q.sc.overlay, -1); cnt.textContent = intra ? fdt(B[n].t, true) : new Date(B[n].t).toLocaleDateString('ru-RU', { timeZone: 'UTC' }); } };
     function show(i) {
-      clearInterval(timer); k = i; Q = QZ[k]; st = Q.sc.build(false, Q.tab); n = Q.at(st);
+      clearInterval(timer); k = i; Q = QZ[k]; st = Q.sc.build(false, Q.tab); n = Q.at(st); cv._v = null;
       qn.textContent = 'Вопрос ' + (k + 1) + ' из ' + QZ.length; dots.forEach((d, j) => d.classList.toggle('cur', j === k));
       qq.innerHTML = Q.q; why.innerHTML = ''; more.hidden = true; nxt.hidden = true;
       op.innerHTML = Q.opts.map((o, j) => `<button data-o="${j}">${o}</button>`).join('');
