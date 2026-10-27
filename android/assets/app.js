@@ -99,6 +99,9 @@
   const DEC = () => (S.decComma ? ',' : '.');   // разделитель дробной части: точка по умолчанию
   let tr = null;   // тренажёр: прокрутка истории (null — обычный режим)
   const curSwing = () => (tr ? tr.sw : S.swings[swKey()] || 0);
+  // 3.9: в тренажёре порог свой (tr.sw) — кнопки порога меняют его, а порог обычного графика бумаги не трогают
+  function setSw(v) { if (tr) { tr.sw = v; tr.swAuto = false; if (tr.ev.length && tr.ev[tr.ev.length - 1].kind === 'порог') tr.ev.pop(); trLog('порог', 'порог системы ' + String(v).replace('.', DEC()) + '%'); } else S.swings[swKey()] = v; }
+  function clrSw() { if (tr) { const done = all.filter((x) => x.done !== false); tr.sw = E.autoSwing(done.slice(-(S.cfg.maxBars || 2000)), S.cfg.swingMult || 1); tr.swAuto = true; if (tr.ev.length && tr.ev[tr.ev.length - 1].kind === 'порог') tr.ev.pop(); trLog('порог', 'порог системы — авто, ' + String(tr.sw).replace('.', DEC()) + '%'); } else delete S.swings[swKey()]; }
   // запись настроек + в лог — что именно поменялось (набор, таймфрейм, бумага, порог, дополнения, оповещения)
   let logSnap = null;
   function snapNow() { return { inst: S.inst.ticker, tf: S.tf, preset: S.preset || '', sw: S.swings[swKey()] || 0, cfg: JSON.stringify(S.cfg), watch: (S.watch || []).length, lv: (S.palerts || []).length, bg: S.bgMinutes }; }
@@ -118,9 +121,10 @@
     } catch (e) { /* лог не важнее настроек */ }
   }
   function fmtT(t, withTime) {
-    const d = new Date(t), p = (n) => String(n).padStart(2, '0');
-    const ds = p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2);
-    return withTime ? ds + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) : ds;
+    // 3.9: время на экране — по Москве (как биржа и робот), по желанию — по часам телефона (⚙ → Данные)
+    const d = D.dispDate(t), p = (n) => String(n).padStart(2, '0');
+    const ds = p(d.D) + '.' + p(d.M + 1) + '.' + String(d.Y).slice(2);
+    return withTime ? ds + ' ' + p(d.h) + ':' + p(d.m) : ds;
   }
 
   // ---------- демо-данные, пока нет токена ----------
@@ -203,7 +207,7 @@
     const last = all[all.length - 1], prev = all.length > 1 ? all[all.length - 2] : last;
     const ch = last.c / prev.c - 1;
     renderHud();
-    $('#quote').innerHTML = `<b class="mono">${pr(last.c)}</b> <span class="${ch >= 0 ? 'pos' : 'neg'}">${spc(ch)}</span> · ${fmtT(last.t, S.tf !== '1d' && S.tf !== '1w')}${demo ? ' · <span class="warn">демо</span>' : ''}`;
+    $('#quote').innerHTML = `<b class="mono">${pr(last.c)}</b> <span class="${ch >= 0 ? 'pos' : 'neg'}">${spc(ch)}</span> · ${fmtT(last.t, S.tf !== '1d' && S.tf !== '1w')}${S.tf !== '1d' && S.tf !== '1w' && S.tz !== 'local' ? ' МСК' : ''}${demo ? ' · <span class="warn">демо</span>' : ''}`;
   }
 
   // ---------- табличка в углу графика: какой «индикатор», тренд, что показывает сейчас ----------
@@ -286,7 +290,19 @@
   // ---------- дневник сделок ----------
   // Свои реальные сделки: вход, выход, комментарий; рядом — что в этот момент говорила система.
   const jList = () => D.store.get('journal', []);
-  const jSave = (l) => D.store.set('journal', l);
+  // 3.9: новые и закрытые записи «Моих сделок» — ещё и в журнал работы (чтобы в выгрузке лога была полная картина)
+  const jSave = (l) => {
+    try {
+      const was = new Map(jList().map((x) => [x.id, x])), nNew = l.filter((x) => !was.has(x.id)).length;
+      if (nNew > 20) D.log('journal', 'мои сделки: загружено записей ' + nNew + ' (по одной не пишем)', { kind: 'jimport', n: nNew });
+      for (const x of l) {
+        const y = was.get(x.id), base = { ticker: x.ticker, side: x.side, lots: x.lots, lot: x.lot, openT: x.openT, openP: x.openP, stop: x.stop, target: x.target, src: x.src || '' };
+        if (!y) { if (nNew <= 20) D.log('journal', 'мои сделки: ' + (x.side < 0 ? 'продажа ' : 'покупка ') + x.ticker + ' по ' + x.openP + (x.closeP ? ', закрыта по ' + x.closeP : ''), Object.assign({ kind: 'jadd', closeT: x.closeT || null, closeP: x.closeP || null }, base)); }
+        else if (!y.closeP && x.closeP) D.log('journal', 'мои сделки: закрыта ' + x.ticker + ' по ' + x.closeP + ' (вход ' + x.openP + ')', Object.assign({ kind: 'jclose', closeT: x.closeT, closeP: x.closeP, ret: +((x.side || 1) * (x.closeP / x.openP - 1) * 100).toFixed(2), R: x.stop ? +((x.side || 1) * (x.closeP - x.openP) / Math.abs(x.openP - x.stop)).toFixed(2) : null }, base));
+      }
+    } catch (e) { /* журнал не должен мешать дневнику */ }
+    D.store.set('journal', l);
+  };
   function barAt(t) {
     if (!an || !an.bars.length || t < an.bars[0].t) return null;
     let lo = 0, hi = an.bars.length - 1;
@@ -497,13 +513,38 @@
   // ---------- виртуальный счёт робота ----------
   const robotTf = (key) => { const p = PRESETS.find((x) => x[0] === key); return p ? p[2] : '1d'; };
   // 3.1: риск на сделку у роботов — по набору (проверка 2018–2026: основной 26 → 30%/год, «4 часа · неделя» 20 → 23%, просадка +0,6…1,6 п.п.); остальные — как в настройках
-  const ROBOT_RISK = { d_long: 1.5, h4_week: 1.5 };
+  // 3.9: риск у роботов больше не берётся из ⚙ → Счета — у каждого робота свой (рекомендуемый по проверке 25.10 или свой: a.riskOwn)
+  const ROBOT_RISK = { d_long: 1.5, h4_week: 1.5, d_aggr: 1, h4_tri: 1 };
   function robotCfg(key) {
     const p = PRESETS.find((x) => x[0] === key);
-    return Object.assign({ maxBars: 2000, riskPct: ROBOT_RISK[key] || S.cfg.riskPct || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
+    return Object.assign({ maxBars: 2000, riskPct: ROBOT_RISK[key] || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
       { setups: Object.assign({}, W3ABC), addComplexTrade: false, addPhaseExit: false, addMinRR: false, addDepth: false, exitMode: 'fixed', targetMode: 'main', minScore: 45, bookTrend: true, addTrend: 'none', stopW2: false, localBars: 2, maxHoldDays: 0 }, p ? p[3] : {});
   }
-  let robotBusy = false, robotMsg = '', robotArm = '';
+  const robCfgFor = (a) => Object.assign(robotCfg(a.key), a.riskOwn ? { riskPct: a.riskOwn } : {});   // настройки набора + свой риск робота
+  // 3.9: однократно — у запущенных роботов риск остаётся, каким был (свой, если не совпадает с рекомендуемым)
+  function migrateRisk() {   // вызывается в конце запуска (PRESETS объявлены ниже)
+    if ((S.cfgVer || 0) >= 7) return;
+    try { const W = D.vaccGet(); if (W && W.accs) { for (const a of W.accs) if (!a.manual && !a.crypto && a.cfg && a.cfg.riskPct && a.cfg.riskPct !== robotCfg(a.key).riskPct) a.riskOwn = a.cfg.riskPct; D.vaccSet(W); } } catch (e) { /* роботов нет */ }
+    S.cfgVer = 7; D.saveSettings(S);
+  }
+  let robotBusy = false, robotMsg = '', robotArm = '', riskArm = null;
+  // 3.9: свой риск на сделку у робота — поле, кнопка «рекомендуемый» и предупреждение перед сохранением
+  function riskBox(a) {
+    const rec = robotCfg(a.key).riskPct, cur = a.cfg.riskPct || rec, n = (x) => String(x).replace('.', DEC());
+    let h = `<div class="field" style="margin-top:8px"><label>Риск на сделку, % капитала — сейчас ${n(cur)}%${a.riskOwn ? ' (свой)' : ' (рекомендуемый)'}</label>
+      <div class="row"><input type="number" step="0.1" min="0.1" max="5" id="rRisk" value="${cur}" style="flex:1"><button data-rrisk="${a.key}">Сохранить</button>${cur !== rec ? `<button data-rrrec="${a.key}">Вернуть ${n(rec)}%</button>` : ''}</div>
+      <div class="small mut">Рекомендуемый по проверке на истории: ${n(rec)}%. Сколько потерять до стопа в одной сделке: ${n(cur)}% капитала робота.</div></div>`;
+    if (riskArm && riskArm.key === a.key) {
+      const v = riskArm.v, more = v > cur, big = v > rec;
+      h += `<div class="note warn" style="margin-top:6px"><b>Поставить риск ${n(v)}% вместо ${n(cur)}%?</b><ul style="margin:4px 0 0 18px;padding:0">
+        ${more ? `<li>Просадки станут глубже. На истории бывало до 15 стопов подряд: это примерно −${n(Math.round(v * 15 * 10) / 10)}% счёта при ${n(v)}% (сейчас −${n(Math.round(cur * 15 * 10) / 10)}%).</li>` : '<li>Сделки станут мельче: и прибыль, и убытки меньше.</li>'}
+        ${big ? `<li>Выше рекомендуемого доход почти не растёт: позиции упираются в лимит 25% счёта и в свободные деньги${a.key === 'd_aggr' ? ', а у агрессивного выше 1% на истории было только хуже' : ''}.</li>` : ''}
+        ${v !== rec ? '<li>Результат робота нельзя будет честно сравнить с проверкой на истории и с другими роботами в «гонке».</li>' : ''}
+        <li>Новый риск — только для новых сделок; открытые позиции остаются, как были.</li></ul>
+        <div class="row" style="margin-top:6px"><button data-rryes="${a.key}">Да, поставить ${n(v)}%</button><button data-rrno="1">Отмена</button></div></div>`;
+    }
+    return h;
+  }
   const rub0 = (x) => Math.round(x).toLocaleString('ru-RU') + ' ₽';
   const usd0 = (x) => '$' + Math.round(x).toLocaleString('ru-RU');
   const money = (a, x) => (a && a.crypto ? usd0(x) : rub0(x));   // 3.2: счёт робота «Биткоин · тренд» — в долларах
@@ -686,7 +727,7 @@
       h += `<div class="card"><h3>Виртуальный счёт робота</h3>
         <div class="small">Четыре робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор, <b>«4 часа · неделя»</b> (короткие сделки, на выходные — только прибыльные или с целым каналом) и <b>«продажи по треугольнику»</b> (наблюдение: шорт после треугольника на 4-часовых свечах).</div>
         <ul class="small bul"><li>Сами выбирают из топ-50 акций по обороту, покупают по сигналам, ведут стоп и выходят — ровно как бэктест, но с этого дня и вперёд.</li>
-        <li>Деньги общие на все бумаги: риск на сделку у основного и «4 часа · неделя» — 1,5%, у остальных — ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
+        <li>Деньги общие на все бумаги: риск на сделку у каждого робота свой (основной и «4 часа · неделя» — 1,5%, агрессивный и треугольник — 1%; меняется в «⚙ Настройки» на карточке робота), позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
         <li>Свободные деньги лежат в фонде ликвидности. Пополнения и выводы вашего реального счёта повторяются сами. Дивиденды начисляются за вычетом налога.</li></ul>
         <div class="small" style="margin-top:6px">Про каждую покупку и продажу придёт уведомление — можно повторять в Т-Инвестициях. Сигнал по дневке приходит вечером после закрытия дня: «завтра на открытии купит…».</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div class="field"><label>Стартовый капитал, ₽</label><input type="number" id="vCap" step="1000" min="1000" value="${cap}"></div>
@@ -727,7 +768,7 @@
       ${V.accs.some((a) => a.key === 'h4_week') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddW">➕ Добавить робота «4 часа · неделя»</button></div><div class="small">Короткие сделки по 4-часовым свечам: в пятницу сделку без прибыли закрывает, прибыльную переносит на следующую неделю в безубытке. Стартовые деньги — как у основного; торгует только по новым сигналам.</div>'}
       ${V.accs.some((a) => a.key === 'h4_tri') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddT">➕ Добавить робота «продажи по треугольнику»</button></div><div class="small">Наблюдение (3.0): 4-часовые свечи, только продажи (шорт) после завершённого треугольника. На истории ~13 сделок в год, в среднем +0,5 R, но прибыль дали немногие бумаги — смотрим, как пойдёт вживую. Плата брокера за шорт тут не считается. Стартовые деньги — как у основного.</div>'}
       ${V.accs.some((a) => a.key === 'btc_trend') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddB">➕ Добавить робота «Биткоин · тренд»</button></div><div class="small">Не волны, а тренд (3.2): держит биткоин, пока дневное закрытие выше средней за 100 дней, иначе всё в долларах. Доля биткоина — по волатильности, чтобы просадка была меньше. На истории 2018–2026 ~27%/год, просадка ~25%; за последний год — около нуля. Цены — с открытого сайта Binance, без ключа. Счёт условный, $1 000; робот сам не торгует — присылает сигнал «вход / выход / сменить долю».</div>'}
-      ${(() => { const old = V.accs.filter((a) => !a.manual && !a.crypto && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${(() => { const NEW = [['addSma200', 'фильтр «SMA200 растёт»'], ['addAO', 'фильтр AO 5/34'], ['addPyramid', 'доливка на 110% волны 1'], ['addMinRR', 'фильтр «прибыль/риск не меньше 1,5»'], ['wkChan', 'на выходные — и убыточную, пока цел канал'], ['wkNextOpen', 'пятничный выход — по открытию понедельника'], ['topOnly', 'сигнал только от лучшего подсчёта']]; const it = NEW.filter(([k]) => old.some((a) => robotCfg(a.key)[k] && !a.cfg[k])).map(([, t]) => t); if (old.some((a) => (a.key === 'd_long' || a.key === 'd_aggr') && !a.be)) it.push('безубыток 3×ATR'); for (const a of old) { const r = robotCfg(a.key).riskPct; if (r !== a.cfg.riskPct) it.push('риск на сделку у «' + a.name + '» — ' + String(r).replace('.', ',') + '%'); } return it.join(', ') || 'обновлённые параметры'; })()}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
+      ${(() => { const old = V.accs.filter((a) => !a.manual && !a.crypto && JSON.stringify(a.cfg) !== JSON.stringify(robCfgFor(a))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${(() => { const NEW = [['addSma200', 'фильтр «SMA200 растёт»'], ['addAO', 'фильтр AO 5/34'], ['addPyramid', 'доливка на 110% волны 1'], ['addMinRR', 'фильтр «прибыль/риск не меньше 1,5»'], ['wkChan', 'на выходные — и убыточную, пока цел канал'], ['wkNextOpen', 'пятничный выход — по открытию понедельника'], ['topOnly', 'сигнал только от лучшего подсчёта']]; const it = NEW.filter(([k]) => old.some((a) => robotCfg(a.key)[k] && !a.cfg[k])).map(([, t]) => t); for (const a of old) { const r = robCfgFor(a).riskPct; if (r !== a.cfg.riskPct) it.push('риск на сделку у «' + a.name + '» — ' + String(r).replace('.', ',') + '%'); } return it.join(', ') || 'обновлённые параметры'; })()}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
       <div class="row" style="margin-top:8px"><button id="vCsv">⬇ Отчёт CSV</button><button id="vJson">⬇ JSON</button></div>
       <div class="small" id="vExpRes">Все сделки роботов и ваши виртуальные: открытые и закрытые, вход, стоп, цель, выход, причина, ₽, дивиденды, доливки, плюс итоги по каждому счёту. CSV — открыть в таблице; JSON — прислать на разбор.</div>
       <div class="row" style="margin-top:6px"><button id="vReset">${robotArm === 'reset' ? 'Точно стереть? Нажмите ещё раз' : 'Сбросить роботов'}</button></div></div>`;
@@ -767,7 +808,7 @@
       if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
         h += `<div class="card"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
       h += `<div class="card${foldC('robSet', true)}" data-fold="robSet"><h3>⚙ Настройки · ${esc(a.name)}</h3>
-        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>`}
+        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${riskBox(a)}`}
         <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
     }
     $('#robBody').innerHTML = h; robNav(V);
@@ -784,6 +825,17 @@
       a.be = !a.be; D.vaccSet(W); D.log('robot', a.name + ': безубыток 3×ATR ' + (a.be ? 'включён' : 'выключен') + (a.manual ? '' : ' для новых сделок'));
       robotMsg = a.name + ': безубыток ' + (a.be ? 'включён — ' + (a.manual ? 'ваши позиции' : 'новые сделки') + ' переводятся в безубыток, когда цена уйдёт на 3×ATR от входа.' : 'выключен.') + (!a.manual && a.pos.length ? ' Открытые позиции ведутся так, как были открыты.' : ''); renderRobot();
     }; });
+    $('#robBody').querySelectorAll('[data-rrisk]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); const a = V.accs.find((x) => x.key === b.dataset.rrisk), v = Math.round(Math.max(0.1, Math.min(5, Number($('#rRisk').value) || 0)) * 10) / 10; if (!a || !v || v === (a.cfg.riskPct || 0)) { riskArm = null; renderRobot(); return; } riskArm = { key: a.key, v }; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rrrec]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); riskArm = { key: b.dataset.rrrec, v: robotCfg(b.dataset.rrrec).riskPct }; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rrno]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); riskArm = null; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rryes]').forEach((b) => { b.onclick = (e) => {
+      e.stopPropagation(); if (robWait() || !riskArm) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rryes); if (!a) return;
+      const v = riskArm.v, old = a.cfg.riskPct, rec = robotCfg(a.key).riskPct;
+      if (v === rec) delete a.riskOwn; else a.riskOwn = v;
+      a.cfg = Object.assign({}, a.cfg, { riskPct: v }); D.vaccSet(W); riskArm = null;
+      D.log('robot', a.name + ': риск на сделку ' + old + ' → ' + v + '%' + (v === rec ? ' (рекомендуемый)' : ' (свой)') + (a.pos.length ? ', открытые позиции — как были' : ''), { kind: 'risk', key: a.key, from: old, to: v });
+      robotMsg = a.name + ': риск на сделку теперь ' + String(v).replace('.', DEC()) + '% — для новых сделок.'; renderRobot();
+    }; });
     $('#robBody').querySelectorAll('[data-rms],[data-rmc]').forEach((b) => { b.onclick = (e) => {
       e.stopPropagation(); const [key, v] = (b.dataset.rms || b.dataset.rmc).split('|'); S.rmStyle = Object.assign({}, S.rmStyle); S.rmStyle[key] = Object.assign({}, rmStyle(key), b.dataset.rms ? { sh: v } : { c: v }); save(); robCache.at = 0; renderRobot(); draw();
     }; });
@@ -793,11 +845,11 @@
       const W = D.vaccGet(); let n = 0;
       for (const a of W.accs) {
         if (a.manual || a.crypto) continue;
-        const nc = robotCfg(a.key); if (JSON.stringify(a.cfg) === JSON.stringify(nc)) continue;
-        if (a.pos.length) { a.cfgPrev = a.cfgPrev || a.cfg; a.pos.forEach((p) => { p.legacy = true; }); }
+        const nc = robCfgFor(a), oc = a.cfg; if (JSON.stringify(oc) === JSON.stringify(nc)) continue;
+        if (a.pos.length) { a.cfgPrev = a.cfgPrev || oc; a.pos.forEach((p) => { p.legacy = true; }); }
         a.cfg = nc; n++;
-        if (a.key === 'd_aggr' || a.key === 'd_long') a.be = true;   // 2.38: безубыток 3×ATR — часть агрессивного набора, 3.0 — и основного (кнопка 🛡 по-прежнему выключает)
-        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1', nc.addMinRR && 'П/Р ≥ ' + nc.minRR, (a.key === 'd_aggr' || a.key === 'd_long') && 'безубыток 3×ATR', nc.wkChan && 'неделя: канал', nc.wkNextOpen && 'выход по открытию пн', nc.topOnly && 'только лучший подсчёт', nc.riskPct !== a.cfg.riskPct && 'риск ' + nc.riskPct + '%'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
+        // 3.9: безубыток 🛡 здесь больше не включается сам — как вы его поставили кнопкой, так и остаётся
+        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && !oc.addSma200 && 'SMA200', nc.addAO && !oc.addAO && 'фильтр AO', nc.addPyramid && !oc.addPyramid && 'доливка 110% W1', nc.addMinRR && !oc.addMinRR && 'П/Р ≥ ' + nc.minRR, nc.wkChan && !oc.wkChan && 'неделя: канал', nc.wkNextOpen && !oc.wkNextOpen && 'выход по открытию пн', nc.topOnly && !oc.topOnly && 'только лучший подсчёт', nc.riskPct !== oc.riskPct && 'риск ' + oc.riskPct + ' → ' + nc.riskPct + '%'].filter(Boolean).join(', ') || 'параметры набора' + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
       }
       D.vaccSet(W); robotMsg = n ? 'Настройки обновлены у ' + n + ' робота(ов). Новые сделки — по новым правилам.' : ''; renderRobot();
     };
@@ -862,7 +914,7 @@
     const out = []; let V = null; try { V = D.vaccGet(); } catch (e) { V = null; }
     if (V && V.accs) for (const a of V.accs) {
       const lt = a.manual ? 'Я' : a.key === 'd_aggr' ? 'А' : a.key === 'h4_week' ? 'Н' : a.key === 'h4_tri' ? 'Т' : a.key === 'btc_trend' ? 'Б' : 'О', key = a.manual ? 'manual' : a.key;
-      for (const p of a.pos) if (p.id === S.inst.id) out.push({ lt, key, side: p.side || 1, t0: p.entryT, e: p.entry, open: true, stop: p.stop, be: !!p.beOn });
+      for (const p of a.pos) if (p.id === S.inst.id) out.push({ lt, key, side: p.side || 1, t0: p.markT || p.entryT, e: p.mark || p.entry, open: true, stop: p.stop, be: !!p.stop && (p.side || 1) * (p.stop - p.entry) >= 0 });   // 3.9: «БУ» — когда стоп не хуже входа; позиция со счёта — на свече и по цене настоящей покупки
       for (const c of a.closed) if (c.id === S.inst.id) out.push({ lt, key, side: c.side || 1, t0: c.entryT, e: c.entry, t1: c.exitT, x: c.exit, pl: c.pl });
     }
     // одинаковые сделки разных роботов (оба купили в один момент) — одной отметкой «ОА»
@@ -1104,7 +1156,7 @@
     const st = an.stats, n = st.trades;
     const avgR = n ? st.sumR / n : 0, pf = st.gl > 0 ? st.gp / st.gl : st.gp > 0 ? 99 : 0;
     h += `<div class="card${foldC('bt')}" data-fold="bt"><h3><span class="grow">Порог разворота и бэктест</span></h3>
-      <div class="stepper"><button id="swMinus">−</button><b class="mono" style="min-width:58px;text-align:center">${an.swing.toFixed(an.swing < 2 ? 2 : 1).replace('.', DEC())}%</b><button id="swPlus">+</button><button id="swAuto" class="${curSwing() ? '' : 'on'}">Авто</button><button id="swOpt">Лучший R</button><button id="swOptRet">Макс. %</button></div>
+      <div class="stepper"><button id="swMinus">−</button><b class="mono" style="min-width:58px;text-align:center">${an.swing.toFixed(an.swing < 2 ? 2 : 1).replace('.', DEC())}%</b><button id="swPlus">+</button><button id="swAuto" class="${(tr ? !tr.swAuto : curSwing()) ? '' : 'on'}">Авто</button><button id="swOpt">Лучший R</button><button id="swOptRet">Макс. %</button></div>
       <div class="kv">
         <div><small>Сделок</small><b>${n}</b></div>
         <div><small>Прибыльных</small><b>${n ? Math.round(st.wins / n * 100) : 0}%</b></div>
@@ -1121,11 +1173,11 @@
       <div class="small">Бэктест на ${an.N} свечах${an.gapFrom ? ' (после разрыва в истории, с ' + fmtT(an.gapFrom) + ')' : ''}</div>
       ${divAdj.length ? `<div class="small">История скорректирована на дивиденды: ${divAdj.length} ${divAdj.length === 1 ? 'отсечка' : divAdj.length < 5 ? 'отсечки' : 'отсечек'}, последняя ${fmtT(divAdj[0].t)} — ${pr(divAdj[0].d)} ₽. Цены до отсечки на графике ниже биржевых.</div>` : ''}
 ${n && n < 30 ? '<div class="note">Сделок меньше 30: результат может быть случайным.</div>' : ''}
-      <table style="margin-top:8px"><thead><tr><th>Порог</th>${an.sens.map((x) => `<th>${x.swing.toFixed(1).replace('.', DEC())}${x.cur ? '*' : ''}</th>`).join('')}</tr></thead><tbody>
+      <div style="overflow-x:auto;max-width:100%"><table style="margin-top:8px;font-size:12px"><thead><tr><th>Порог</th>${an.sens.map((x) => `<th>${x.swing.toFixed(1).replace('.', DEC())}${x.cur ? '*' : ''}</th>`).join('')}</tr></thead><tbody>
         <tr><td>Сделок</td>${an.sens.map((x) => `<td>${x.st.trades}</td>`).join('')}</tr>
         <tr><td>Ср. R</td>${an.sens.map((x) => `<td>${x.st.trades ? f2(x.st.sumR / x.st.trades) : '—'}</td>`).join('')}</tr>
         <tr><td>Доход</td>${an.sens.map((x) => `<td>${spc(x.st.totalRet)}</td>`).join('')}</tr>
-      </tbody></table>
+      </tbody></table></div>
       ${S.view.be && n ? beSummary() : ''}
       ${n ? `<div class="small" style="margin-top:6px">По сетапам: ${st.sn.map((k, i) => (k ? E.SETUP_SHORT[i] + ' ' + k + '/' + Math.round(st.sw[i] / k * 100) + '%' : '')).filter(Boolean).join(' · ')}</div>` : ''}
     </div>`;
@@ -1207,7 +1259,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     setTimeout(() => {
       const done = all.filter((x) => x.done !== false);
       const o = E.optimizeReturn(done, S.cfg, D.TF[S.tf].ms);
-      retRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true);
+      retRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true);
       if (after) after();
     }, 30);
   }
@@ -1229,7 +1281,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="small" style="margin-top:4px">Проверка «вперёд»: подбор по истории до ${fmtT(ch.splitT)} выбрал ${swFmt(ch.sw)}% — на оставшейся части он дал <b class="${ch.picked >= 0 ? 'pos' : 'neg'}">${spc(ch.picked)}</b>, авто — <b class="${ch.auto >= 0 ? 'pos' : 'neg'}">${spc(ch.auto)}</b>. ${ch.picked > ch.auto + 0.01 ? '<span class="pos">Подбор помогал.</span>' : ch.picked < ch.auto - 0.01 ? '<span class="neg">Подбор не помог — на будущем лучший по истории порог проиграл авто.</span>' : '<span class="mut">Разницы почти нет.</span>'}</div></div>`;
   }
   function bindRetBars(root) {
-    root.querySelectorAll('[data-rsw]').forEach((bt) => { bt.onclick = () => { S.swings[swKey()] = Number(bt.dataset.rsw); save(); sel = -1; compute(true); if (!pop.hidden && popFor === 'swChip') fillPop(); }; });
+    root.querySelectorAll('[data-rsw]').forEach((bt) => { bt.onclick = () => { setSw(Number(bt.dataset.rsw)); save(); sel = -1; compute(true); if (!pop.hidden && popFor === 'swChip') fillPop(); }; });
   }
   function optBlock() {
     const o = optRes[swKey()];
@@ -1237,14 +1289,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const ch = o.check, fR = (r) => `<b class="${r.R >= 0 ? 'pos' : 'neg'}">${f2(r.R)} R</b> (${r.n} сд.)`;
     const better = ch.picked.R > ch.auto.R + 0.5, worse = ch.picked.R < ch.auto.R - 0.5;
     return `<div class="small" style="margin-top:6px">Подобран <b>${o.best.sw.toFixed(2).replace('.', DEC())}%</b>: ${fR(o.best.all)} на всей истории.
-      <table style="margin-top:6px"><thead><tr><th>Порог</th><th>Сделок</th><th>Приб.</th><th>Сумма R</th><th>Доходность</th><th>Просадка</th></tr></thead><tbody>
+      <div style="overflow-x:auto;max-width:100%"><table style="margin-top:6px;font-size:12px;width:100%"><thead><tr><th>Порог</th><th>Сд.</th><th>Приб.</th><th>Σ R</th><th>Доход</th><th>Просад.</th></tr></thead><tbody>
       ${o.grid.map((r, k) => {
         const nb = [o.grid[k - 1], o.grid[k + 1]].filter(Boolean), lone = r === o.best && nb.length && nb.every((x) => x.all.R < 0);
         const isCur = Math.abs(curSwing() - r.sw) < 1e-9;
         return `<tr class="${isCur ? 'sel' : ''} ${r === o.best ? 'cur' : ''}" data-osw="${r.sw}"><td>${r.sw.toFixed(2).replace('.', DEC())}%${r === o.best ? ' ★' : ''}${isCur ? ' ✓' : ''}</td><td>${r.all.n}</td><td>${r.all.n ? Math.round(r.all.w / r.all.n * 100) : 0}%</td>
           <td class="${r.all.R >= 0 ? 'pos' : 'neg'}">${f2(r.all.R)}</td><td class="${r.ret >= 0 ? 'pos' : 'neg'}">${spc(r.ret)}</td><td>${pc(r.dd)}</td></tr>${lone ? '' : ''}`;
-      }).join('')}</tbody></table>
-      <div class="small">★ — лучший по сумме R, ✓ — стоит сейчас. Нажмите на строку, чтобы поставить этот порог.</div>
+      }).join('')}</tbody></table></div>
+      <div class="small">Сд. — сделок, Σ R — сумма R. ★ — лучший по сумме R, ✓ — стоит сейчас. Нажмите на строку, чтобы поставить этот порог.</div>
       ${(() => { const k = o.grid.indexOf(o.best), nb = [o.grid[k - 1], o.grid[k + 1]].filter(Boolean); return nb.length && nb.every((x) => x.all.R < 0) ? '<div class="note">Лучший порог стоит особняком: у соседних порогов убыток. Скорее всего, это случайность истории — надёжнее порог из зоны, где хороши несколько соседних значений подряд.</div>' : ''; })()}
       <div style="margin-top:4px">Проверка «вперёд» — подбор только на истории до ${fmtT(ch.splitT)}, потом торговля дальше: подобранный ${ch.sw.toFixed(2).replace('.', DEC())}% дал ${fR(ch.picked)}, авто ${ch.autoSw.toFixed(2).replace('.', DEC())}% — ${fR(ch.auto)}.
       <span class="${better ? 'pos' : worse ? 'neg' : 'mut'}">${better ? 'Подбор на этой бумаге помогал.' : worse ? 'Подбор на этой бумаге не помог — лучший порог прошлого не повторился.' : 'Разница небольшая.'}</span></div>
@@ -1263,8 +1315,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function swNext(s, up) { const st = up ? swStep(s) : swStep(s - swStep(s) * 0.5); return swRound(s + (up ? st : -st)); }
   function stepSwing(up, fixOnly) {
     let s = an ? an.swing : 3;
-    if (fixOnly) { S.swings[swKey()] = s; save(); compute(true); return; }
-    S.swings[swKey()] = swNext(s, up); save(); sel = -1; compute(true);
+    if (fixOnly) { setSw(s); save(); compute(true); return; }
+    setSw(swNext(s, up)); save(); sel = -1; compute(true);
   }
   // ползунок: логарифмическая шкала 0,1–20%
   const SW_MIN = 0.1, SW_MAX = 20;
@@ -1277,7 +1329,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     return `Бэктест: <b class="${st.totalRet >= 0 ? 'pos' : 'neg'}">${spc(st.totalRet)}</b> · ${st.trades} сд. · ${wr}% прибыльных${st.sumNR != null ? ` · <span class="${st.sumNR >= 0 ? 'pos' : 'neg'}">${f2(st.sumNR)} R</span> чистыми` : ''}`;
   }
   function swApply(v, live) {
-    S.swings[swKey()] = v; sel = -1;
+    setSw(v); sel = -1;
     const lab = $('#sxVal'); if (lab) lab.textContent = swFmt(v) + '%';
     if (live && swSlow) return;   // на медленном телефоне пересчёт только когда отпустили
     clearTimeout(swLiveT);
@@ -1304,14 +1356,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const R = $('#sxR');
     R.oninput = () => swApply(xToSw(Number(R.value)), true);
     R.onchange = () => { swApply(xToSw(Number(R.value)), false); save(); };
-    holdRepeat($('#sxM'), () => { const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), false); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(S.swings[swKey()], false); });
-    holdRepeat($('#sxP'), () => { const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), true); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(S.swings[swKey()], false); });
-    $('#sxAuto').onclick = () => { delete S.swings[swKey()]; save(); sel = -1; compute(true); fillPop(); };
+    holdRepeat($('#sxM'), () => { const v = swNext(curSwing() || (an ? an.swing : 3), false); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(curSwing(), false); });
+    holdRepeat($('#sxP'), () => { const v = swNext(curSwing() || (an ? an.swing : 3), true); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(curSwing(), false); });
+    $('#sxAuto').onclick = () => { clrSw(); save(); sel = -1; compute(true); fillPop(); };
     $('#sxRet').onclick = () => { const bt = $('#sxRet'); bt.disabled = true; bt.textContent = 'Считаю…'; runRetOpt(fillPop); };
     bindRetBars(pop);
     $('#sxOpt').onclick = () => {
       const bt = $('#sxOpt'); bt.disabled = true; bt.textContent = 'Считаю…';
-      setTimeout(() => { const done = all.filter((x) => x.done !== false); const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms); optRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true); fillPop(); }, 30);
+      setTimeout(() => { const done = all.filter((x) => x.done !== false); const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms); optRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true); fillPop(); }, 30);
     };
   }
   // нажать и держать: сразу шаг, через 0,4 с — повтор, всё быстрее
@@ -1352,14 +1404,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     document.querySelectorAll('[data-alt]').forEach((bt) => { bt.onclick = () => { panelAnchor = bt.id; aTopSaved(bt.id); altSel = Number(bt.dataset.alt); renderPanel(); draw(); }; });
     b('jrnQuick', () => openJournal({ mode: 'open' }));
     document.querySelectorAll('#panel [data-jclose]').forEach((bt) => { bt.onclick = () => openJournal({ mode: 'close', id: bt.dataset.jclose }); });
-    b('swAuto', () => { delete S.swings[swKey()]; save(); sel = -1; compute(true); });
-    document.querySelectorAll('[data-osw]').forEach((tr) => { tr.onclick = () => { const o = optRes[swKey()]; const sw = Number(tr.dataset.osw); S.swings[swKey()] = sw; save(); sel = -1; compute(true); }; });
+    b('swAuto', () => { clrSw(); save(); sel = -1; compute(true); });
+    document.querySelectorAll('[data-osw]').forEach((ro) => { ro.onclick = () => { const o = optRes[swKey()]; const sw = Number(ro.dataset.osw); setSw(sw); save(); sel = -1; compute(true); }; });
     b('swOpt', () => {
       const bt = $('#swOpt'); if (bt) { bt.disabled = true; bt.textContent = 'Считаю…'; }
       setTimeout(() => {
         const done = all.filter((x) => x.done !== false);
         const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms);
-        optRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true);
+        optRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true);
       }, 30);
     });
     b('swOptRet', () => { const bt = $('#swOptRet'); if (bt) { bt.disabled = true; bt.textContent = 'Считаю…'; } runRetOpt(); });
@@ -1391,7 +1443,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     $('#chips').querySelectorAll('button[data-sw]').forEach((b) => {
       const up = Number(b.dataset.sw) > 0;
       holdRepeat(b, () => {
-        const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), up); S.swings[swKey()] = v;
+        const v = swNext(curSwing() || (an ? an.swing : 3), up); setSw(v);
         const c = $('#swChip'); if (c) { c.textContent = 'Порог ' + swFmt(v) + '% ▾'; c.classList.remove('on'); }
       }, () => { save(); sel = -1; compute(true); });
     });
@@ -1610,7 +1662,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ================= ТРЕНАЖЁР =================
   // История показывается до «сегодня» тренажёра; текущая свеча растёт по свечам младшего ТФ (или по пути O→H/L→C).
-  // Система (сигналы и сделки бэктеста) работает только по закрытым свечам, порог заморожен на старте.
+  // Система (сигналы и сделки бэктеста) работает только по закрытым свечам; порог — свой у тренировки (tr.sw), с 3.9 его можно менять.
   const SUB_TF = { '1w': '1d', '1d': '1h', '4h': '15m', '1h': '5m' };
   // младшие свечи для роста текущей свечи грузим кусками по ходу прокрутки (дней за раз)
   const SUB_CHUNK = { '1h': 21, '4h': 60, '1d': 180, '1w': 720 };
@@ -1933,7 +1985,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const sp = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 10, 15, 20, 30], big = [1, 4, 15, 30];
     B.innerHTML = `<div class="row"><button id="trPP">${tr.playing ? '⏸' : '▶'}</button><button id="trS1" title="шаг">+1</button><button id="trSB" title="до конца свечи">⏭</button><button id="trW" class="${tr.waves ? 'on' : ''}" title="волновая разметка">🌊</button>
       <span class="spdg"><button id="trSm" aria-label="медленнее">−</button><button id="trSx" class="spdv" title="быстро переключить: 1 → 4 → 15 → 30 шагов/с">${tr.speed < 1 ? (1 / tr.speed) + ' с/шаг' : tr.speed + '/с'}<small>⏩</small></button><button id="trSp" aria-label="быстрее">+</button></span><button id="trX" class="${tr.finished && tr.xPane != null ? 'on' : ''}" aria-label="Закончить" title="итоги на весь экран; ещё раз — вернуть график">✕</button></div>
-      <div class="row"><button id="trB" class="buy">Buy</button><button id="trSl" class="sell">Sell</button><button id="trTk" class="${tr.ticket ? 'on' : ''}">Ордер ▾</button><button id="trPl" class="${popFor === 'trPl' ? 'on' : ''}" title="план сигнала и открытая сделка системы">План</button><button id="trLy" class="${popFor === 'trBar' ? 'on' : ''}">Слои ▾</button><span class="inf">${tr.cur < tr.full.length ? fmtT(tr.full[tr.cur].t, S.tf !== '1d' && S.tf !== '1w') + ' · ' + tr.j + '/' + path.length : 'конец'} · ${Math.round(trEq()).toLocaleString('ru-RU')} ₽</span></div>
+      <div class="row"><button id="trB" class="buy">Buy</button><button id="trSl" class="sell">Sell</button><button id="trTk" class="${tr.ticket ? 'on' : ''}">Ордер ▾</button><button id="trPl" class="${popFor === 'trPl' ? 'on' : ''}" title="план сигнала и открытая сделка системы">План</button><button id="trLy" class="${popFor === 'trBar' ? 'on' : ''}">Слои ▾</button></div>
+      <div class="small mut" style="margin:2px 2px 0">🕒 ${tr.cur < tr.full.length ? fmtT(tr.full[tr.cur].t, S.tf !== '1d' && S.tf !== '1w') + ' · шаг ' + tr.j + '/' + path.length : 'конец истории'} · капитал ${Math.round(trEq()).toLocaleString('ru-RU')} ₽</div>
       ${trPlanStrip()}
       ${tr.ticket ? `<div class="row"><span class="inf" style="flex:none">Объём</span><select id="trPct" class="tin" style="flex:none;width:auto">${[10, 25, 50, 100].map((v) => `<option value="${v}" ${(S.trPct || 100) === v ? 'selected' : ''}>${v}%</option>`).join('')}</select><span class="inf" style="flex:none">SL</span><input type="number" step="any" id="tkSL" class="tin" value="${tr.tk && tr.tk.sl ? tr.tk.sl : ''}" placeholder="нет"><span class="inf" style="flex:none">TP</span><input type="number" step="any" id="tkTP" class="tin" value="${tr.tk && tr.tk.tp ? tr.tk.tp : ''}" placeholder="нет"></div>
         <div class="row"><span class="inf" style="flex:none">Цена</span><input type="number" step="any" id="tkPx" class="tin" placeholder="${pr(trPx())}"><button id="tkBuyP">Buy по цене</button><button id="tkSellP">Sell по цене</button></div>
@@ -2023,7 +2076,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const sysR = sys.filter((t) => t.reason !== 3).reduce((s, t) => s + t.NR, 0), sysW = sys.filter((t) => t.reason !== 3 && t.NR > 0).length, sysN = sys.filter((t) => t.reason !== 3).length;
     const bh = trPx() / tr.startPx - 1, days = Math.round(((all.length ? all[all.length - 1].t : tr.startT) - tr.startT) / 86400000);
     let h = `<div class="card${foldC('tr')}" data-fold="tr" style="border-color:#3f6fb3"><h3><span class="grow">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}${tr.finished ? ' · итоги' : ''}</span></h3>
-      <div class="small">Старт ${fmtT(tr.startT, false)} · прошло ${days} дн. · порог системы ${String(tr.sw).replace('.', DEC())}% (заморожен)</div>
+      <div class="small">Старт ${fmtT(tr.startT, false)} · прошло ${days} дн. · порог системы ${String(tr.sw).replace('.', DEC())}%${tr.swAuto ? ' (авто на старте)' : ''} — можно менять кнопками порога, порог обычного графика при этом не меняется</div>
       <div class="kv"><div><small>Вы</small><b class="${ret >= 0 ? 'pos' : 'neg'}">${spc(ret)}</b></div><div><small>Система</small><b class="${sysR >= 0 ? 'pos' : 'neg'}">${f2(sysR)} R</b></div><div><small>Купил и держал</small><b class="${bh >= 0 ? 'pos' : 'neg'}">${spc(bh)}</b></div>
       <div><small>Ваших сделок</small><b>${tr.trades.length}${tr.trades.length ? ' · ' + Math.round(w / tr.trades.length * 100) + '%' : ''}</b></div><div><small>Сделок системы</small><b>${sysN}${sysN ? ' · ' + Math.round(sysW / sysN * 100) + '%' : ''}</b></div><div><small>Капитал</small><b>${Math.round(eq).toLocaleString('ru-RU')} ₽</b></div></div>
       ${tr.trades.slice(-6).reverse().map((t) => `<div class="small">${t.side > 0 ? '▲' : '▼'} ${fmtT(t.t0, false)} ${pr(t.entry)} → ${fmtT(t.t1, false)} ${pr(t.exit)} · ${esc(t.why)} · <span class="${t.pl >= 0 ? 'pos' : 'neg'}">${t.pl >= 0 ? '+' : '−'}${Math.round(Math.abs(t.pl)).toLocaleString('ru-RU')} ₽</span></div>`).join('')}
@@ -2100,7 +2153,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     if (!tr.adj) trFixSub(tr, Object.keys(tr.sub));
     demo = false; err = ''; sel = -1; an = null; view.init = false;
     document.body.classList.add('training'); renderHead();
-    tr.note = 'Тренировка восстановлена (сохранена ' + new Date(st.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '). ▶ — продолжить';
+    tr.note = 'Тренировка восстановлена (сохранена ' + fmtT(st.at, true) + '). ▶ — продолжить';
     trShow(true); trRenderBar(); renderPanel();
     D.log('trainer', 'восстановлена тренировка ' + S.inst.ticker + ' ' + S.tf);
     if (S.view.pane === 3) setPane(3);
@@ -2455,12 +2508,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     }
     // сделки виртуальных роботов по этой бумаге (не в тренажёре — там своя история)
     if (!tr && !hid.robot && an.N) {
-      const ix = (t) => { let lo = 0, hi = an.N - 1; if (t < an.bars[0].t) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (an.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
+      const pms = (D.TF[S.tf] || D.TF['1d']).ms;
+      // сделка в паузе между свечами (утро до первой свечи дня, ночь) — на следующую свечу, а не на прошлую вечернюю
+      const ix = (t) => { let lo = 0, hi = an.N - 1; if (t < an.bars[0].t) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (an.bars[m].t <= t) lo = m; else hi = m - 1; } return lo + 1 < an.N && t >= an.bars[lo].t + pms ? lo + 1 : lo; };
       for (const m of robotMarks()) {
         const a = ix(m.t0); if (a < 0) continue;
         const b = m.open ? an.N - 1 : ix(m.t1); if (b < i0 - 2 || a > i1 + 2) continue;
         const stl = rmStyle(m.key), good = m.open ? null : m.pl > 0, col = m.open ? stl.c : good ? '#3fbf7f' : '#ef5b5b';
-        line([[a, m.e], [m.open ? i1 + 1 : b, m.open ? m.e : m.x]], m.open ? stl.c : col, 1.2, [1, 3]);
+        line([[a, m.e], [b, m.open ? an.bars[an.N - 1].c : m.x]], m.open ? stl.c : col, 1.2, [1, 3]);   // 3.9: открытая — от входа к цене последней свечи
         const x = X(a), y = Y(m.e), d = m.side > 0 ? 1 : -1;
         ctx.fillStyle = stl.c; rmShape(stl.sh, x, y, d, 6);
         ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = d > 0 ? 'top' : 'bottom'; ctx.fillText(m.lt, x, y + d * 16); ctx.textAlign = 'left';
@@ -3253,6 +3308,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="small">Уровни проверяются по 5-минутным свечам с прошлой проверки, так что касание не пропустится, даже если цена потом ушла обратно. Уведомление придёт с задержкой до интервала проверки.</div></div>
 `;
     if (tab === 'data') h = `<div class="card"><h3>Оформление</h3><div class="skins">${skinPick()}</div>
+      <label class="sw" style="margin-top:8px"><input type="checkbox" id="tzMsk" ${S.tz !== 'local' ? 'checked' : ''}><span>Время по Москве (МСК)<small>Как на бирже и у роботов: свечи, сделки, журнал и уведомления — по московскому времени, где бы вы ни были. Без галочки — по часам телефона (сейчас разница с Москвой ${(() => { const h = -new Date().getTimezoneOffset() / 60 - 3; return h ? (h > 0 ? '+' : '−') + Math.abs(h) + ' ч' : 'нет'; })()}). Роботы в любом случае считают по Москве.</small></span></label>
       <label class="sw" style="margin-top:8px"><input type="checkbox" id="animOn" ${animOn() ? 'checked' : ''}><span>Анимации<small>Роботы с настроением, колокольчик звенит, гонка роботов, салют за хорошую сделку и новый значок, пульсирующая точка входа на свежем сигнале. На торговлю не влияют.</small></span></label><div class="small" style="margin-top:4px">Меняются фон и цвет свечей. Цвета сигналов — стоп, цель, волны, сделки — во всех темах одинаковые. Тему можно сменить и в «Вид ▾» под графиком.</div></div>
 <div class="card"><h3>Свечи</h3>
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
@@ -3274,6 +3330,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     $('#setBody').innerHTML = h;
     skinBind($('#setBody'), renderSettings);
     { const ao = $('#animOn'); if (ao) ao.onchange = () => { S.anim = ao.checked; save(); applyAnim(); draw(); }; }
+    { const tz = $('#tzMsk'); if (tz) tz.onchange = () => { S.tz = tz.checked ? 'msk' : 'local'; save(); renderHead(); draw(); D.log('settings', 'время на экране: ' + (tz.checked ? 'МСК' : 'по телефону')); }; }
     const sv = $('#setVer'); if (sv) sv.textContent = 'v' + APP_VER;
     $('#manBtn').dataset.man = { ready: 'sets', acct: 'token', alerts: 'alerts' }[tab] || 'settings';   // раздел инструкции про эту вкладку
     renderWatch();
@@ -3470,7 +3527,13 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function exportLog() {
     const L = D.logRead(), d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const name = `ew-log-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
-    const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), note: 'Журнал работы: без токена, номеров счетов и сумм.',
+    // 3.9: сводка роботов (сделки в R и %) и «Мои сделки» — чтобы по выгрузке была полная картина
+    let robots = null; try { const V = D.vaccGet(); if (V && V.accs) robots = V.accs.map((a) => { const eq = D.vEquity(a), R = a.closed.map((c) => c.R).filter((x) => x != null);
+      return { key: a.key, name: a.name, tf: a.tf || '1d', riskPct: a.cfg && a.cfg.riskPct, riskOwn: !!a.riskOwn, be: !!a.be, resultPct: a.dep ? +((eq / a.dep - 1) * 100).toFixed(2) : 0, closed: a.closed.length, wins: a.closed.filter((c) => c.pl > 0).length, sumR: +R.reduce((x, y) => x + y, 0).toFixed(2), skipped: a.skipped || 0,
+        open: a.pos.map((p) => ({ ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, stop0: p.stop0, stop: p.stop, target: p.target, runner: !!p.runner, now: a.px[p.id] || null, src: p.src || '' })),
+        last: a.closed.slice(-30).map((c) => ({ ticker: c.ticker, side: c.side, qty: c.qty, entry: c.entry, entryT: c.entryT, exit: c.exit, exitT: c.exitT, why: c.why, R: c.R, pl: Math.round(c.pl) })) }; }); } catch (e) { robots = null; }
+    const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), tz: S.tz === 'local' ? 'телефон, UTC' + (-d.getTimezoneOffset() / 60 >= 0 ? '+' : '') + (-d.getTimezoneOffset() / 60) : 'МСК', note: 'Журнал работы: без токена и номеров счетов. Суммы в рублях есть (сделки роботов и вашего счёта).',
+      robots, journal: jList().slice(-100).map((x) => ({ ticker: x.ticker, side: x.side, lots: x.lots, openT: x.openT, openP: x.openP, stop: x.stop, target: x.target, closeT: x.closeT || null, closeP: x.closeP || null, src: x.src || '' })),
       settings: { inst: S.inst.ticker, tf: S.tf, preset: S.preset || '', cfg: S.cfg, swings: S.swings, bgMinutes: S.bgMinutes, notify: S.notify,
         watch: (S.watch || []).map((w) => ({ ticker: w.ticker, tf: w.tf, label: w.label, sw: w.sw })), levels: (S.palerts || []).map((a) => ({ ticker: a.ticker, price: a.price, dir: a.dir, at: a.at })) },
       lastbg: D.store.get('lastbg', null), lasterr: D.store.get('lasterr', null), app: L.app, background: L.bg };
@@ -3479,6 +3542,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); say('Сохранено: ' + esc(name)); }
   }
 
+  migrateRisk();
   renderHead(); setChartH(snapPx(S.view.pane || 0));
   if (!trRestore()) load(false);
   if (S.account && S.token && (!S.acct || Date.now() - S.acct.at > 3600000)) setTimeout(() => refreshAccount(false), 3000);

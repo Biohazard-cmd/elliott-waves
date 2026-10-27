@@ -24,6 +24,14 @@
     del(k) { try { localStorage.removeItem('ew2.' + k); } catch (e) { /* нет хранилища */ } },
   };
 
+  // 3.9: дата для показа — по Москве (по умолчанию) или по часам телефона (settings.tz === 'local')
+  let tzLoc = null;
+  function dispDate(t) {
+    if (tzLoc === null) { try { tzLoc = settings().tz === 'local'; } catch (e) { tzLoc = false; } }
+    const loc = tzLoc;
+    const d = new Date(loc ? t : t + 3 * 3600000);
+    return loc ? { Y: d.getFullYear(), M: d.getMonth(), D: d.getDate(), h: d.getHours(), m: d.getMinutes(), wd: d.getDay() } : { Y: d.getUTCFullYear(), M: d.getUTCMonth(), D: d.getUTCDate(), h: d.getUTCHours(), m: d.getUTCMinutes(), wd: d.getUTCDay() };
+  }
   function settings() {
     return Object.assign({
       token: '',
@@ -36,7 +44,7 @@
       view: { figs: [true, true, true, true, true], channels: true, be: false, trades: true, clean: false, panel: true },
     }, store.get('settings', {}));
   }
-  function saveSettings(s) { store.set('settings', s); }
+  function saveSettings(s) { tzLoc = s.tz === 'local'; store.set('settings', s); }
 
   // ---------- запросы ----------
   // в приложении на телефоне запрос делает сам Android (без ограничений браузера), в браузере — fetch
@@ -68,7 +76,7 @@
 
   // ---------- журнал работы (лог) ----------
   // Приложение и фоновая проверка пишут в разные файлы, чтобы не затирать друг друга. Без токена, счетов и сумм.
-  const LOG_MAX = 3000;
+  const LOG_MAX = 6000;   // 3.9: было 3000 — при 5 роботах на 4ч не хватало на месяц
   let logName = 'log_app.json', logBuf = null, logTimer = 0, apiStat = null;
   function logInit(name) { logName = name; logBuf = null; apiStat = null; }
   function logLoad() { if (!logBuf) { const f = files.get(logName) || {}; logBuf = Array.isArray(f) ? f : (f.items || []); apiStat = (f && f.api) || {}; } }
@@ -805,8 +813,8 @@
         robots.push({ h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
-      const t = store.get('lastcheck', 0), d = new Date(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
-      const title = 'Волны Эллиотта · ' + (t ? 'проверено ' + p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : 'ещё не проверялось');
+      const t = store.get('lastcheck', 0), d = dispDate(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
+      const title = 'Волны Эллиотта · ' + (t ? 'проверено ' + p2(d.D) + '.' + p2(d.M + 1) + ' ' + p2(d.h) + ':' + p2(d.m) + (s.tz !== 'local' ? ' МСК' : '') : 'ещё не проверялось');
       A.widgetUpdate(JSON.stringify({ title, rows: list.map((x) => x.h), opens: list.map((x) => x.o), bg: col.bg, ink: col.ink, mut: col.mut }));
     } catch (e) { /* виджет — не главное, проверку не ломаем */ }
   }
@@ -966,10 +974,11 @@
         let pl;
         if (p.side < 0) { const val = p.qty * px * (1 + VFEE); a.cash -= val; pl = p.cost - val; }   // шорт: откупили бумаги
         else { const val = p.qty * px * (1 - VFEE); a.cash += val; pl = val - p.cost + (p.divs || 0); }
-        a.closed.push({ id: p.id, ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, exit: px, exitT: t, why, pl, divs: p.divs || 0, setup: p.setup, addOf: p.addOf });
+        const R = p.stop0 && p.stop0 !== p.entry ? +((p.side || 1) * (px - p.entry) / Math.abs(p.entry - p.stop0)).toFixed(2) : null;
+        a.closed.push({ id: p.id, ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, exit: px, exitT: t, why, pl, divs: p.divs || 0, setup: p.setup, addOf: p.addOf, stop0: p.stop0, R });
         a.pos = a.pos.filter((z) => z !== p);
         const msg = `${p.side < 0 ? 'откупил' : 'продал'} ${p.ticker} ${p.qty} шт по ${fmtPrice(px, [{ c: px }])} (${why}), ${pl >= 0 ? '+' : '−'}${Math.round(Math.abs(pl))} ₽`;
-        log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': ' + msg.split(' ')[0] + ' (' + why + ') · ' + tag, text: msg, open: { id: p.id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+        log('robot', a.name + ': ' + msg, { kind: 'close', key: a.key, ticker: p.ticker, tf: atf, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, stop0: p.stop0, stopLast: p.stop, exit: px, exitT: t, why, pl: Math.round(pl), R, setup: p.setup != null ? EW2.SETUP_NAME[p.setup] : '', days: +((t - p.entryT) / 86400000).toFixed(1), src: p.src || '' }); ev.push({ title: p.ticker + ': ' + msg.split(' ')[0] + ' (' + why + ') · ' + tag, text: msg, open: { id: p.id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
       };
       // ручной счёт: стопы и цели, поставленные вами, проверяем по 5-минуткам с прошлой проверки
       if (a.manual) {
@@ -1003,7 +1012,7 @@
                 if (a.opSeen[o.id] || o.t < a.syncAt - 60000) { a.opSeen[o.id] = 1; continue; }
                 a.opSeen[o.id] = 1;
                 const ins = await ref(o); if (!ins || ins.classCode !== 'TQBR') continue;
-                if (o.side > 0) openQty(ins, o.qty, o.price, o.t, 'купил'); else closeQty(ins.ticker + '_TQBR', o.qty, o.price, o.t);
+                if (o.side > 0) { openQty(ins, o.qty, o.price, o.t, 'купил'); a.pos[a.pos.length - 1].markChk = 1; } else closeQty(ins.ticker + '_TQBR', o.qty, o.price, o.t);
                 nOps++;
               }
             }
@@ -1023,7 +1032,8 @@
               if (want > have) { openQty(r.ins, want - have, a.syncAt ? r.cur : r.avg, now, a.syncAt ? 'сверка: на счёте больше, добавил' : 'уже на счёте'); nAdd++; }
               else if (want < have) { const px = r ? r.cur : (a.px[id] || mine(id)[0].entry); closeQty(id, have - want, px, now); nCut++; }
             }
-            log('robot', `${a.name}: сверка со счётом — акций на счёте ${real.size}${nOps ? ', новых сделок ' + nOps : ''}${nAdd ? ', добавлено позиций ' + nAdd : ''}${nCut ? ', закрыто ' + nCut : ''}${nOps || nAdd || nCut ? '' : ', изменений нет'}`);
+            // 3.9: «изменений нет» — не чаще раза в сутки (раньше забивало журнал каждые 15–60 мин)
+            if (nOps || nAdd || nCut || now - (a.syncLogAt || 0) > 86400000) { a.syncLogAt = now; log('robot', `${a.name}: сверка со счётом — акций на счёте ${real.size}${nOps ? ', новых сделок ' + nOps : ''}${nAdd ? ', добавлено позиций ' + nAdd : ''}${nCut ? ', закрыто ' + nCut : ''}${nOps || nAdd || nCut ? '' : ', изменений нет'}`); }
             // 3.0: здесь только то, что лежит на счёте — виртуальные позиции прежних версий убираем (без записи в закрытые)
             const virt = a.pos.filter((z) => z.src !== 'счёт');
             if (virt.length) { a.pos = a.pos.filter((z) => z.src === 'счёт'); log('robot', `${a.name}: убраны виртуальные позиции (${virt.map((z) => z.ticker).join(', ')}) — дальше только сделки со счёта`); }
@@ -1033,6 +1043,25 @@
             if (acc.total > 0) {
               a.cash = acc.total - inShares;
               if (!a.realCap) { a.realCap = now; a.dep = vEquity(a); a.hist = [{ t: now, eq: a.dep, dep: a.dep }]; log('robot', `${a.name}: капитал теперь со счёта — ${Math.round(a.dep)} ₽, результат считаем с этой минуты`); }
+            }
+            // 3.9: позиция, найденная сверкой (по средней цене и времени сверки), — на графике ставим на свечу и цену настоящей покупки
+            // (последняя ещё не проданная покупка из истории операций за 2 года; ищем один раз на позицию)
+            const need = a.pos.filter((z) => z.src === 'счёт' && !z.markChk);
+            if (need.length) {
+              try {
+                const lots = {};
+                for (const id of new Set(need.map((z) => z.id))) {
+                  const r = real.get(id); if (!r || !r.ins || !r.ins.uid) continue;
+                  const L = lots[id] = [];
+                  for (const o of (await getOperations(s.token, s.account.id, r.ins.uid, now - 730 * 86400000)).slice().sort((x, y) => x.t - y.t)) {
+                    if (o.side > 0) L.push({ t: o.t, px: o.price, q: o.qty });
+                    else { let left = o.qty; while (left > 0 && L.length) { const x = L[0]; if (x.q > left) { x.q -= left; left = 0; } else { left -= x.q; L.shift(); } } }
+                  }
+                }
+                let nm = 0;
+                for (const z of need) { const L = lots[z.id]; if (L && L.length) { const x = L[L.length - 1]; z.markT = x.t; z.mark = x.px; nm++; } z.markChk = 1; }
+                if (nm) log('robot', `${a.name}: на графике ${nm} поз. со счёта поставлены на свечу настоящей покупки`);
+              } catch (e) { log('robot', `${a.name}: история покупок для графика — ${e.message}`); }
             }
             a.syncAt = now; a.opAt = now;
           } catch (e) { log('robot', `${a.name}: сверка со счётом не удалась — ${e.message}`); say('ваши сделки со счёта: ' + e.message); }
@@ -1075,13 +1104,24 @@
           const tr = A2.trades.find((t) => T(A2, t.iEntry) === (p.addOf || p.entryT));
           if (!tr) { sold(p, last.c, last.t, 'подсчёт пересчитан'); continue; }
           if (tr.reason !== 3) { sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]); continue; }
-          if (Math.abs(tr.stop - p.stop) > 1e-9) { log('robot', `${a.name}: ${p.ticker} стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}`); if (tr.runner && !p.runner) ev.push({ title: p.ticker + ': цель пройдена — держим · ' + tag, text: 'Стоп переносится на ' + fmtPrice(tr.stop, an.bars), open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
+          if (Math.abs(tr.stop - p.stop) > 1e-9) { log('robot', `${a.name}: ${p.ticker} стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}`, { kind: 'stop', key: a.key, ticker: p.ticker, tf: atf, from: p.stop, to: tr.stop, why: tr.runner && !p.runner ? 'цель пройдена' : tr.runner ? 'под откат' : tr.beOn != null && (p.side || 1) * (tr.stop - p.entry) >= 0 ? 'безубыток' : 'перенос', t: last.t }); if (tr.runner && !p.runner) ev.push({ title: p.ticker + ': цель пройдена — держим · ' + tag, text: 'Стоп переносится на ' + fmtPrice(tr.stop, an.bars), open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); else if (!tr.wkCarry || tr.wkCarry === (p.wk || 0)) ev.push({ title: p.ticker + ': стоп перенесён · ' + tag, text: `${p.ticker}: стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}${(p.side || 1) * (tr.stop - p.entry) >= 0 ? ' (не хуже входа — сделка уже не в убыток)' : ''}`, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           // «неделя»: в пятницу сделка в плюсе — остаётся на следующую неделю, стоп в безубытке
           if (tr.wkCarry && tr.wkCarry !== (p.wk || 0)) { p.wk = tr.wkCarry; const msg = `${p.ticker}: пятница, сделка в плюсе — переносим на следующую неделю, стоп ${fmtPrice(tr.stop, an.bars)} (безубыток)`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': на следующую неделю · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           // 3.0: без прибыли, но канал цел — тоже на следующую неделю (стоп прежний); канал пробит — закрытие по открытию следующей свечи
           if (tr.wkHold && tr.wkHold !== (p.wkh || 0)) { p.wkh = tr.wkHold; const msg = `${p.ticker}: пятница, сделка без прибыли, но канал подсчёта цел — переносим на следующую неделю, стоп ${fmtPrice(tr.stop, an.bars)}`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': на следующую неделю (канал цел) · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           if (tr.wkOut && !p.wko) { p.wko = 1; const msg = `${p.ticker}: пятница, сделка без прибыли — закроем по открытию следующей свечи (утро понедельника)`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': закроем в понедельник · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           p.stop = tr.stop; p.runner = !!tr.runner;
+          // 3.9: предупреждение заранее — на следующей свече робот, скорее всего, перенесёт стоп (один раз на каждый будущий перенос)
+          try {
+            const hn = EW2.stopHint(A2.bars, A2.cfg, tr), hk = hn ? (hn.kind === 'be' ? 'be' : 'trail|' + T(A2, hn.j)) : '';   // безубыток — одно предупреждение на сделку
+            if (hn && p.hint !== hk) {
+              p.hint = hk; const up = (p.side || 1) > 0, F = (x) => fmtPrice(x, an.bars);
+              const msg = hn.kind === 'be' ? `${p.ticker}: готовится безубыток — если цена дойдёт до ${F(hn.at)}, стоп переедет на ${F(hn.stop)} (цена входа с комиссией)`
+                : `${p.ticker}: готовится перенос стопа — если ${hn.left > 1 ? 'следующие ' + hn.left + ' свечи не уйдут' : 'следующая свеча не уйдёт'} ${up ? 'ниже' : 'выше'} ${F(hn.at)}, стоп переедет на ~${F(hn.stop)} (сейчас ${F(p.stop)})`;
+              log('robot', a.name + ': ' + msg, { ticker: p.ticker, tf: atf, kind: 'stopHint', hint: hn.kind, at: hn.at, stop: hn.stop, now: p.stop });
+              ev.push({ title: p.ticker + ': ' + (hn.kind === 'be' ? 'скоро безубыток' : 'скоро перенос стопа') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+            }
+          } catch (e) { /* подсказка не должна мешать ходу */ }
           if (!p.addOf && !p.legacy && tr.add && a.cfg.addPyramid) openAdd(p, tr);
         }
         // б) новые сделки бэктеста после старта робота
@@ -1100,7 +1140,7 @@
           a.pos.push(p);
           if (tr.add && a.cfg.addPyramid) openAdd(p, tr);
           const msg = `${side < 0 ? 'продал (шорт)' : 'купил'} ${p.ticker} ${qty} шт по ${fmtPrice(tr.entry, an.bars)}, стоп ${fmtPrice(tr.stop0, an.bars)}${tr.notgt ? '' : ', цель ' + fmtPrice(tr.target, an.bars)}`;
-          log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': ' + (side < 0 ? 'продал (шорт)' : 'купил') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+          log('robot', a.name + ': ' + msg, { kind: 'open', key: a.key, ticker: p.ticker, tf: atf, side, qty, entry: tr.entry, entryT: tIn, stop0: tr.stop0, target: tr.notgt ? null : tr.target, riskPct: a.cfg.riskPct, setup: EW2.SETUP_NAME[tr.setup] || '', sigT: T(an, tr.iSig), swing: an.swing, be: !!a.be }); ev.push({ title: p.ticker + ': ' + (side < 0 ? 'продал (шорт)' : 'купил') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
           if (tr.reason !== 3) sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]);   // вошёл и вышел между проверками
         }
         // в) сигнал на последней закрытой свече — заявка «купить на открытии» (чтобы успеть повторить)
@@ -1234,5 +1274,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);
