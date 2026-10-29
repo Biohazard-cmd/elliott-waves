@@ -92,7 +92,13 @@ public class Bridge {
         if (a == null) return;
         a.runOnUiThread(new Runnable() {
             @Override
-            public void run() { try { a.getWindow().setStatusBarColor(android.graphics.Color.parseColor(hex)); } catch (Exception e) { /* неверный цвет — оставить как есть */ } }
+            public void run() {
+                try {
+                    int c = android.graphics.Color.parseColor(hex);
+                    a.getWindow().setStatusBarColor(c);   // до Android 15
+                    if (MainActivity.root != null) MainActivity.root.setBackgroundColor(c);   // 3.12: Android 15 — фон под строкой состояния
+                } catch (Exception e) { /* неверный цвет — оставить как есть */ }
+            }
         });
     }
 
