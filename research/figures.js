@@ -208,6 +208,23 @@ for (const f of FIG) {
     rep('голова-плечи + пробой', hs.concat(br)); rep('неделя + голова-плечи + пробой', B.concat(hs, br));
     rep('пробой вместо недели + голова-плечи', br.concat(hs));
   }
+  if (f === 'pair') {   // что из правил «4 часа · неделя» нужно паре «голова-плечи + пробой 500»: убираем по одному правилу у обоих роботов
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
+    const pr = (o = {}, oh = o, ob = o) => tag(trades(Object.assign({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }, oh)), '#h').concat(tag(trades(Object.assign({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }, ob)), '#b'));
+    const WK = { weekExit: false, wkChan: false, wkNextOpen: false };
+    for (const [lab, o] of [['пара как сейчас (все правила робота)', {}], ['без пятничных правил', WK], ['без пт-правил, пн-выход вместо закрытия пт', { wkChan: false }], ['без безубытка 3×ATR', { beMode: 'hint' }], ['безубыток 2×ATR', { beAtr: 2 }], ['безубыток 4×ATR', { beAtr: 4 }],
+      ['без бегунка (выход по цели)', { addRunner: false }], ['без выхода «смена подсчёта»', { addFlipExit: false }], ['без AO 5/34', { addAO: false }], ['без SMA200', { addSma200: false }], ['без тренда старшей степени', { bookTrend: false }], ['без фильтра рынка', { addMarket: false }], ['осторожный рынок (индекс > SMA50)', { addMktFast: true }], ['П/Р ≥ 1,5', { addMinRR: true, minRR: 1.5 }]])
+      rep(lab, pr(o));
+    rep('гол.-плечи без пт-правил, пробой как сейчас', pr({}, WK, {}));
+    rep('пробой без пт-правил, гол.-плечи как сейчас', pr({}, {}, WK));
+    // что дают сами фигуры отдельно при тех же изменениях
+    for (const [lab, o] of [['гол.-плечи без пт-правил', WK], ['пробой без пт-правил', WK]]) rep(lab, trades(Object.assign({ setups: NONE, patHook: lab.startsWith('гол') ? pat('hs', { zz: 'sub', tol: 0.3 }) : pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }, o)));
+  }
+  if (f === 'pair2') {   // устойчивость «без пятничных правил» и «без безубытка» у пары: соседние длины уровня и допуск плеч
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k })), WK = { weekExit: false, wkChan: false, wkNextOpen: false };
+    for (const [N, tol] of [[360, 0.3], [750, 0.3], [1000, 0.3], [500, 0.6]]) for (const [lab, o] of [['как сейчас', {}], ['без пт-правил', WK], ['без безубытка', { beMode: 'hint' }], ['без пт-правил и безубытка', Object.assign({ beMode: 'hint' }, WK)]])
+      rep(`пробой ${N}, плечи ${tol}: ${lab}`, tag(trades(Object.assign({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol }), patFilt: 'all' }, o)), '#h').concat(tag(trades(Object.assign({ setups: NONE, patHook: pat('brk', { zz: 'main', N, rr: 2 }), patFilt: 'all' }, o)), '#b')));
+  }
   if (f === 'dt') for (const tol of [0.5, 1]) PS('db', { tol }, `двойная вершина ${tol}ATR`);
   if (f === 'hst') for (const tol of [0.3, 0.6]) PS('hs', { tol }, `голова-плечи (вершина) ${tol}`);
 }
