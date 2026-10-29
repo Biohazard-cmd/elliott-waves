@@ -42,7 +42,7 @@ function pat(kind, o) {
     const P = o.zz === 'sub' ? sub : mp, n = P.length, C = this.C, A = this.atr();
     if (n < 3 || i < 1) return null;
     const last = P[n - 1];
-    if (last.t !== -d || i - last.c > wait || i <= last.c) return null;
+    if (last.t !== -d || i - last.c > wait || (i <= last.c && kind !== 'bfly' && kind !== 'gart')) return null;
     this._used = this._used || new Set();
     const mk = (lvl, stop, target, i0) => {
       if (!(d * (C[i] - lvl) > 0 && d * (C[i - 1] - lvl) <= 0)) return null;
@@ -79,6 +79,17 @@ function pat(kind, o) {
       const lvl = this[key][i]; if (isNaN(lvl)) return null;
       const risk = d * (lvl - last.p); if (!(risk > 0)) return null;
       return mk(lvl, last.p, lvl + d * (o.rr || 2) * risk, last.i);
+    }
+    if (kind === 'bfly' || kind === 'gart') {   // гармонические X-A-B-C-D: бабочка (AB ≈ 0,786 XA, D за X: AD = 1,27–1,618 XA) и Гартли (AB ≈ 0,618 XA, AD ≈ 0,786 XA)
+      if (n < 5 || i !== last.c) return null;   // вход сразу после подтверждения точки D (по открытию следующей свечи), как в книге «у точки D»
+      const X = P[n - 5], A = P[n - 4], B = P[n - 3], Cc = P[n - 2], D = last, xa = Math.abs(A.p - X.p), ab = Math.abs(A.p - B.p), bc = Math.abs(Cc.p - B.p), cd = Math.abs(Cc.p - D.p), ad = Math.abs(A.p - D.p);
+      const k = o.loose || 1, inr = (v, lo, hi) => v >= lo / (1 + 0.1 * k) && v <= hi * (1 + 0.1 * k);
+      const ok = kind === 'bfly' ? inr(ab / xa, 0.75, 0.82) && inr(ad / xa, 1.27, 1.618) : inr(ab / xa, 0.58, 0.66) && inr(ad / xa, 0.75, 0.82);
+      if (!ok || !inr(bc / ab, 0.382, 0.886) || !inr(cd / bc, kind === 'bfly' ? 1.618 : 1.27, kind === 'bfly' ? 2.618 : 1.618)) return null;
+      const key = kind + D.i; if (this._used.has(key)) return null; this._used.add(key);
+      const stop = d > 0 ? D.p * (1 - buf) : D.p * (1 + buf), target = D.p + d * (o.tg || 0.618) * ad, risk = d * (C[i] - stop), rew = d * (target - C[i]);
+      if (risk <= 0 || rew <= 0) return null;
+      return { setup: 5, side: d, entry: C[i], stop, target, rr: rew / risk, score: 50, notgt: false, sigBar: -1, scen: -1, w1: null, i0: X.i };
     }
     throw new Error('pat: ' + kind);
   };
@@ -224,6 +235,16 @@ for (const f of FIG) {
     const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k })), WK = { weekExit: false, wkChan: false, wkNextOpen: false };
     for (const [N, tol] of [[360, 0.3], [750, 0.3], [1000, 0.3], [500, 0.6]]) for (const [lab, o] of [['как сейчас', {}], ['без пт-правил', WK], ['без безубытка', { beMode: 'hint' }], ['без пт-правил и безубытка', Object.assign({ beMode: 'hint' }, WK)]])
       rep(`пробой ${N}, плечи ${tol}: ${lab}`, tag(trades(Object.assign({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol }), patFilt: 'all' }, o)), '#h').concat(tag(trades(Object.assign({ setups: NONE, patHook: pat('brk', { zz: 'main', N, rr: 2 }), patFilt: 'all' }, o)), '#b')));
+  }
+  if (f === 'bfly') {   // бабочка и Гартли (покупка у точки D); отдельно и на одном счёте с парой «голова-плечи + пробой»
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
+    const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));
+    rep('пара «голова-плечи + пробой»', pair);
+    for (const kind of ['bfly', 'gart']) for (const zz of ['main', 'sub']) for (const filt of ['all', 'mkt']) for (const loose of [1, 2]) {
+      const al = trades({ setups: NONE, patHook: pat(kind, { zz, loose }), patFilt: filt });
+      rep(`${kind === 'bfly' ? 'бабочка' : 'Гартли'}, ${zz === 'main' ? 'осн.' : 'мл.'}, ${filt === 'all' ? 'все фильтры' : 'только рынок'}, допуск ${loose * 10}%`, al, SP);
+      if (al.length > 30) rep('   + пара на одном счёте', pair.concat(tag(al, '#f')));
+    }
   }
   if (f === 'dt') for (const tol of [0.5, 1]) PS('db', { tol }, `двойная вершина ${tol}ATR`);
   if (f === 'hst') for (const tol of [0.3, 0.6]) PS('hs', { tol }, `голова-плечи (вершина) ${tol}`);
