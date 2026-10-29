@@ -3,6 +3,7 @@
   'use strict';
   const $ = (s) => document.querySelector(s);
   const A = window.Android || null;
+  const DESK = !!(A && A.desktop);   // 3.6: программа для компьютера (Electron) — мост тот же, раскладка шире, проверка идёт и в свёрнутом окне
   const D = window.EWData, E = window.EW2;
   const TFK = ['5m', '15m', '1h', '4h', '1d', '1w'];
   const FIG_COLOR = ['#3fbf7f', '#35b8b0', '#f0703a', '#b07cf0', '#d9b443'];
@@ -77,7 +78,7 @@
   const skinBind = (root, after) => root.querySelectorAll('[data-skin]').forEach((b) => { b.onclick = () => { S.skin = b.dataset.skin; save(); applySkin(); draw(); if (after) after(); }; });
   let all = [];          // все свечи с биржи, включая формирующуюся
   let an = null;         // результат анализа
-  let demo = false;
+  let demo = false, mxSrc = 0;   // mxSrc — когда свечи графика взяты с Мосбиржи (0 — у брокера)
   let sel = -1;          // выбранная сделка
   let err = '';
   let divAdj = [], allRaw = [], lotInfo = null;   // allRaw — те же свечи без поправки на дивиденды (для тренажёра)
@@ -98,6 +99,9 @@
   const DEC = () => (S.decComma ? ',' : '.');   // разделитель дробной части: точка по умолчанию
   let tr = null;   // тренажёр: прокрутка истории (null — обычный режим)
   const curSwing = () => (tr ? tr.sw : S.swings[swKey()] || 0);
+  // 3.9: в тренажёре порог свой (tr.sw) — кнопки порога меняют его, а порог обычного графика бумаги не трогают
+  function setSw(v) { if (tr) { tr.sw = v; tr.swAuto = false; if (tr.ev.length && tr.ev[tr.ev.length - 1].kind === 'порог') tr.ev.pop(); trLog('порог', 'порог системы ' + String(v).replace('.', DEC()) + '%'); } else S.swings[swKey()] = v; }
+  function clrSw() { if (tr) { const done = all.filter((x) => x.done !== false); tr.sw = E.autoSwing(done.slice(-(S.cfg.maxBars || 2000)), S.cfg.swingMult || 1); tr.swAuto = true; if (tr.ev.length && tr.ev[tr.ev.length - 1].kind === 'порог') tr.ev.pop(); trLog('порог', 'порог системы — авто, ' + String(tr.sw).replace('.', DEC()) + '%'); } else delete S.swings[swKey()]; }
   // запись настроек + в лог — что именно поменялось (набор, таймфрейм, бумага, порог, дополнения, оповещения)
   let logSnap = null;
   function snapNow() { return { inst: S.inst.ticker, tf: S.tf, preset: S.preset || '', sw: S.swings[swKey()] || 0, cfg: JSON.stringify(S.cfg), watch: (S.watch || []).length, lv: (S.palerts || []).length, bg: S.bgMinutes }; }
@@ -117,9 +121,10 @@
     } catch (e) { /* лог не важнее настроек */ }
   }
   function fmtT(t, withTime) {
-    const d = new Date(t), p = (n) => String(n).padStart(2, '0');
-    const ds = p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2);
-    return withTime ? ds + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) : ds;
+    // 3.9: время на экране — по Москве (как биржа и робот), по желанию — по часам телефона (⚙ → Данные)
+    const d = D.dispDate(t), p = (n) => String(n).padStart(2, '0');
+    const ds = p(d.D) + '.' + p(d.M + 1) + '.' + String(d.Y).slice(2);
+    return withTime ? ds + ' ' + p(d.h) + ':' + p(d.m) : ds;
   }
 
   // ---------- демо-данные, пока нет токена ----------
@@ -153,11 +158,15 @@
     if (loading) return;
     loading = true; $('#busy').hidden = false; err = '';
     try {
-      if (!S.token) { demo = true; all = demoBars(S.tf); }
-      else {
-        demo = false; lotInfo = null;
-        const raw = await D.getBars(S.token, S.inst, S.tf, S.cfg.maxBars || 2000, force);
-        if (raw.offline) { err = 'Нет связи с брокером — показаны сохранённые свечи' + (raw.length ? ' до ' + fmtT(raw[raw.length - 1].t, true) : '') + '. Обновятся сами, когда появится интернет.'; D.log('api', 'офлайн: показан кэш ' + S.inst.ticker); }
+      demo = false; lotInfo = null;
+      const t0 = Date.now();
+      let raw = null;
+      // без токена — цены с Мосбиржи; не ответила и она — учебный пример
+      try { raw = await D.getBars(S.token, S.inst, S.tf, S.cfg.maxBars || 2000, force); }
+      catch (e) { if (S.token || e.fatal) throw e; demo = true; all = demoBars(S.tf); err = 'Нет связи с Мосбиржей — показан учебный пример. ' + e.message; }
+      mxSrc = raw && D.mxState().at >= t0 ? Date.now() : 0;
+      if (raw) {
+        if (raw.offline) { err = 'Нет связи' + (S.token ? ' с брокером' : ' с Мосбиржей') + ' — показаны сохранённые свечи' + (raw.length ? ' до ' + fmtT(raw[raw.length - 1].t, true) : '') + '. Обновятся сами, когда появится интернет.'; D.log('api', 'офлайн: показан кэш ' + S.inst.ticker); }
         const r = await D.withDividends(S.token, S.inst, raw, S.cfg.divAdj !== false);
         all = r.bars; divAdj = r.adj; allRaw = raw;
         D.instInfo(S.token, S.inst).then((x) => { lotInfo = x; if (an) renderPanel(); }).catch(() => {});
@@ -198,7 +207,7 @@
     const last = all[all.length - 1], prev = all.length > 1 ? all[all.length - 2] : last;
     const ch = last.c / prev.c - 1;
     renderHud();
-    $('#quote').innerHTML = `<b class="mono">${pr(last.c)}</b> <span class="${ch >= 0 ? 'pos' : 'neg'}">${spc(ch)}</span> · ${fmtT(last.t, S.tf !== '1d' && S.tf !== '1w')}${demo ? ' · <span class="warn">демо</span>' : ''}`;
+    $('#quote').innerHTML = `<b class="mono">${pr(last.c)}</b> <span class="${ch >= 0 ? 'pos' : 'neg'}">${spc(ch)}</span> · ${fmtT(last.t, S.tf !== '1d' && S.tf !== '1w')}${S.tf !== '1d' && S.tf !== '1w' && S.tz !== 'local' ? ' МСК' : ''}${demo ? ' · <span class="warn">демо</span>' : ''}`;
   }
 
   // ---------- табличка в углу графика: какой «индикатор», тренд, что показывает сейчас ----------
@@ -281,7 +290,19 @@
   // ---------- дневник сделок ----------
   // Свои реальные сделки: вход, выход, комментарий; рядом — что в этот момент говорила система.
   const jList = () => D.store.get('journal', []);
-  const jSave = (l) => D.store.set('journal', l);
+  // 3.9: новые и закрытые записи «Моих сделок» — ещё и в журнал работы (чтобы в выгрузке лога была полная картина)
+  const jSave = (l) => {
+    try {
+      const was = new Map(jList().map((x) => [x.id, x])), nNew = l.filter((x) => !was.has(x.id)).length;
+      if (nNew > 20) D.log('journal', 'мои сделки: загружено записей ' + nNew + ' (по одной не пишем)', { kind: 'jimport', n: nNew });
+      for (const x of l) {
+        const y = was.get(x.id), base = { ticker: x.ticker, side: x.side, lots: x.lots, lot: x.lot, openT: x.openT, openP: x.openP, stop: x.stop, target: x.target, src: x.src || '' };
+        if (!y) { if (nNew <= 20) D.log('journal', 'мои сделки: ' + (x.side < 0 ? 'продажа ' : 'покупка ') + x.ticker + ' по ' + x.openP + (x.closeP ? ', закрыта по ' + x.closeP : ''), Object.assign({ kind: 'jadd', closeT: x.closeT || null, closeP: x.closeP || null }, base)); }
+        else if (!y.closeP && x.closeP) D.log('journal', 'мои сделки: закрыта ' + x.ticker + ' по ' + x.closeP + ' (вход ' + x.openP + ')', Object.assign({ kind: 'jclose', closeT: x.closeT, closeP: x.closeP, ret: +((x.side || 1) * (x.closeP / x.openP - 1) * 100).toFixed(2), R: x.stop ? +((x.side || 1) * (x.closeP - x.openP) / Math.abs(x.openP - x.stop)).toFixed(2) : null }, base));
+      }
+    } catch (e) { /* журнал не должен мешать дневнику */ }
+    D.store.set('journal', l);
+  };
   function barAt(t) {
     if (!an || !an.bars.length || t < an.bars[0].t) return null;
     let lo = 0, hi = an.bars.length - 1;
@@ -439,7 +460,7 @@
   }
   // цены открытых сделок дневника — раз в минуту, одним запросом
   async function refreshLive() {
-    if (!S.token || demo) return;
+    if (!S.token || demo || mxSrc) return;
     const open = jList().filter((j) => !j.closeT); if (!open.length) return;
     try {
       const ids = [...new Set(open.map((j) => j.instId))], uidOf = {};
@@ -492,14 +513,41 @@
   // ---------- виртуальный счёт робота ----------
   const robotTf = (key) => { const p = PRESETS.find((x) => x[0] === key); return p ? p[2] : '1d'; };
   // 3.1: риск на сделку у роботов — по набору (проверка 2018–2026: основной 26 → 30%/год, «4 часа · неделя» 20 → 23%, просадка +0,6…1,6 п.п.); остальные — как в настройках
-  const ROBOT_RISK = { d_long: 1.5, h4_week: 1.5 };
+  // 3.9: риск у роботов больше не берётся из ⚙ → Счета — у каждого робота свой (рекомендуемый по проверке 25.10 или свой: a.riskOwn)
+  const ROBOT_RISK = { d_long: 1.5, h4_week: 1.5, d_aggr: 1, h4_tri: 1 };
   function robotCfg(key) {
     const p = PRESETS.find((x) => x[0] === key);
-    return Object.assign({ maxBars: 2000, riskPct: ROBOT_RISK[key] || S.cfg.riskPct || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
+    return Object.assign({ maxBars: 2000, riskPct: ROBOT_RISK[key] || 1, feePct: S.cfg.feePct != null ? S.cfg.feePct : 0.05, divAdj: true },
       { setups: Object.assign({}, W3ABC), addComplexTrade: false, addPhaseExit: false, addMinRR: false, addDepth: false, exitMode: 'fixed', targetMode: 'main', minScore: 45, bookTrend: true, addTrend: 'none', stopW2: false, localBars: 2, maxHoldDays: 0 }, p ? p[3] : {});
   }
-  let robotBusy = false, robotMsg = '', robotArm = '';
+  const robCfgFor = (a) => Object.assign(robotCfg(a.key), a.riskOwn ? { riskPct: a.riskOwn } : {});   // настройки набора + свой риск робота
+  // 3.9: однократно — у запущенных роботов риск остаётся, каким был (свой, если не совпадает с рекомендуемым)
+  function migrateRisk() {   // вызывается в конце запуска (PRESETS объявлены ниже)
+    if ((S.cfgVer || 0) >= 7) return;
+    try { const W = D.vaccGet(); if (W && W.accs) { for (const a of W.accs) if (!a.manual && !a.crypto && a.cfg && a.cfg.riskPct && a.cfg.riskPct !== robotCfg(a.key).riskPct) a.riskOwn = a.cfg.riskPct; D.vaccSet(W); } } catch (e) { /* роботов нет */ }
+    S.cfgVer = 7; D.saveSettings(S);
+  }
+  let robotBusy = false, robotMsg = '', robotArm = '', riskArm = null;
+  // 3.9: свой риск на сделку у робота — поле, кнопка «рекомендуемый» и предупреждение перед сохранением
+  function riskBox(a) {
+    const rec = robotCfg(a.key).riskPct, cur = a.cfg.riskPct || rec, n = (x) => String(x).replace('.', DEC());
+    let h = `<div class="field" style="margin-top:8px"><label>Риск на сделку, % капитала — сейчас ${n(cur)}%${a.riskOwn ? ' (свой)' : ' (рекомендуемый)'}</label>
+      <div class="row"><input type="number" step="0.1" min="0.1" max="5" id="rRisk" value="${cur}" style="flex:1"><button data-rrisk="${a.key}">Сохранить</button>${cur !== rec ? `<button data-rrrec="${a.key}">Вернуть ${n(rec)}%</button>` : ''}</div>
+      <div class="small mut">Рекомендуемый по проверке на истории: ${n(rec)}%. Сколько потерять до стопа в одной сделке: ${n(cur)}% капитала робота.</div></div>`;
+    if (riskArm && riskArm.key === a.key) {
+      const v = riskArm.v, more = v > cur, big = v > rec;
+      h += `<div class="note warn" style="margin-top:6px"><b>Поставить риск ${n(v)}% вместо ${n(cur)}%?</b><ul style="margin:4px 0 0 18px;padding:0">
+        ${more ? `<li>Просадки станут глубже. На истории бывало до 15 стопов подряд: это примерно −${n(Math.round(v * 15 * 10) / 10)}% счёта при ${n(v)}% (сейчас −${n(Math.round(cur * 15 * 10) / 10)}%).</li>` : '<li>Сделки станут мельче: и прибыль, и убытки меньше.</li>'}
+        ${big ? `<li>Выше рекомендуемого доход почти не растёт: позиции упираются в лимит 25% счёта и в свободные деньги${a.key === 'd_aggr' ? ', а у агрессивного выше 1% на истории было только хуже' : ''}.</li>` : ''}
+        ${v !== rec ? '<li>Результат робота нельзя будет честно сравнить с проверкой на истории и с другими роботами в «гонке».</li>' : ''}
+        <li>Новый риск — только для новых сделок; открытые позиции остаются, как были.</li></ul>
+        <div class="row" style="margin-top:6px"><button data-rryes="${a.key}">Да, поставить ${n(v)}%</button><button data-rrno="1">Отмена</button></div></div>`;
+    }
+    return h;
+  }
   const rub0 = (x) => Math.round(x).toLocaleString('ru-RU') + ' ₽';
+  const usd0 = (x) => '$' + Math.round(x).toLocaleString('ru-RU');
+  const money = (a, x) => (a && a.crypto ? usd0(x) : rub0(x));   // 3.2: счёт робота «Биткоин · тренд» — в долларах
   function eqSpark(hist) {
     const v = hist.map((h) => h.dep > 0 ? (h.eq + (S.vimOn ? h.mm || 0 : 0)) / h.dep : 1);
     if (v.length < 2) return '';
@@ -510,11 +558,21 @@
   }
   // ---------- 2.41: роботы с характером и настроением ----------
   const animOn = () => S.anim !== false;
+  // 3.10: таймер до закрытия свечи — <span data-cd="время закрытия">, тикает раз в секунду
+  const cdTxt = (ms) => { const x = Math.max(0, Math.round(ms / 1000)), h = Math.floor(x / 3600), m = Math.floor(x % 3600 / 60), p2 = (n) => String(n).padStart(2, '0'); return (h ? h + ':' + p2(m) : m) + ':' + p2(x % 60); };
+  const cdSpan = (t, pre) => t > Date.now() ? `<span class="cd" data-cd="${t}" data-pre="${esc(pre || 'до закрытия свечи')}">⏱ ${esc(pre || 'до закрытия свечи')} ${cdTxt(t - Date.now())}</span>` : '';
+  setInterval(() => { for (const el of document.querySelectorAll('[data-cd]')) { const left = +el.dataset.cd - Date.now(); if (left <= 0) { el.textContent = '⏱ свеча закрылась'; el.removeAttribute('data-cd'); } else el.textContent = '⏱ ' + el.dataset.pre + ' ' + cdTxt(left); } }, 1000);
+  // 3.10: «мой (вручную)» — расходы и доходы брокера с первой сверки (уже входят в капитал и результат, здесь — отдельной строкой)
+  function manCosts(a) {
+    const c = a.costs || {}, NM = [['fee', 'обслуживание'], ['comm', 'комиссии'], ['tax', 'налог'], ['inc', 'дивиденды и купоны']];
+    const parts = NM.filter(([k]) => Math.abs(c[k] || 0) >= 0.5).map(([k, n]) => `${n} ${(c[k] > 0 ? '+' : '−') + rub0(Math.abs(c[k]))}`);
+    return parts.length ? `В результате уже учтено: ${parts.join(' · ')}. ` : 'Обслуживания, комиссий и налога с этого дня пока не было. ';
+  }
   // 2.43: все уведомления — через одно место: шторка Android + история оповещений в приложении
   function sendNotes(ev, id0) {
     if (!ev || !ev.length) return;
     D.notifSave(ev);
-    let id = id0; for (const e of ev) { if (A && A.notifyOpen) A.notifyOpen(e.title, e.text, id++, e.open ? JSON.stringify(e.open) : ''); else if (A) A.notify(e.title, e.text, id++); }
+    D.notifySend(ev, id0);
   }
   function notifRows(n) {
     const h = D.store.get('notifHist', []).slice(-n).reverse();
@@ -537,7 +595,8 @@
   function botSvg(key, mood, big) {
     const c = key ? rmStyle(key).c : '#8fb4e8', ln = (d, cl) => `<path class="${cl}" d="${d}" stroke="#14181e" stroke-width="1.3" stroke-linecap="round" fill="none"/>`;
     const acc = key === 'd_aggr' ? '<path class="bot-fire" d="M20.5 1.5c1.2 1.6 2.3 2.8 1.4 4.6-.6 1.2-2.6 1.3-3.2 0-.5-1 .3-1.8.6-2.6.3.9.9 1.1 1.2.6.3-.7.1-1.5 0-2.6z" fill="#ff7a2f"/>'
-      : key === 'h4_week' ? '<circle cx="20" cy="19" r="3.6" fill="#14181e" stroke="#e8ecf1" stroke-width="1"/><line class="bot-hand" x1="20" y1="19" x2="20" y2="16.6" stroke="#e8ecf1" stroke-width="1"/>' : '';
+      : key === 'h4_week' ? '<circle cx="20" cy="19" r="3.6" fill="#14181e" stroke="#e8ecf1" stroke-width="1"/><line class="bot-hand" x1="20" y1="19" x2="20" y2="16.6" stroke="#e8ecf1" stroke-width="1"/>'
+      : key === 'btc_trend' ? '<circle cx="20" cy="19" r="3.8" fill="#f7931a" stroke="#14181e" stroke-width=".8"/><text x="20" y="21" font-size="5.2" text-anchor="middle" fill="#fff" font-weight="700">₿</text>' : '';
     return `<svg class="bot m-${mood || 'idle'}${big ? ' big' : ''}" viewBox="0 0 24 24" aria-hidden="true"><g class="bot-b">
       <g class="bot-ant"><line x1="12" y1="3" x2="12" y2="6" stroke="${c}" stroke-width="1.4"/><circle class="bot-led" cx="12" cy="2.4" r="1.7"/></g>
       <rect x="3.5" y="6" width="17" height="11" rx="3.2" fill="${c}"/><rect x="1.8" y="9.5" width="1.7" height="4" rx=".8" fill="${c}"/><rect x="20.5" y="9.5" width="1.7" height="4" rx=".8" fill="${c}"/>
@@ -628,8 +687,47 @@
     const V = D.vaccGet(), NOT = ['ATR', 'SMA200', 'AO', 'W1', 'CSV', 'JSON'];
     const go = (m) => { const a = V && V.accs.find((z) => m.startsWith(z.name + ':')); if (!a) return '';
       const t = (m.slice(a.name.length + 1).match(/\b[A-Z][A-Z0-9]{1,5}\b/g) || []).find((w) => !NOT.includes(w));
+      if (a.crypto) return ` data-ropen="${D.CRYPTO_ID}|1d" role="button"`;
       return t ? ` data-ropen="${t}_TQBR|${a.manual ? '1d' : a.tf || '1d'}" role="button"` : ''; };
     return `<div class="card${foldC('robFeed', true)}" data-fold="robFeed"><h3>📜 Что делали роботы${it.length ? ' (' + it.length + ')' : ''}</h3>${it.length ? it.map((x) => `<div class="feed"${go(x.m)}><time>${fmtT(x.t, true)}</time>${esc(x.m)}</div>`).join('') : '<div class="small">Пока пусто.</div>'}</div>`;
+  }
+  // 3.2: что видит робот «Биткоин · тренд» на последнем закрытом дне
+  function btcInfo(a) {
+    const g = a.sig, pc = (x) => Math.round(x * 100) + '%';
+    const t = g ? `Закрытие дня ${fmtT(g.t, false)}: ${usd0(g.c)} — <b class="${g.share > 0 ? 'pos' : 'neg'}">${g.share > 0 ? 'выше' : 'ниже'}</b> средней за 100 дней (${usd0(g.sma)}). Волатильность ${pc(g.vol)} в год → ${g.share > 0 ? 'держать <b>' + pc(g.share) + '</b> счёта в биткоине, остальное в долларах' : 'всё в долларах'}.` : 'Ещё не смотрел биткоин — нажмите «⟳ Ход».';
+    return `<div class="small" style="margin:4px 0">${t}</div><div class="row" style="margin:4px 0 2px"><button data-ropen="${D.CRYPTO_ID}|1d" style="flex:none">📈 График биткоина</button></div>`;
+  }
+  // 3.4: панель роботов внизу экрана и обзор «Все»; дневные (основной, агрессивный) — в конце
+  const ROB_SHORT = { d_long: 'Основной', d_aggr: 'Агрессив.', h4_week: '4ч неделя', h4_tri: 'Треуг.', btc_trend: 'Биткоин', manual: 'Мой счёт' };
+  const robDaily = (a) => a.key === 'd_long' || a.key === 'd_aggr';
+  const robOrder = (V) => V.accs.filter((a) => !robDaily(a)).concat(V.accs.filter(robDaily));
+  const robPc = (a) => { const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0); return a.dep > 0 ? eq / a.dep - 1 : 0; };
+  const robIco = (a, V) => (a.manual ? '<span class="me">✋</span>' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle'));
+  let robMore = false;   // открыт ли список «Ещё»
+  function robTable(V) {
+    const row = (a) => { const pc = robPc(a), np = Object.keys(a.pend || {}).length;
+      return `<div class="rrow" data-racc="${a.key}" role="button" style="--rc:${rmStyle(a.key).c}">${robIco(a, V)}<span class="grow"><b>${esc(a.name)}</b><small>${a.pos.length ? 'позиций ' + a.pos.length : 'без позиций'}${np ? ' · <span class="sigc">сигнал ' + np + '</span>' : ''} · закрыто ${a.closed.length}</small></span><b class="${pc >= 0 ? 'pos' : 'neg'}">${spc(pc)}</b></div>`; };
+    const main = V.accs.filter((a) => !robDaily(a)), day = V.accs.filter(robDaily);
+    let h = `<div class="card"><h3>Все роботы</h3>${main.map(row).join('')}<div class="small mut" style="margin-top:4px">Нажмите на робота — откроется всё о нём. Переключаться — панелью внизу.</div></div>`;
+    if (day.length) h += `<div class="card${foldC('robDay', true)}" data-fold="robDay"><h3>Дневные роботы (${day.length})</h3>${day.map(row).join('')}</div>`;
+    return h;
+  }
+  function robNav(V) {
+    const nav = $('#robNav'); if (!nav) return;
+    if (!V) { nav.hidden = true; nav.innerHTML = ''; return; }
+    const cur = V.accs.some((a) => a.key === S.robotAcc) ? S.robotAcc : 'all', L = robOrder(V), MAX = 6;
+    const vis = L.length + 1 > MAX ? L.slice(0, MAX - 2) : L, rest = L.slice(vis.length);
+    const btn = (a) => { const pc = robPc(a), dot = (robFresh[a.key] && robFresh[a.key].length) || Object.keys(a.pend || {}).length;
+      return `<button class="rnb${a.key === cur ? ' on' : ''}" data-rnav="${a.key}" style="--rc:${rmStyle(a.key).c}">${dot ? '<i class="rdot"></i>' : ''}${robIco(a, V)}<span>${esc(ROB_SHORT[a.key] || a.name)}</span><small class="${pc >= 0 ? 'pos' : 'neg'}">${spc(pc)}</small></button>`; };
+    nav.hidden = false;
+    nav.innerHTML = (robMore && rest.length ? `<div class="robmore">${rest.map(btn).join('')}</div>` : '')
+      + `<button class="rnb${cur === 'all' ? ' on' : ''}" data-rnav="all" style="--rc:var(--accl)"><span class="me">📋</span><span>Все</span><small class="mut">обзор</small></button>${vis.map(btn).join('')}`
+      + (rest.length ? `<button class="rnb${rest.some((a) => a.key === cur) || robMore ? ' on' : ''}" data-rnav="more" style="--rc:var(--mut)"><span class="me">${robMore ? '✕' : '⋯'}</span><span>Ещё</span><small class="mut">${rest.length}</small></button>` : '');
+    nav.querySelectorAll('[data-rnav]').forEach((b) => { b.onclick = () => {
+      const k = b.dataset.rnav;
+      if (k === 'more') { robMore = !robMore; robNav(D.vaccGet()); return; }
+      robMore = false; S.robotAcc = k; save(); renderRobot(); $('#robBody').scrollTop = 0;
+    }; });
   }
   function renderRobot() {
     const V = D.vaccGet();
@@ -639,7 +737,7 @@
       h += `<div class="card"><h3>Виртуальный счёт робота</h3>
         <div class="small">Четыре робота торгуют на ненастоящие деньги, параллельно: <b>основной</b> и <b>агрессивный</b> дневной набор, <b>«4 часа · неделя»</b> (короткие сделки, на выходные — только прибыльные или с целым каналом) и <b>«продажи по треугольнику»</b> (наблюдение: шорт после треугольника на 4-часовых свечах).</div>
         <ul class="small bul"><li>Сами выбирают из топ-50 акций по обороту, покупают по сигналам, ведут стоп и выходят — ровно как бэктест, но с этого дня и вперёд.</li>
-        <li>Деньги общие на все бумаги: риск на сделку у основного и «4 часа · неделя» — 1,5%, у остальных — ${S.cfg.riskPct || 1}%, позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
+        <li>Деньги общие на все бумаги: риск на сделку у каждого робота свой (основной и «4 часа · неделя» — 1,5%, агрессивный и треугольник — 1%; меняется в «⚙ Настройки» на карточке робота), позиция не больше 25% счёта, без плеча; если на сигнал денег нет — пропускают.</li>
         <li>Свободные деньги лежат в фонде ликвидности. Пополнения и выводы вашего реального счёта повторяются сами. Дивиденды начисляются за вычетом налога.</li></ul>
         <div class="small" style="margin-top:6px">Про каждую покупку и продажу придёт уведомление — можно повторять в Т-Инвестициях. Сигнал по дневке приходит вечером после закрытия дня: «завтра на открытии купит…».</div>
         <div class="two" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div class="field"><label>Стартовый капитал, ₽</label><input type="number" id="vCap" step="1000" min="1000" value="${cap}"></div>
@@ -647,9 +745,9 @@
         <div class="small">${S.acct ? 'Капитал подставлен со счёта «' + esc(S.account.name) + '».' : 'Подключите счёт (⚙ → Счёт → «Взять с брокерского счёта»), чтобы робот повторял ваши пополнения.'}</div>
         ${cap < 60000 ? '<div class="note">При капитале меньше ~60 000 ₽ роботы будут пропускать большинство сигналов: позиция ограничена 25% счёта, а лот многих акций стоит дороже. Для проверки стратегии можно поставить ту сумму, с которой планируете торговать, — пополнения реального счёта всё равно добавятся.</div>' : ''}
         <div class="small" style="margin-top:6px">Вместе с роботами появится счёт <b>«мой (вручную)»</b>: в нём — ваши настоящие сделки и деньги со счёта Т-Инвестиций, чтобы сравнивать себя с роботами.</div>
-        <div class="row" style="margin-top:10px"><button id="vStart" ${S.token ? '' : 'disabled'}>🤖 Запустить роботов</button></div>
-        ${S.token ? '' : '<div class="note">Нужен токен (⚙ → Счёт).</div>'}</div>`;
-      $('#robBody').innerHTML = h;
+        <div class="row" style="margin-top:10px"><button id="vStart">🤖 Запустить роботов</button></div>
+        ${S.token ? '' : '<div class="note">Без токена роботы ходят по ценам Мосбиржи (задержка ~15 мин); пополнения и сделки вашего счёта не повторяются.</div>'}</div>`;
+      $('#robBody').innerHTML = h; robNav(null);
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
         const mk = (key, name) => ({ key, name, tf: robotTf(key), cfg: robotCfg(key), be: key !== 'h4_tri', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
@@ -659,95 +757,121 @@
       };
       return;
     }
-    const ra = V.accs.find((a) => a.key === S.robotAcc) || V.accs[0];
-    { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
-    h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
-    // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
-    const vimTot = V.accs.filter((a) => !a.manual).reduce((s, a) => s + (a.mm || 0), 0);
-    h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual).length)) + ' на робота'}</span></div>`;
-    h += raceCard(V);
-    for (const a of V.accs) {
-      const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), pl = eq - a.dep, inPos = a.pos.reduce((s, p) => s + p.qty * (a.px[p.id] || p.entry), 0);
-      h += `<div class="card" data-racc="${a.key}" style="${a === ra ? 'border-color:#3f6fb3' : ''};cursor:pointer"><h3><span class="grow" style="display:flex;align-items:center;gap:6px">${a.manual ? '✋' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle')} ${esc(a.name)}${a.pos.some((p) => p.wk) ? ' <span class="wk">🧳</span>' : ''}</span>${eqSpark(a.hist)}</h3>
-        <div class="kv"><div><small>Капитал</small><b>${rub0(eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
-        <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${rub0(a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
-        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
-        ${a.manual ? '' : `<div class="row" style="margin:6px 0 2px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>`}
-        <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div>
-        <div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего счёта Т-Инвестиций (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', без пополнений и выводов. ' : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`;
-    }
-    if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
-    if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
-    // подробности выбранного робота
-    const pend = Object.entries(ra.pend || {});
-    // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
-    // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
-    const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
-    const pendRow = (id, p) => {
-      const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
-      if (rtf === '1d') return `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
-      const t1 = p.sigT + rP, now = Date.now();
-      return `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
-        <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)}, робот ходит раз в час).</div>`;
-    };
-    if (pend.length) h += `<div class="card"><h3>${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
-    h += `<div class="card"><h3>Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
-      const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
-      if (ra.manual) return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
-      return `<div class="jrow" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
-        <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
-    const cl = ra.closed.slice(-40).reverse();
-    if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
-      h += `<div class="card"><h3>Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${rub0(Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '▼ шорт ' : ''}${c.qty} шт · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${rub0(Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${pr(c.entry)} → ${fmtT(c.exitT, false)} по ${pr(c.exit)}</div></div>`).join('')}</div>`; }
-    h += robFeed();
-    h += `<div class="card"><h3>Управление</h3>
+    // 3.4: внизу панель роботов — «Все» (обзор) или один робот на весь экран
+    const rSel = V.accs.find((a) => a.key === S.robotAcc), ra = rSel || V.accs[0];
+    if (!rSel) {
+      { const [m, t, o] = robPhrase(V); h += `<div class="rsay">${botSvg('', m, true)}<div class="bub"${o ? ` data-ropen="${esc(o.id)}|${o.tf}" role="button"` : ''}>${esc(t)}${o ? '<div class="small mut">Нажмите — откроется график.</div>' : ''}</div></div>`; }
+      h += `<div class="small" style="margin-bottom:6px">Старт ${fmtT(V.startAt, true)} · проверено бумаг: ${V.lastN || '—'} · последний ход ${(() => { const t = Math.max(V.lastRun || 0, ...V.accs.map((a) => a.lastRun || 0)); return t ? fmtT(t, true) : 'ещё не было'; })()}${V.on ? '' : ' · <span class="warn">остановлены</span>'}</div>`;
+      // доход фонда ВИМ — только по кнопке: результат роботов показываем «чистым», без процентов на свободные деньги
+      const vimTot = V.accs.filter((a) => !a.manual && !a.crypto).reduce((s, a) => s + (a.mm || 0), 0);
+      h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual && !a.crypto).length)) + ' на робота'}</span></div>`;
+      h += raceCard(V);
+      h += robTable(V);
+      if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
+      if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
+      h += robFeed();
+      h += `<div class="card"><h3>Управление</h3>
       <div class="row"><button id="vRun" ${robotBusy ? 'disabled' : ''}>${robotBusy ? 'Роботы думают…' : '⟳ Ход всех роботов'}</button><button id="vToggle">${V.on ? '⏸ Остановить' : '▶ Продолжить'}</button></div>
       <div class="small" id="vMsg">${esc(robotMsg) || 'Робот ходит сам: сразу после закрытия свечи своего таймфрейма (4 часа — в 3, 7, 11, 15, 19 и 23 ч МСК; телефон будит его, даже когда спит), а при открытом приложении проверка каждые 5 минут (⚙ → Сигналы). Нажатие на позицию открывает график.'}</div>
       <div class="field" style="margin-top:10px"><label>Пополнить (+) или вывести (−) вручную, ₽ — если деньги не через этот счёт</label><div class="row"><input type="number" id="vFlow" step="1000" style="flex:1"><button id="vFlowOk">Внести</button></div></div>
       ${V.accs.some((a) => a.manual) ? '' : '<div class="row" style="margin-top:6px"><button id="vAddMan">➕ Добавить мой ручной счёт</button></div>'}
       ${V.accs.some((a) => a.key === 'h4_week') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddW">➕ Добавить робота «4 часа · неделя»</button></div><div class="small">Короткие сделки по 4-часовым свечам: в пятницу сделку без прибыли закрывает, прибыльную переносит на следующую неделю в безубытке. Стартовые деньги — как у основного; торгует только по новым сигналам.</div>'}
       ${V.accs.some((a) => a.key === 'h4_tri') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddT">➕ Добавить робота «продажи по треугольнику»</button></div><div class="small">Наблюдение (3.0): 4-часовые свечи, только продажи (шорт) после завершённого треугольника. На истории ~13 сделок в год, в среднем +0,5 R, но прибыль дали немногие бумаги — смотрим, как пойдёт вживую. Плата брокера за шорт тут не считается. Стартовые деньги — как у основного.</div>'}
-      ${(() => { const old = V.accs.filter((a) => !a.manual && JSON.stringify(a.cfg) !== JSON.stringify(robotCfg(a.key))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${(() => { const NEW = [['addSma200', 'фильтр «SMA200 растёт»'], ['addAO', 'фильтр AO 5/34'], ['addPyramid', 'доливка на 110% волны 1'], ['addMinRR', 'фильтр «прибыль/риск не меньше 1,5»'], ['wkChan', 'на выходные — и убыточную, пока цел канал'], ['wkNextOpen', 'пятничный выход — по открытию понедельника'], ['topOnly', 'сигнал только от лучшего подсчёта']]; const it = NEW.filter(([k]) => old.some((a) => robotCfg(a.key)[k] && !a.cfg[k])).map(([, t]) => t); if (old.some((a) => (a.key === 'd_long' || a.key === 'd_aggr') && !a.be)) it.push('безубыток 3×ATR'); for (const a of old) { const r = robotCfg(a.key).riskPct; if (r !== a.cfg.riskPct) it.push('риск на сделку у «' + a.name + '» — ' + String(r).replace('.', ',') + '%'); } return it.join(', ') || 'обновлённые параметры'; })()}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
+      ${V.accs.some((a) => a.key === 'btc_trend') ? '' : '<div class="row" style="margin-top:6px"><button id="vAddB">➕ Добавить робота «Биткоин · тренд»</button></div><div class="small">Не волны, а тренд (3.2): держит биткоин, пока дневное закрытие выше средней за 100 дней, иначе всё в долларах. Доля биткоина — по волатильности, чтобы просадка была меньше. На истории 2018–2026 ~27%/год, просадка ~25%; за последний год — около нуля. Цены — с открытого сайта Binance, без ключа. Счёт условный, $1 000; робот сам не торгует — присылает сигнал «вход / выход / сменить долю».</div>'}
+      ${(() => { const old = V.accs.filter((a) => !a.manual && !a.crypto && JSON.stringify(a.cfg) !== JSON.stringify(robCfgFor(a))); return old.length ? `<div class="note" style="margin-top:8px">Обновились настройки наборов: ${old.map((a) => '«' + esc(a.name) + '»').join(', ')} — ${(() => { const NEW = [['addSma200', 'фильтр «SMA200 растёт»'], ['addAO', 'фильтр AO 5/34'], ['addPyramid', 'доливка на 110% волны 1'], ['addMinRR', 'фильтр «прибыль/риск не меньше 1,5»'], ['wkChan', 'на выходные — и убыточную, пока цел канал'], ['wkNextOpen', 'пятничный выход — по открытию понедельника'], ['topOnly', 'сигнал только от лучшего подсчёта']]; const it = NEW.filter(([k]) => old.some((a) => robotCfg(a.key)[k] && !a.cfg[k])).map(([, t]) => t); for (const a of old) { const r = robCfgFor(a).riskPct; if (r !== a.cfg.riskPct) it.push('риск на сделку у «' + a.name + '» — ' + String(r).replace('.', ',') + '%'); } return it.join(', ') || 'обновлённые параметры'; })()}. Деньги, история и открытые позиции сохранятся; открытые позиции робот доведёт по старым правилам, новые сделки — по новым.</div><div class="row" style="margin-top:6px"><button id="vUpd">⬆ Обновить настройки роботов</button></div>` : ''; })()}
       <div class="row" style="margin-top:8px"><button id="vCsv">⬇ Отчёт CSV</button><button id="vJson">⬇ JSON</button></div>
       <div class="small" id="vExpRes">Все сделки роботов и ваши виртуальные: открытые и закрытые, вход, стоп, цель, выход, причина, ₽, дивиденды, доливки, плюс итоги по каждому счёту. CSV — открыть в таблице; JSON — прислать на разбор.</div>
       <div class="row" style="margin-top:6px"><button id="vReset">${robotArm === 'reset' ? 'Точно стереть? Нажмите ещё раз' : 'Сбросить роботов'}</button></div></div>`;
-    $('#robBody').innerHTML = h;
+    } else {
+      const a = ra;
+      const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), pl = eq - a.dep, inPos = a.pos.reduce((s, p) => s + p.qty * (a.px[p.id] || p.entry), 0);
+      h += `<div class="card robhd" style="--rc:${rmStyle(a.key).c}"><h3><span class="grow" style="display:flex;align-items:center;gap:6px">${a.manual ? '✋' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle')} ${esc(a.name)}${a.pos.some((p) => p.wk) ? ' <span class="wk">🧳</span>' : ''}</span>${eqSpark(a.hist)}</h3>
+        <div class="kv"><div><small>Капитал</small><b>${money(a, eq)}</b></div><div><small>Результат</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(a, Math.abs(pl))}</b></div><div><small>%</small><b class="${pl >= 0 ? 'pos' : 'neg'}">${spc(a.dep > 0 ? pl / a.dep : 0)}</b></div>
+        <div><small>В бумагах</small><b>${a.pos.length} · ${Math.round(inPos / (eq || 1) * 100)}%</b></div><div><small>${S.vimOn ? 'Свободно + ВИМ' : 'Свободно'}</small><b>${money(a, a.cash + (S.vimOn ? a.mm || 0 : 0))}</b></div><div><small>Сделок закрыто</small><b>${a.closed.length}</b></div></div>
+        <div class="row" style="margin:6px 0 2px;align-items:center"><button data-rrun="${a.key}" ${robotBusy || !V.on ? 'disabled' : ''} style="flex:none">${robotBusy === a.key || robotBusy === 'all' ? '⏳ Думает…' : '⟳ Ход'}</button><span class="small mut" style="flex:1">${a.manual ? 'сверить с вашим счётом: позиции и деньги' : a.crypto ? 'решает раз в сутки, после закрытия дня в 03:00 МСК · последний ход ' + (a.lastRun ? fmtT(a.lastRun, true) : '—') : 'последний ход ' + (a.lastRun || V.lastRun ? fmtT(a.lastRun || V.lastRun, true) : '—') + (a.tf === '4h' ? ' · 4-часовые свечи 50 бумаг грузятся несколько минут' : '')}</span></div>
+        ${a.crypto ? btcInfo(a) : ''}
+        ${a.crypto ? `<div class="small">Счёт в долларах (условно ${usd0(a.dep)} на старте), свободные доллары — без процентов, комиссия 0,1%. Пополнения рублёвого счёта сюда не идут. Робот сам не торгует — по уведомлению повторяйте на своей бирже.</div></div>` : `<div class="small">${a.manual ? (a.realCap ? 'Капитал — с вашего брокерского счёта (акции + деньги и прочее); результат — с ' + fmtT(a.realCap, false) + ', пополнения и выводы прибылью не считаются. ' + manCosts(a) : 'Капитал подтянется с вашего счёта при следующей сверке. ') : ''}Вложено (${a.manual && a.realCap ? 'на начало + пополнения' : 'старт + пополнения'}): ${rub0(a.dep)} · ВИМ ${S.vimOn ? 'учтён' : 'дал бы'} ≈ ${rub0(a.mm || 0)}${a.manual ? '' : ' · пропущено сигналов без денег: ' + a.skipped}</div></div>`}`;
+
+      // подробности выбранного робота
+      const pend = Object.entries(ra.pend || {});
+      // дневки — «завтра на открытии»; 4ч и мельче — следующая свеча открывается сразу после сигнальной,
+      // а робот видит только закрытые свечи и запишет покупку, когда закроется и она
+      const rtf = ra.tf || '1d', rP = (D.TF[rtf] || D.TF['1d']).ms, hm = (t) => fmtT(t, true).slice(9);
+      const pendRow = (id, p) => {
+        const pu = D.pendUntil(p, rtf), cdl = pu ? `<div>${cdSpan(pu, rtf === '1d' ? 'до конца торгов' : 'до закрытия свечи входа')}</div>` : '';
+        const lv = `стоп ${pr(p.stop)}${p.target ? ', цель ' + pr(p.target) : ''}`;
+        if (rtf === '1d') return cdl + `<b>${esc(id.split('_')[0])}</b> — купит ~${p.qty} шт на открытии (~${pr(p.entry)}), ${lv}<div class="small">сигнал ${fmtT(p.sigT, false)}</div>`;
+        const t1 = p.sigT + rP, now = Date.now();
+        return cdl + `<b>${esc(id.split('_')[0])}</b> — вход по открытию свечи после сигнальной (~${pr(p.entry)}), ~${p.qty} шт, ${lv}.
+          <div class="small">Сигнал по свече ${fmtT(p.sigT, true)}–${hm(t1)}. ${now >= t1 ? '<b>Следующая свеча уже идёт — повторить сделку можно сейчас.</b>' : 'Следующая свеча откроется в ' + hm(t1) + '.'} Робот видит только закрытые свечи: покупку по цене открытия он запишет, когда закроется и эта свеча (около ${hm(t1 + rP)} — робот ходит сразу после закрытия свечи${S.token ? '' : ', без токена — через ~15 мин'}).</div>`;
+      };
+      if (pend.length) h += `<div class="card pendc"><h3>⏳ ${rtf === '1d' ? 'Ждут открытия' : 'Сигнал — вход сейчас'} · ${esc(ra.name)}</h3>${pend.map(([id, p]) => `<div class="jrow" data-rgo="${esc(id)}" role="button">${pendRow(id, p)}</div>`).join('')}<div class="small mut">Нажмите на бумагу — откроется её график.</div></div>`;
+      h += `<div class="card"><h3>📂 Позиции · ${esc(ra.name)} (${ra.pos.length})</h3>${ra.pos.length ? ra.pos.slice().sort((x, y) => y.entryT - x.entryT).map((p) => {
+        const px = ra.px[p.id] || p.entry, pl = p.side < 0 ? p.cost - p.qty * px * 1.0005 : p.qty * px * (1 - 0.0005) - p.cost + (p.divs || 0), days = Math.floor((Date.now() - p.entryT) / 86400000);
+        if (p.crypto) { const v = p.qty * px * (1 - 0.001), q = v - p.cost, eqA = D.vEquity(ra);
+          return `<div class="jrow ${q >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>BTC</b> ${p.qty.toFixed(5).replace('.', DEC())} · ${Math.round(p.qty * px / (eqA || 1) * 100)}% счёта</span><span class="${q >= 0 ? 'pos' : 'neg'}">${q >= 0 ? '+' : '−'}${usd0(Math.abs(q))} · ${spc(px / (p.cost / p.qty) - 1)}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${usd0(p.entry)}${Math.abs(p.entry / (p.cost / p.qty) - 1) > 0.005 ? ' (средняя ' + usd0(p.cost / p.qty) + ')' : ''} · сейчас ${usd0(px)} · ${days} дн. · стопа нет: выход, когда дневное закрытие ниже средней-100</div></div>`; }
+        if (ra.manual) return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
+        return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
+          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : ra.crypto ? '<div class="small">Нет — все деньги в долларах. Робот купит, когда дневное закрытие биткоина будет выше средней за 100 дней.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
+      const cl = ra.closed.slice(-40).reverse();
+      if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
+        h += `<div class="card"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
+      h += `<div class="card${foldC('robSet', true)}" data-fold="robSet"><h3>⚙ Настройки · ${esc(a.name)}</h3>
+        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${riskBox(a)}`}
+        <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
+    }
+    $('#robBody').innerHTML = h; robNav(V);
     $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); runRobot(b.dataset.rrun); }; });
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
-    $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; save(); renderRobot(); }; });
-    $('#robBody').querySelectorAll('[data-rgo]').forEach((r) => { r.onclick = () => { const id = r.dataset.rgo; closeSheet('robots'); const rtf = ra.tf || '1d'; if (S.inst.id !== id || S.tf !== rtf) { S.inst = { id, ticker: id.split('_')[0], name: id.split('_')[0], classCode: 'TQBR' }; S.tf = rtf; save(); sel = -1; an = null; view.init = false; renderHead(); load(false); } }; });
+    $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; robMore = false; save(); renderRobot(); $('#robBody').scrollTop = 0; }; });
+    $('#robBody').querySelectorAll('[data-rgo]').forEach((r) => { r.onclick = () => { const id = r.dataset.rgo; if (D.isCrypto(id)) { goChart({ id, tf: '1d' }); return; } closeSheet('robots'); const rtf = ra.tf || '1d'; if (S.inst.id !== id || S.tf !== rtf) { S.inst = { id, ticker: id.split('_')[0], name: id.split('_')[0], classCode: 'TQBR' }; S.tf = rtf; save(); sel = -1; an = null; view.init = false; renderHead(); load(false); } }; });
     $('#robBody').querySelectorAll('[data-ropen]').forEach((r) => { r.onclick = (e) => { e.stopPropagation(); const [id, tf] = r.dataset.ropen.split('|'); goChart({ id, ticker: id.split('_')[0], tf }); }; });
-    $('#vRun').onclick = () => runRobot();
+    const on = (id, f) => { const el = $(id); if (el) el.onclick = f; };
+    on('#vRun', () => runRobot());
     { const vb = $('#vVim'); if (vb) vb.onclick = () => { S.vimOn = !S.vimOn; save(); renderRobot(); }; }
     $('#robBody').querySelectorAll('[data-rbe]').forEach((b) => { b.onclick = (e) => {
-      e.stopPropagation(); const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
+      e.stopPropagation(); if (robWait()) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
       a.be = !a.be; D.vaccSet(W); D.log('robot', a.name + ': безубыток 3×ATR ' + (a.be ? 'включён' : 'выключен') + (a.manual ? '' : ' для новых сделок'));
       robotMsg = a.name + ': безубыток ' + (a.be ? 'включён — ' + (a.manual ? 'ваши позиции' : 'новые сделки') + ' переводятся в безубыток, когда цена уйдёт на 3×ATR от входа.' : 'выключен.') + (!a.manual && a.pos.length ? ' Открытые позиции ведутся так, как были открыты.' : ''); renderRobot();
+    }; });
+    $('#robBody').querySelectorAll('[data-rrisk]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); const a = V.accs.find((x) => x.key === b.dataset.rrisk), v = Math.round(Math.max(0.1, Math.min(5, Number($('#rRisk').value) || 0)) * 10) / 10; if (!a || !v || v === (a.cfg.riskPct || 0)) { riskArm = null; renderRobot(); return; } riskArm = { key: a.key, v }; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rrrec]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); riskArm = { key: b.dataset.rrrec, v: robotCfg(b.dataset.rrrec).riskPct }; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rrno]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); riskArm = null; renderRobot(); }; });
+    $('#robBody').querySelectorAll('[data-rryes]').forEach((b) => { b.onclick = (e) => {
+      e.stopPropagation(); if (robWait() || !riskArm) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rryes); if (!a) return;
+      const v = riskArm.v, old = a.cfg.riskPct, rec = robotCfg(a.key).riskPct;
+      if (v === rec) delete a.riskOwn; else a.riskOwn = v;
+      a.cfg = Object.assign({}, a.cfg, { riskPct: v }); D.vaccSet(W); riskArm = null;
+      D.log('robot', a.name + ': риск на сделку ' + old + ' → ' + v + '%' + (v === rec ? ' (рекомендуемый)' : ' (свой)') + (a.pos.length ? ', открытые позиции — как были' : ''), { kind: 'risk', key: a.key, from: old, to: v });
+      robotMsg = a.name + ': риск на сделку теперь ' + String(v).replace('.', DEC()) + '% — для новых сделок.'; renderRobot();
     }; });
     $('#robBody').querySelectorAll('[data-rms],[data-rmc]').forEach((b) => { b.onclick = (e) => {
       e.stopPropagation(); const [key, v] = (b.dataset.rms || b.dataset.rmc).split('|'); S.rmStyle = Object.assign({}, S.rmStyle); S.rmStyle[key] = Object.assign({}, rmStyle(key), b.dataset.rms ? { sh: v } : { c: v }); save(); robCache.at = 0; renderRobot(); draw();
     }; });
-    $('#vCsv').onclick = () => robotExport('csv'); $('#vJson').onclick = () => robotExport('json');
+    on('#vCsv', () => robotExport('csv')); on('#vJson', () => robotExport('json'));
     const up = $('#vUpd'); if (up) up.onclick = () => {
+      if (robWait()) return;
       const W = D.vaccGet(); let n = 0;
       for (const a of W.accs) {
-        if (a.manual) continue;
-        const nc = robotCfg(a.key); if (JSON.stringify(a.cfg) === JSON.stringify(nc)) continue;
-        if (a.pos.length) { a.cfgPrev = a.cfgPrev || a.cfg; a.pos.forEach((p) => { p.legacy = true; }); }
+        if (a.manual || a.crypto) continue;
+        const nc = robCfgFor(a), oc = a.cfg; if (JSON.stringify(oc) === JSON.stringify(nc)) continue;
+        if (a.pos.length) { a.cfgPrev = a.cfgPrev || oc; a.pos.forEach((p) => { p.legacy = true; }); }
         a.cfg = nc; n++;
-        if (a.key === 'd_aggr' || a.key === 'd_long') a.be = true;   // 2.38: безубыток 3×ATR — часть агрессивного набора, 3.0 — и основного (кнопка 🛡 по-прежнему выключает)
-        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && 'SMA200', nc.addAO && 'фильтр AO', nc.addPyramid && 'доливка 110% W1', nc.addMinRR && 'П/Р ≥ ' + nc.minRR, (a.key === 'd_aggr' || a.key === 'd_long') && 'безубыток 3×ATR', nc.wkChan && 'неделя: канал', nc.wkNextOpen && 'выход по открытию пн', nc.topOnly && 'только лучший подсчёт', nc.riskPct !== a.cfg.riskPct && 'риск ' + nc.riskPct + '%'].filter(Boolean).join(', ') + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
+        // 3.9: безубыток 🛡 здесь больше не включается сам — как вы его поставили кнопкой, так и остаётся
+        D.log('robot', a.name + ': настройки обновлены (' + [nc.addSma200 && !oc.addSma200 && 'SMA200', nc.addAO && !oc.addAO && 'фильтр AO', nc.addPyramid && !oc.addPyramid && 'доливка 110% W1', nc.addMinRR && !oc.addMinRR && 'П/Р ≥ ' + nc.minRR, nc.wkChan && !oc.wkChan && 'неделя: канал', nc.wkNextOpen && !oc.wkNextOpen && 'выход по открытию пн', nc.topOnly && !oc.topOnly && 'только лучший подсчёт', nc.riskPct !== oc.riskPct && 'риск ' + oc.riskPct + ' → ' + nc.riskPct + '%'].filter(Boolean).join(', ') || 'параметры набора' + ')' + (a.pos.length ? ', ' + a.pos.length + ' открытых позиций ведём по старым' : ''));
       }
       D.vaccSet(W); robotMsg = n ? 'Настройки обновлены у ' + n + ' робота(ов). Новые сделки — по новым правилам.' : ''; renderRobot();
     };
-    const am = $('#vAddMan'); if (am) am.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0]; W.accs.push({ key: 'manual', name: 'мой (вручную)', manual: true, cfg: {}, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: Date.now(), eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); S.robotAcc = 'manual'; save(); renderRobot(); };
-    const addRob = (key, name, tf, be, msg) => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key, name, tf, cfg: robotCfg(key), be, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «' + name + '»'); S.robotAcc = key; save(); robotMsg = msg; renderRobot(); runRobot(key); };
+    const am = $('#vAddMan'); if (am) am.onclick = () => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0]; W.accs.push({ key: 'manual', name: 'мой (вручную)', manual: true, cfg: {}, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: Date.now(), eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); S.robotAcc = 'manual'; save(); renderRobot(); };
+    const addRob = (key, name, tf, be, msg) => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key, name, tf, cfg: robotCfg(key), be, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «' + name + '»'); S.robotAcc = key; save(); robotMsg = msg; renderRobot(); runRobot(key); };
+    const ab = $('#vAddB'); if (ab) ab.onclick = () => { if (robWait()) return; const W = D.vaccGet(), now = Date.now(), cap = 1000; W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'btc_trend', name: 'Биткоин · тренд', crypto: true, tf: '1d', cfg: {}, be: false, startAt: now, cash: cap, dep: cap, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap, dep: cap }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «Биткоин · тренд»'); S.robotAcc = 'btc_trend'; save(); robotMsg = 'Робот «Биткоин · тренд» добавлен — сейчас посмотрит последний закрытый день биткоина.'; renderRobot(); runRobot('btc_trend'); };
     const at = $('#vAddT'); if (at) at.onclick = () => addRob('h4_tri', 'продажи · треугольник', '4h', false, 'Робот «продажи по треугольнику» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).');
-    const aw = $('#vAddW'); if (aw) aw.onclick = () => { const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
-    $('#vToggle').onclick = () => { const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); };
-    $('#vFlowOk').onclick = () => { const v = Number($('#vFlow').value); if (!v) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); };
-    $('#vReset').onclick = () => { if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); };
+    const aw = $('#vAddW'); if (aw) aw.onclick = () => { if (robWait()) return; const W = D.vaccGet(), b0 = W.accs[0], now = Date.now(); W.accs.splice(W.accs.findIndex((a) => a.manual) < 0 ? W.accs.length : W.accs.findIndex((a) => a.manual), 0, { key: 'h4_week', name: '4 часа · неделя', tf: '4h', cfg: robotCfg('h4_week'), be: true, startAt: now, cash: b0.dep, dep: b0.dep, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: b0.dep, dep: b0.dep }], px: {}, seen: {}, pend: {}, skipped: 0 }); D.vaccSet(W); D.log('robot', 'добавлен робот «4 часа · неделя»'); S.robotAcc = 'h4_week'; save(); robotMsg = 'Робот «4 часа · неделя» добавлен — первый ход загрузит 4-часовые свечи 50 бумаг (может занять несколько минут).'; renderRobot(); runRobot('h4_week'); };
+    on('#vToggle', () => { if (robWait()) return; const W = D.vaccGet(); W.on = !W.on; D.vaccSet(W); D.log('robot', W.on ? 'продолжены' : 'остановлены'); applySchedule(); renderRobot(); });
+    on('#vFlowOk', () => { const v = Number($('#vFlow').value); if (!v || robWait()) return; const W = D.vaccGet(); W.flows.push({ id: 'm' + Date.now(), t: Date.now(), amount: v, manual: true }); for (const a of W.accs) if (!a.crypto) { a.cash += v; a.dep += v; } D.vaccSet(W); D.log('robot', 'вручную ' + (v > 0 ? 'пополнено ' : 'выведено ') + Math.abs(v) + ' ₽'); renderRobot(); });
+    on('#vReset', () => { if (robWait()) return; if (robotArm !== 'reset') { robotArm = 'reset'; renderRobot(); setTimeout(() => { robotArm = ''; }, 5000); return; } robotArm = ''; D.files.set('vacc.json', null); D.log('robot', 'сброшены'); applySchedule(); renderRobot(); });
   }
   // отчёт по роботам: все счета, позиции и закрытые сделки
   function robotExport(kind) {
@@ -783,7 +907,7 @@
   // вид отметок сделок на графике: фигура и цвет — свои у каждого счёта
   const RM_SHAPES = [['tri', '▲'], ['dia', '◆'], ['dot', '●'], ['sq', '■'], ['star', '★']];
   const RM_COLORS = ['#c08cff', '#f0a23a', '#4fc3f7', '#3fbf7f', '#ef5b5b', '#f5d742', '#ffffff'];
-  const RM_DEF = { d_long: { sh: 'tri', c: '#c08cff' }, d_aggr: { sh: 'dia', c: '#f0a23a' }, h4_week: { sh: 'sq', c: '#3fbf7f' }, h4_tri: { sh: 'tri', c: '#ef5b5b' }, manual: { sh: 'dot', c: '#4fc3f7' }, me: { sh: 'dot', c: '#5b9cff' } };
+  const RM_DEF = { d_long: { sh: 'tri', c: '#c08cff' }, d_aggr: { sh: 'dia', c: '#f0a23a' }, h4_week: { sh: 'sq', c: '#3fbf7f' }, h4_tri: { sh: 'tri', c: '#ef5b5b' }, btc_trend: { sh: 'star', c: '#f5d742' }, manual: { sh: 'dot', c: '#4fc3f7' }, me: { sh: 'dot', c: '#5b9cff' } };
   const rmStyle = (key) => Object.assign({}, RM_DEF[key] || RM_DEF.d_long, (S.rmStyle || {})[key] || {});
   function rmShape(sh, x, y, d, r) {   // фигура с вершиной у цены входа (d — сторона: +1 покупка снизу, −1 продажа сверху)
     const cy = y + d * (r + 2);
@@ -800,8 +924,8 @@
     const now = Date.now(); if (now - robCache.at < 5000 && robCache.id === S.inst.id) return robCache.list;
     const out = []; let V = null; try { V = D.vaccGet(); } catch (e) { V = null; }
     if (V && V.accs) for (const a of V.accs) {
-      const lt = a.manual ? 'Я' : a.key === 'd_aggr' ? 'А' : a.key === 'h4_week' ? 'Н' : a.key === 'h4_tri' ? 'Т' : 'О', key = a.manual ? 'manual' : a.key;
-      for (const p of a.pos) if (p.id === S.inst.id) out.push({ lt, key, side: p.side || 1, t0: p.entryT, e: p.entry, open: true, stop: p.stop, be: !!p.beOn });
+      const lt = a.manual ? 'Я' : a.key === 'd_aggr' ? 'А' : a.key === 'h4_week' ? 'Н' : a.key === 'h4_tri' ? 'Т' : a.key === 'btc_trend' ? 'Б' : 'О', key = a.manual ? 'manual' : a.key;
+      for (const p of a.pos) if (p.id === S.inst.id) out.push({ lt, key, side: p.side || 1, t0: p.markT || p.entryT, e: p.mark || p.entry, open: true, stop: p.stop, be: !!p.stop && (p.side || 1) * (p.stop - p.entry) >= 0 });   // 3.9: «БУ» — когда стоп не хуже входа; позиция со счёта — на свече и по цене настоящей покупки
       for (const c of a.closed) if (c.id === S.inst.id) out.push({ lt, key, side: c.side || 1, t0: c.entryT, e: c.entry, t1: c.exitT, x: c.exit, pl: c.pl });
     }
     // одинаковые сделки разных роботов (оба купили в один момент) — одной отметкой «ОА»
@@ -810,8 +934,10 @@
     robCache = { at: now, id: S.inst.id, list }; return list;
   }
   const a0trades = (V) => V.accs.some((a) => !a.manual && (a.pos.length || a.closed.length || Object.keys(a.pend || {}).length));
+  // 3.7: пока идёт ход робота (по расписанию, в фоне), счета роботов не трогаем — ход в конце записал бы поверх старые данные
+  function robWait() { if (!D.robBusy()) return false; alertMsg('Сейчас идёт ход робота — подождите минуту и нажмите ещё раз.'); return true; }
   async function runRobot(only) {   // only — ключ одного робота (кнопка «⟳ Ход» на его карточке)
-    if (robotBusy) return;
+    if (robotBusy || robWait()) return;
     const V0 = D.vaccGet(), nm = only && V0 ? (V0.accs.find((a) => a.key === only) || {}).name : '';
     robotBusy = only || 'all'; robotMsg = nm ? '«' + nm + '» проверяет бумаги…' : 'роботы проверяют бумаги…'; if (!$('#robots').hidden) renderRobot(); renderRobIcon();
     try {
@@ -977,10 +1103,11 @@
     const P = $('#panel');
     let h = '';
     if (demo) h += `<div class="banner">Это демо-данные. Введите токен Т-Инвестиций в настройках ⚙ — появятся настоящие котировки.</div>`;
+    if (mxSrc && !demo) h += `<div class="banner">Цены с Мосбиржи, задержка ~15 мин — ${S.token ? 'сервер брокера сейчас не отвечает. Когда ответит, приложение само вернётся к нему.' : 'токена нет. С токеном Т-Инвестиций (⚙ → Счёт) цены без задержки и видны сделки со счёта.'}</div>`;
     if (err) h += `<div class="banner err" id="errRetry" role="button">${esc(err)}<div class="small" style="margin-top:6px;opacity:.85">${retrying ? '⟳ Проверяю связь…' : '↻ Нажмите, чтобы проверить связь' + (lastTry ? ' · последняя попытка ' + new Date(lastTry).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')}</div>${/Минцифры/.test(err) && A && A.installRussianCA ? '<div style="margin-top:8px"><button id="caQuick">Скачать сертификат с gu-st.ru</button></div>' : ''}</div>`;
     if (tr) h += trainerCard();
     if (tr && !tr.waves) { h += '<div class="card"><div class="small">🌊 Разметка и анализ скрыты, чтобы вы размечали волны сами. Нажмите 🌊 на панели тренажёра, чтобы сверить свой подсчёт с системой.</div></div>'; P.innerHTML = h; bindPanel(); bindTrainerCard(); return; }
-    if (!an) { P.innerHTML = h; bindPanel(); return; }
+    if (!an) { P.innerHTML = h + '<button class="manl" data-man="">📖 Инструкция — как пользоваться приложением</button>'; bindPanel(); return; }
     const ad = addonsList();
     // 1. фаза, выход, план, открытая сделка
     const ph = an.phase;
@@ -994,11 +1121,14 @@
       if (hs.small) h += `<div class="small warn">Порог ${String(hs.sw).replace('.', DEC())}% мельче 0.6 от авто (${String(hs.ref).replace('.', DEC())}%): система видит волны очень мелкой степени${S.tf === '1h' ? ', на 1ч такие сигналы в среднем убыточны' : ''}.</div>`;
       if (L) h += `<div class="small ${L.cls}" style="margin-top:2px"><b>${L.short}</b> — ${esc(L.long)}</div>`; }
     const p = an.plan;
+    // 3.10: сигнал на последней закрытой свече — сколько осталось до закрытия свечи, которая идёт сейчас (свеча входа)
+    const planCd = (age) => { if (age !== 0 || tr) return ''; const ms = D.TF[S.tf].ms, lastT = an.bars[an.N - 1].t, end = D.candleEnd(S.tf);
+      return end && lastT + 2 * ms > Date.now() ? `<div class="small">${cdSpan(end, 'до закрытия текущей свечи')} — вход по цене, близкой к открытию, ещё возможен</div>` : ''; };
     if (p && an.planActive) {
       const age = an.N - 1 - p.sigBar;
       h += `<div class="plan ${p.side > 0 ? 'buy' : 'sell'}"><div class="big ${p.side > 0 ? 'pos' : 'neg'}">ПЛАН: ${p.side > 0 ? 'ПОКУПКА' : 'ПРОДАЖА'} · ${esc(E.SETUP_NAME[p.setup])}</div>
         <div class="mono">Вход ~${pr(p.entry)} · стоп ${pr(p.stop)}${p.notgt ? '' : ' · цель ' + pr(p.target)}</div>
-        <div class="small">П/Р ${p.rr.toFixed(2).replace('.', DEC())} · сигнал ${age === 0 ? 'на последней свече' : age + ' св. назад'} (${fmtT(an.bars[p.sigBar].t, true)})</div>${staleLine(p)}${sizeLine(curPx(p), p.stop)}</div>`;
+        <div class="small">П/Р ${p.rr.toFixed(2).replace('.', DEC())} · сигнал ${age === 0 ? 'на последней свече' : age + ' св. назад'} (${fmtT(an.bars[p.sigBar].t, true)})</div>${planCd(age)}${staleLine(p)}${sizeLine(curPx(p), p.stop)}</div>`;
     } else h += `<div class="plan"><span class="mut">ПЛАН: ждать подтверждения следующего разворота</span></div>`;
     if (an.openTrade) {
       const rest = h.slice(nowTop); h = h.slice(0, nowTop);
@@ -1040,7 +1170,7 @@
     const st = an.stats, n = st.trades;
     const avgR = n ? st.sumR / n : 0, pf = st.gl > 0 ? st.gp / st.gl : st.gp > 0 ? 99 : 0;
     h += `<div class="card${foldC('bt')}" data-fold="bt"><h3><span class="grow">Порог разворота и бэктест</span></h3>
-      <div class="stepper"><button id="swMinus">−</button><b class="mono" style="min-width:58px;text-align:center">${an.swing.toFixed(an.swing < 2 ? 2 : 1).replace('.', DEC())}%</b><button id="swPlus">+</button><button id="swAuto" class="${curSwing() ? '' : 'on'}">Авто</button><button id="swOpt">Лучший R</button><button id="swOptRet">Макс. %</button></div>
+      <div class="stepper"><button id="swMinus">−</button><b class="mono" style="min-width:58px;text-align:center">${an.swing.toFixed(an.swing < 2 ? 2 : 1).replace('.', DEC())}%</b><button id="swPlus">+</button><button id="swAuto" class="${(tr ? !tr.swAuto : curSwing()) ? '' : 'on'}">Авто</button><button id="swOpt">Лучший R</button><button id="swOptRet">Макс. %</button></div>
       <div class="kv">
         <div><small>Сделок</small><b>${n}</b></div>
         <div><small>Прибыльных</small><b>${n ? Math.round(st.wins / n * 100) : 0}%</b></div>
@@ -1057,11 +1187,11 @@
       <div class="small">Бэктест на ${an.N} свечах${an.gapFrom ? ' (после разрыва в истории, с ' + fmtT(an.gapFrom) + ')' : ''}</div>
       ${divAdj.length ? `<div class="small">История скорректирована на дивиденды: ${divAdj.length} ${divAdj.length === 1 ? 'отсечка' : divAdj.length < 5 ? 'отсечки' : 'отсечек'}, последняя ${fmtT(divAdj[0].t)} — ${pr(divAdj[0].d)} ₽. Цены до отсечки на графике ниже биржевых.</div>` : ''}
 ${n && n < 30 ? '<div class="note">Сделок меньше 30: результат может быть случайным.</div>' : ''}
-      <table style="margin-top:8px"><thead><tr><th>Порог</th>${an.sens.map((x) => `<th>${x.swing.toFixed(1).replace('.', DEC())}${x.cur ? '*' : ''}</th>`).join('')}</tr></thead><tbody>
+      <div style="overflow-x:auto;max-width:100%"><table style="margin-top:8px;font-size:12px"><thead><tr><th>Порог</th>${an.sens.map((x) => `<th>${x.swing.toFixed(1).replace('.', DEC())}${x.cur ? '*' : ''}</th>`).join('')}</tr></thead><tbody>
         <tr><td>Сделок</td>${an.sens.map((x) => `<td>${x.st.trades}</td>`).join('')}</tr>
         <tr><td>Ср. R</td>${an.sens.map((x) => `<td>${x.st.trades ? f2(x.st.sumR / x.st.trades) : '—'}</td>`).join('')}</tr>
         <tr><td>Доход</td>${an.sens.map((x) => `<td>${spc(x.st.totalRet)}</td>`).join('')}</tr>
-      </tbody></table>
+      </tbody></table></div>
       ${S.view.be && n ? beSummary() : ''}
       ${n ? `<div class="small" style="margin-top:6px">По сетапам: ${st.sn.map((k, i) => (k ? E.SETUP_SHORT[i] + ' ' + k + '/' + Math.round(st.sw[i] / k * 100) + '%' : '')).filter(Boolean).join(' · ')}</div>` : ''}
     </div>`;
@@ -1084,7 +1214,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     h += `<div class="card${foldC('dbg')}" data-fold="dbg"><h3>Разбор ошибок</h3><div class="small">Выгрузит свечи, настройки и результат анализа этой бумаги в файл (без токена). Его можно прислать в чат вместе со скриншотом — разберём, где подсчёт ошибся.</div>
       <div class="row" style="margin-top:8px"><button id="expBtn">Выгрузить для разбора</button><button id="expShare" ${lastExport ? '' : 'hidden'}>Отправить</button></div>
       <div class="small" id="expRes">${lastExport ? 'Сохранено: ' + esc(lastExport) : ''}</div></div>`;
-    h += `<div class="small" style="text-align:center;margin-top:10px">${S.token && lastLoad ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
+    h += '<button class="manl" data-man="">📖 Инструкция — как пользоваться приложением</button>';
+    h += `<div class="small" style="text-align:center;margin-top:10px">${lastLoad && !demo ? 'Обновлено ' + fmtT(lastLoad, true) + ' · ' : ''}По книге Пректера и Фроста «Волновой принцип Эллиотта». Не является инвестиционной рекомендацией.</div>`;
     // перерисовка панели не должна сдвигать то, что сейчас на экране
     const anchor = panelAnchor; panelAnchor = '';
     const aTop = anchorTop;
@@ -1096,7 +1227,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.1';
+  const APP_VER = '3.12';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -1142,7 +1273,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     setTimeout(() => {
       const done = all.filter((x) => x.done !== false);
       const o = E.optimizeReturn(done, S.cfg, D.TF[S.tf].ms);
-      retRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true);
+      retRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true);
       if (after) after();
     }, 30);
   }
@@ -1164,7 +1295,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="small" style="margin-top:4px">Проверка «вперёд»: подбор по истории до ${fmtT(ch.splitT)} выбрал ${swFmt(ch.sw)}% — на оставшейся части он дал <b class="${ch.picked >= 0 ? 'pos' : 'neg'}">${spc(ch.picked)}</b>, авто — <b class="${ch.auto >= 0 ? 'pos' : 'neg'}">${spc(ch.auto)}</b>. ${ch.picked > ch.auto + 0.01 ? '<span class="pos">Подбор помогал.</span>' : ch.picked < ch.auto - 0.01 ? '<span class="neg">Подбор не помог — на будущем лучший по истории порог проиграл авто.</span>' : '<span class="mut">Разницы почти нет.</span>'}</div></div>`;
   }
   function bindRetBars(root) {
-    root.querySelectorAll('[data-rsw]').forEach((bt) => { bt.onclick = () => { S.swings[swKey()] = Number(bt.dataset.rsw); save(); sel = -1; compute(true); if (!pop.hidden && popFor === 'swChip') fillPop(); }; });
+    root.querySelectorAll('[data-rsw]').forEach((bt) => { bt.onclick = () => { setSw(Number(bt.dataset.rsw)); save(); sel = -1; compute(true); if (!pop.hidden && popFor === 'swChip') fillPop(); }; });
   }
   function optBlock() {
     const o = optRes[swKey()];
@@ -1172,14 +1303,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const ch = o.check, fR = (r) => `<b class="${r.R >= 0 ? 'pos' : 'neg'}">${f2(r.R)} R</b> (${r.n} сд.)`;
     const better = ch.picked.R > ch.auto.R + 0.5, worse = ch.picked.R < ch.auto.R - 0.5;
     return `<div class="small" style="margin-top:6px">Подобран <b>${o.best.sw.toFixed(2).replace('.', DEC())}%</b>: ${fR(o.best.all)} на всей истории.
-      <table style="margin-top:6px"><thead><tr><th>Порог</th><th>Сделок</th><th>Приб.</th><th>Сумма R</th><th>Доходность</th><th>Просадка</th></tr></thead><tbody>
+      <div style="overflow-x:auto;max-width:100%"><table style="margin-top:6px;font-size:12px;width:100%"><thead><tr><th>Порог</th><th>Сд.</th><th>Приб.</th><th>Σ R</th><th>Доход</th><th>Просад.</th></tr></thead><tbody>
       ${o.grid.map((r, k) => {
         const nb = [o.grid[k - 1], o.grid[k + 1]].filter(Boolean), lone = r === o.best && nb.length && nb.every((x) => x.all.R < 0);
         const isCur = Math.abs(curSwing() - r.sw) < 1e-9;
         return `<tr class="${isCur ? 'sel' : ''} ${r === o.best ? 'cur' : ''}" data-osw="${r.sw}"><td>${r.sw.toFixed(2).replace('.', DEC())}%${r === o.best ? ' ★' : ''}${isCur ? ' ✓' : ''}</td><td>${r.all.n}</td><td>${r.all.n ? Math.round(r.all.w / r.all.n * 100) : 0}%</td>
           <td class="${r.all.R >= 0 ? 'pos' : 'neg'}">${f2(r.all.R)}</td><td class="${r.ret >= 0 ? 'pos' : 'neg'}">${spc(r.ret)}</td><td>${pc(r.dd)}</td></tr>${lone ? '' : ''}`;
-      }).join('')}</tbody></table>
-      <div class="small">★ — лучший по сумме R, ✓ — стоит сейчас. Нажмите на строку, чтобы поставить этот порог.</div>
+      }).join('')}</tbody></table></div>
+      <div class="small">Сд. — сделок, Σ R — сумма R. ★ — лучший по сумме R, ✓ — стоит сейчас. Нажмите на строку, чтобы поставить этот порог.</div>
       ${(() => { const k = o.grid.indexOf(o.best), nb = [o.grid[k - 1], o.grid[k + 1]].filter(Boolean); return nb.length && nb.every((x) => x.all.R < 0) ? '<div class="note">Лучший порог стоит особняком: у соседних порогов убыток. Скорее всего, это случайность истории — надёжнее порог из зоны, где хороши несколько соседних значений подряд.</div>' : ''; })()}
       <div style="margin-top:4px">Проверка «вперёд» — подбор только на истории до ${fmtT(ch.splitT)}, потом торговля дальше: подобранный ${ch.sw.toFixed(2).replace('.', DEC())}% дал ${fR(ch.picked)}, авто ${ch.autoSw.toFixed(2).replace('.', DEC())}% — ${fR(ch.auto)}.
       <span class="${better ? 'pos' : worse ? 'neg' : 'mut'}">${better ? 'Подбор на этой бумаге помогал.' : worse ? 'Подбор на этой бумаге не помог — лучший порог прошлого не повторился.' : 'Разница небольшая.'}</span></div>
@@ -1198,8 +1329,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function swNext(s, up) { const st = up ? swStep(s) : swStep(s - swStep(s) * 0.5); return swRound(s + (up ? st : -st)); }
   function stepSwing(up, fixOnly) {
     let s = an ? an.swing : 3;
-    if (fixOnly) { S.swings[swKey()] = s; save(); compute(true); return; }
-    S.swings[swKey()] = swNext(s, up); save(); sel = -1; compute(true);
+    if (fixOnly) { setSw(s); save(); compute(true); return; }
+    setSw(swNext(s, up)); save(); sel = -1; compute(true);
   }
   // ползунок: логарифмическая шкала 0,1–20%
   const SW_MIN = 0.1, SW_MAX = 20;
@@ -1212,7 +1343,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     return `Бэктест: <b class="${st.totalRet >= 0 ? 'pos' : 'neg'}">${spc(st.totalRet)}</b> · ${st.trades} сд. · ${wr}% прибыльных${st.sumNR != null ? ` · <span class="${st.sumNR >= 0 ? 'pos' : 'neg'}">${f2(st.sumNR)} R</span> чистыми` : ''}`;
   }
   function swApply(v, live) {
-    S.swings[swKey()] = v; sel = -1;
+    setSw(v); sel = -1;
     const lab = $('#sxVal'); if (lab) lab.textContent = swFmt(v) + '%';
     if (live && swSlow) return;   // на медленном телефоне пересчёт только когда отпустили
     clearTimeout(swLiveT);
@@ -1239,14 +1370,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const R = $('#sxR');
     R.oninput = () => swApply(xToSw(Number(R.value)), true);
     R.onchange = () => { swApply(xToSw(Number(R.value)), false); save(); };
-    holdRepeat($('#sxM'), () => { const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), false); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(S.swings[swKey()], false); });
-    holdRepeat($('#sxP'), () => { const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), true); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(S.swings[swKey()], false); });
-    $('#sxAuto').onclick = () => { delete S.swings[swKey()]; save(); sel = -1; compute(true); fillPop(); };
+    holdRepeat($('#sxM'), () => { const v = swNext(curSwing() || (an ? an.swing : 3), false); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(curSwing(), false); });
+    holdRepeat($('#sxP'), () => { const v = swNext(curSwing() || (an ? an.swing : 3), true); R.value = swToX(v); swApply(v, true); }, () => { save(); swApply(curSwing(), false); });
+    $('#sxAuto').onclick = () => { clrSw(); save(); sel = -1; compute(true); fillPop(); };
     $('#sxRet').onclick = () => { const bt = $('#sxRet'); bt.disabled = true; bt.textContent = 'Считаю…'; runRetOpt(fillPop); };
     bindRetBars(pop);
     $('#sxOpt').onclick = () => {
       const bt = $('#sxOpt'); bt.disabled = true; bt.textContent = 'Считаю…';
-      setTimeout(() => { const done = all.filter((x) => x.done !== false); const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms); optRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true); fillPop(); }, 30);
+      setTimeout(() => { const done = all.filter((x) => x.done !== false); const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms); optRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true); fillPop(); }, 30);
     };
   }
   // нажать и держать: сразу шаг, через 0,4 с — повтор, всё быстрее
@@ -1287,14 +1418,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     document.querySelectorAll('[data-alt]').forEach((bt) => { bt.onclick = () => { panelAnchor = bt.id; aTopSaved(bt.id); altSel = Number(bt.dataset.alt); renderPanel(); draw(); }; });
     b('jrnQuick', () => openJournal({ mode: 'open' }));
     document.querySelectorAll('#panel [data-jclose]').forEach((bt) => { bt.onclick = () => openJournal({ mode: 'close', id: bt.dataset.jclose }); });
-    b('swAuto', () => { delete S.swings[swKey()]; save(); sel = -1; compute(true); });
-    document.querySelectorAll('[data-osw]').forEach((tr) => { tr.onclick = () => { const o = optRes[swKey()]; const sw = Number(tr.dataset.osw); S.swings[swKey()] = sw; save(); sel = -1; compute(true); }; });
+    b('swAuto', () => { clrSw(); save(); sel = -1; compute(true); });
+    document.querySelectorAll('[data-osw]').forEach((ro) => { ro.onclick = () => { const o = optRes[swKey()]; const sw = Number(ro.dataset.osw); setSw(sw); save(); sel = -1; compute(true); }; });
     b('swOpt', () => {
       const bt = $('#swOpt'); if (bt) { bt.disabled = true; bt.textContent = 'Считаю…'; }
       setTimeout(() => {
         const done = all.filter((x) => x.done !== false);
         const o = E.optimizeSwing(done, S.cfg, D.TF[S.tf].ms);
-        optRes[swKey()] = o; S.swings[swKey()] = o.best.sw; save(); sel = -1; compute(true);
+        optRes[swKey()] = o; setSw(o.best.sw); save(); sel = -1; compute(true);
       }, 30);
     });
     b('swOptRet', () => { const bt = $('#swOptRet'); if (bt) { bt.disabled = true; bt.textContent = 'Считаю…'; } runRetOpt(); });
@@ -1326,7 +1457,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     $('#chips').querySelectorAll('button[data-sw]').forEach((b) => {
       const up = Number(b.dataset.sw) > 0;
       holdRepeat(b, () => {
-        const v = swNext(S.swings[swKey()] || (an ? an.swing : 3), up); S.swings[swKey()] = v;
+        const v = swNext(curSwing() || (an ? an.swing : 3), up); setSw(v);
         const c = $('#swChip'); if (c) { c.textContent = 'Порог ' + swFmt(v) + '% ▾'; c.classList.remove('on'); }
       }, () => { save(); sel = -1; compute(true); });
     });
@@ -1487,7 +1618,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
   function bgLine() {
     if (!A) return 'Фоновая проверка работает только в приложении на телефоне.';
-    if (!S.token) return '<span class="warn">Нужен токен (⚙ → Счёт).</span>';
+    if (DESK) { const l = D.store.get('lastcheck', 0); return 'Программа проверяет каждые 5 минут, пока открыта или свёрнута к часам' + (l ? ' · последняя ' + fmtT(l, true) : '') + '.'; }
     if (!S.bgMinutes) return '<span class="warn">Фоновая проверка выключена.</span>';
     const l = D.store.get('lastcheck', 0);
     return 'Проверка каждые ' + (S.bgMinutes >= 60 ? S.bgMinutes / 60 + ' ч' : S.bgMinutes + ' мин') + (l ? ' · последняя ' + fmtT(l, true) : '') + '. Android может сдвигать время проверки.';
@@ -1545,7 +1676,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ================= ТРЕНАЖЁР =================
   // История показывается до «сегодня» тренажёра; текущая свеча растёт по свечам младшего ТФ (или по пути O→H/L→C).
-  // Система (сигналы и сделки бэктеста) работает только по закрытым свечам, порог заморожен на старте.
+  // Система (сигналы и сделки бэктеста) работает только по закрытым свечам; порог — свой у тренировки (tr.sw), с 3.9 его можно менять.
   const SUB_TF = { '1w': '1d', '1d': '1h', '4h': '15m', '1h': '5m' };
   // младшие свечи для роста текущей свечи грузим кусками по ходу прокрутки (дней за раз)
   const SUB_CHUNK = { '1h': 21, '4h': 60, '1d': 180, '1w': 720 };
@@ -1558,7 +1689,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function trSetupPop() {
     const P = D.TF[S.tf].ms, iso = (d) => d.toISOString().slice(0, 10);
     const keep = $('#trDate') && $('#trDate').value, keepE = $('#trEnd') && $('#trEnd').value;
-    const d0 = new Date(Date.now() - 365 * 86400000), live = S.token && !demo, base = trBase();
+    const d0 = new Date(Date.now() - 365 * 86400000), live = !demo, base = trBase();
     return `<div class="pgrp">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}</div>
       <div class="pnote">С выбранной даты будущее скрыто. Текущая свеча нарастает ${SUB_TF[S.tf] ? 'по свечам ' + D.TF[SUB_TF[S.tf]].name : 'по пути открытие → максимум/минимум → закрытие'}, скорость регулируется. Система торгует рядом по своим сигналам, вы — кнопками. Деньги ненастоящие.</div>
       <div style="padding:4px 6px"><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Начать с</label><input type="date" id="trDate" value="${keep || iso(d0)}" min="${live ? '2005-01-01' : base.length ? iso(new Date(base[0].t + 100 * P)) : ''}" max="${iso(new Date(Date.now() - 2 * P))}"></div>
@@ -1574,7 +1705,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   // догрузить историю, чтобы до старта было достаточно свечей для анализа
   async function trEnsureHist(startT, msg) {
     const need = (S.cfg.maxBars || 2000) + 50, from = startT - need / (BARS_PER_DAY[S.tf] || 1) * 86400000 * 1.1, base = trBase();
-    if (!S.token || demo || (base.length && base[0].t <= from)) return;
+    if (demo || (base.length && base[0].t <= from)) return;
     if (trHist && trHist.key === trHistKey() && trHist.from <= from) return;   // уже пробовали так глубоко — старее нет
     msg('загружаю историю с ' + fmtT(from, false) + '…');
     const bars = (await D.loadCandles(S.token, S.inst.id, S.tf, Infinity, from)).filter((b) => b.done !== false);
@@ -1609,7 +1740,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     closePop(); document.body.classList.add('training');
     if (early) tr.note = 'Такой ранней истории у брокера нет — начали с ' + fmtT(full[i0].t, false) + '.';
     if (endT) tr.endT = endT;
-    if (SUB_TF[S.tf] && S.token && !demo) { tr.subTo = full[i0].t - 1; msg('загружаю свечи ' + D.TF[SUB_TF[S.tf]].name + '…'); await trSubLoad(); }
+    if (SUB_TF[S.tf] && !demo) { tr.subTo = full[i0].t - 1; msg('загружаю свечи ' + D.TF[SUB_TF[S.tf]].name + '…'); await trSubLoad(); }
     D.log('trainer', 'старт ' + S.inst.ticker + ' ' + S.tf + ' с ' + fmtT(full[i0].t, false));
     trSaveBars(); trSaveState();
     trShow(true); trRenderBar();
@@ -1868,7 +1999,8 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const sp = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 10, 15, 20, 30], big = [1, 4, 15, 30];
     B.innerHTML = `<div class="row"><button id="trPP">${tr.playing ? '⏸' : '▶'}</button><button id="trS1" title="шаг">+1</button><button id="trSB" title="до конца свечи">⏭</button><button id="trW" class="${tr.waves ? 'on' : ''}" title="волновая разметка">🌊</button>
       <span class="spdg"><button id="trSm" aria-label="медленнее">−</button><button id="trSx" class="spdv" title="быстро переключить: 1 → 4 → 15 → 30 шагов/с">${tr.speed < 1 ? (1 / tr.speed) + ' с/шаг' : tr.speed + '/с'}<small>⏩</small></button><button id="trSp" aria-label="быстрее">+</button></span><button id="trX" class="${tr.finished && tr.xPane != null ? 'on' : ''}" aria-label="Закончить" title="итоги на весь экран; ещё раз — вернуть график">✕</button></div>
-      <div class="row"><button id="trB" class="buy">Buy</button><button id="trSl" class="sell">Sell</button><button id="trTk" class="${tr.ticket ? 'on' : ''}">Ордер ▾</button><button id="trPl" class="${popFor === 'trPl' ? 'on' : ''}" title="план сигнала и открытая сделка системы">План</button><button id="trLy" class="${popFor === 'trBar' ? 'on' : ''}">Слои ▾</button><span class="inf">${tr.cur < tr.full.length ? fmtT(tr.full[tr.cur].t, S.tf !== '1d' && S.tf !== '1w') + ' · ' + tr.j + '/' + path.length : 'конец'} · ${Math.round(trEq()).toLocaleString('ru-RU')} ₽</span></div>
+      <div class="row"><button id="trB" class="buy">Buy</button><button id="trSl" class="sell">Sell</button><button id="trTk" class="${tr.ticket ? 'on' : ''}">Ордер ▾</button><button id="trPl" class="${popFor === 'trPl' ? 'on' : ''}" title="план сигнала и открытая сделка системы">План</button><button id="trLy" class="${popFor === 'trBar' ? 'on' : ''}">Слои ▾</button></div>
+      <div class="small mut" style="margin:2px 2px 0">🕒 ${tr.cur < tr.full.length ? fmtT(tr.full[tr.cur].t, S.tf !== '1d' && S.tf !== '1w') + ' · шаг ' + tr.j + '/' + path.length : 'конец истории'} · капитал ${Math.round(trEq()).toLocaleString('ru-RU')} ₽</div>
       ${trPlanStrip()}
       ${tr.ticket ? `<div class="row"><span class="inf" style="flex:none">Объём</span><select id="trPct" class="tin" style="flex:none;width:auto">${[10, 25, 50, 100].map((v) => `<option value="${v}" ${(S.trPct || 100) === v ? 'selected' : ''}>${v}%</option>`).join('')}</select><span class="inf" style="flex:none">SL</span><input type="number" step="any" id="tkSL" class="tin" value="${tr.tk && tr.tk.sl ? tr.tk.sl : ''}" placeholder="нет"><span class="inf" style="flex:none">TP</span><input type="number" step="any" id="tkTP" class="tin" value="${tr.tk && tr.tk.tp ? tr.tk.tp : ''}" placeholder="нет"></div>
         <div class="row"><span class="inf" style="flex:none">Цена</span><input type="number" step="any" id="tkPx" class="tin" placeholder="${pr(trPx())}"><button id="tkBuyP">Buy по цене</button><button id="tkSellP">Sell по цене</button></div>
@@ -1958,11 +2090,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const sysR = sys.filter((t) => t.reason !== 3).reduce((s, t) => s + t.NR, 0), sysW = sys.filter((t) => t.reason !== 3 && t.NR > 0).length, sysN = sys.filter((t) => t.reason !== 3).length;
     const bh = trPx() / tr.startPx - 1, days = Math.round(((all.length ? all[all.length - 1].t : tr.startT) - tr.startT) / 86400000);
     let h = `<div class="card${foldC('tr')}" data-fold="tr" style="border-color:#3f6fb3"><h3><span class="grow">🎓 Тренажёр · ${esc(S.inst.ticker)} ${D.TF[S.tf].name}${tr.finished ? ' · итоги' : ''}</span></h3>
-      <div class="small">Старт ${fmtT(tr.startT, false)} · прошло ${days} дн. · порог системы ${String(tr.sw).replace('.', DEC())}% (заморожен)</div>
+      <div class="small">Старт ${fmtT(tr.startT, false)} · прошло ${days} дн. · порог системы ${String(tr.sw).replace('.', DEC())}%${tr.swAuto ? ' (авто на старте)' : ''} — можно менять кнопками порога, порог обычного графика при этом не меняется</div>
       <div class="kv"><div><small>Вы</small><b class="${ret >= 0 ? 'pos' : 'neg'}">${spc(ret)}</b></div><div><small>Система</small><b class="${sysR >= 0 ? 'pos' : 'neg'}">${f2(sysR)} R</b></div><div><small>Купил и держал</small><b class="${bh >= 0 ? 'pos' : 'neg'}">${spc(bh)}</b></div>
       <div><small>Ваших сделок</small><b>${tr.trades.length}${tr.trades.length ? ' · ' + Math.round(w / tr.trades.length * 100) + '%' : ''}</b></div><div><small>Сделок системы</small><b>${sysN}${sysN ? ' · ' + Math.round(sysW / sysN * 100) + '%' : ''}</b></div><div><small>Капитал</small><b>${Math.round(eq).toLocaleString('ru-RU')} ₽</b></div></div>
       ${tr.trades.slice(-6).reverse().map((t) => `<div class="small">${t.side > 0 ? '▲' : '▼'} ${fmtT(t.t0, false)} ${pr(t.entry)} → ${fmtT(t.t1, false)} ${pr(t.exit)} · ${esc(t.why)} · <span class="${t.pl >= 0 ? 'pos' : 'neg'}">${t.pl >= 0 ? '+' : '−'}${Math.round(Math.abs(t.pl)).toLocaleString('ru-RU')} ₽</span></div>`).join('')}
-      <details class="trev" data-keep="trHelpOpen"${S.trHelpOpen ? ' open' : ''}><summary>Как пользоваться</summary><div class="small mut">Как в тестере MT5: <b>Buy/Sell</b> — по рынку; <b>Ордер ▾</b> — объём (% капитала), SL и TP, отложенные ордера по цене (лимит или стоп — определится сам). Линии SL, TP и ордеров на графике <b>перетаскиваются пальцем</b>. Долгое нажатие на график — отложенный ордер или SL/TP в этой точке. <b>БУ</b> — стоп в безубыток. Позиций может быть <b>несколько</b>, у каждой свои SL/TP — нажмите на строку позиции, чтобы править её. <b>🔗 SL/TP всем</b> — один стоп и цель на все позиции: тянете одну линию — двигаются все. Без плеча: всего в позициях не больше капитала. Комиссия 0,05%.</div></details>
+      <details class="trev" data-keep="trHelpOpen"${S.trHelpOpen ? ' open' : ''}><summary>Как пользоваться</summary><div class="small mut">Как в тестере MT5: <b>Buy/Sell</b> — по рынку; <b>Ордер ▾</b> — объём (% капитала), SL и TP, отложенные ордера по цене (лимит или стоп — определится сам). Линии SL, TP и ордеров на графике <b>перетаскиваются пальцем</b>. Долгое нажатие на график — отложенный ордер или SL/TP в этой точке. <b>БУ</b> — стоп в безубыток. Позиций может быть <b>несколько</b>, у каждой свои SL/TP — нажмите на строку позиции, чтобы править её. <b>🔗 SL/TP всем</b> — один стоп и цель на все позиции: тянете одну линию — двигаются все. Без плеча: всего в позициях не больше капитала. Комиссия 0,05%.</div><button class="manl" data-man="trainer">📖 Тренажёр в инструкции</button></details>
       ${tr.ev.length ? `<details class="trev" data-keep="trEvOpen"${S.trEvOpen ? ' open' : ''}><summary>События тренировки (${tr.ev.length})</summary>${tr.ev.slice(-30).reverse().map((e) => `<div class="small"><span class="mut">${fmtT(e.t, S.tf !== '1d' && S.tf !== '1w')}</span> ${e.kind === 'вы' ? '👤' : '🤖'} ${esc(e.text)}</div>`).join('')}${tr.ev.length > 30 ? '<div class="small mut">…ещё ' + (tr.ev.length - 30) + ' — все в выгрузке</div>' : ''}</details>` : ''}
       <div class="row" style="margin-top:8px">${tr.finished ? '<button id="trResume">Продолжить</button>' : ''}<button id="trCsv">⬇ Выгрузить CSV</button><button id="trJson">⬇ JSON</button><button id="trExit">Выйти из тренажёра</button></div><div class="small" id="trRes"></div>
       <details class="trev" data-keep="trExpHelp"${S.trExpHelp ? ' open' : ''}><summary>Какой формат выбрать: CSV или JSON?</summary><div class="small mut">
@@ -2033,9 +2165,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     S.inst = st.inst; S.tf = st.tr.tf; save();
     tr = Object.assign({}, st.tr, { full: bf.full.map(unc), sub, playing: false, timer: 0, subLoading: false });
     if (!tr.adj) trFixSub(tr, Object.keys(tr.sub));
-    demo = !S.token; err = ''; sel = -1; an = null; view.init = false;
+    demo = false; err = ''; sel = -1; an = null; view.init = false;
     document.body.classList.add('training'); renderHead();
-    tr.note = 'Тренировка восстановлена (сохранена ' + new Date(st.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '). ▶ — продолжить';
+    tr.note = 'Тренировка восстановлена (сохранена ' + fmtT(st.at, true) + '). ▶ — продолжить';
     trShow(true); trRenderBar(); renderPanel();
     D.log('trainer', 'восстановлена тренировка ' + S.inst.ticker + ' ' + S.tf);
     if (S.view.pane === 3) setPane(3);
@@ -2074,7 +2206,11 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   const trMiniH = () => { const b = $('#trBar'); if (!tr || !b || b.hidden) return 0; const r = b.querySelector('.row'); return (r ? r.offsetHeight : 40) + 18; };
   function fullH() { const hd = document.querySelector('body > header'), ch = $('#chips'), gr = $('#grip'); return Math.max(200, vh() - (hd ? hd.offsetHeight : 50) - (ch ? ch.offsetHeight : 44) - 18 - trMiniH()); }
   const snapPx = (k) => SNAPS[k] === 'full' ? fullH() : SNAPS[k] * vh();
+  // 3.6: на компьютере в широком окне график слева на всю высоту, панель справа — высоту задаёт раскладка, а не ручка
+  const deskWide = () => DESK && window.innerWidth >= 900;
   function setChartH(px, anim) {
+    document.body.classList.toggle('desk', deskWide());
+    if (deskWide()) { const w = $('#chartWrap'); w.style.height = ''; chartH = w.getBoundingClientRect().height; document.body.classList.remove('chartbig', 'chartfull'); resize(); return; }
     const wrap = $('#chartWrap'), max = fullH();
     chartH = Math.max(0, Math.min(max, px));
     wrap.classList.toggle('anim', !!anim);
@@ -2386,12 +2522,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     }
     // сделки виртуальных роботов по этой бумаге (не в тренажёре — там своя история)
     if (!tr && !hid.robot && an.N) {
-      const ix = (t) => { let lo = 0, hi = an.N - 1; if (t < an.bars[0].t) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (an.bars[m].t <= t) lo = m; else hi = m - 1; } return lo; };
+      const pms = (D.TF[S.tf] || D.TF['1d']).ms;
+      // сделка в паузе между свечами (утро до первой свечи дня, ночь) — на следующую свечу, а не на прошлую вечернюю
+      const ix = (t) => { let lo = 0, hi = an.N - 1; if (t < an.bars[0].t) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (an.bars[m].t <= t) lo = m; else hi = m - 1; } return lo + 1 < an.N && t >= an.bars[lo].t + pms ? lo + 1 : lo; };
       for (const m of robotMarks()) {
         const a = ix(m.t0); if (a < 0) continue;
         const b = m.open ? an.N - 1 : ix(m.t1); if (b < i0 - 2 || a > i1 + 2) continue;
         const stl = rmStyle(m.key), good = m.open ? null : m.pl > 0, col = m.open ? stl.c : good ? '#3fbf7f' : '#ef5b5b';
-        line([[a, m.e], [m.open ? i1 + 1 : b, m.open ? m.e : m.x]], m.open ? stl.c : col, 1.2, [1, 3]);
+        line([[a, m.e], [b, m.open ? an.bars[an.N - 1].c : m.x]], m.open ? stl.c : col, 1.2, [1, 3]);   // 3.9: открытая — от входа к цене последней свечи
         const x = X(a), y = Y(m.e), d = m.side > 0 ? 1 : -1;
         ctx.fillStyle = stl.c; rmShape(stl.sh, x, y, d, 6);
         ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = d > 0 ? 'top' : 'bottom'; ctx.fillText(m.lt, x, y + d * 16); ctx.textAlign = 'left';
@@ -2634,6 +2772,27 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function openSheet(id) { $('#' + id).hidden = false; }
   function closeSheet(id) { $('#' + id).hidden = true; }
   document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => closeSheet(b.dataset.close); });
+  // 3.8: инструкция — manual.html (та же, что manual/Инструкция.html) экраном поверх остальных. Грузится при первом открытии и не выгружается:
+  // открыли снова без раздела — читаете с того же места. Цвета — темы приложения; раздел и новые цвета — сообщением в страницу
+  function manColors() {
+    const sk = (SKINS[S.skin] || SKINS.night).css, c = { chbg: K.bg, grid: K.grid, axis: K.axis };
+    for (const k of ['bg', 'bg2', 'bg3', 'line', 'ink', 'mut', 'dim', 'acc', 'accl']) if (sk[k]) c[k] = sk[k];
+    return c;
+  }
+  function openManual(sec) {
+    const f = $('#manFrame');
+    closePop();
+    openSheet('manual');
+    if (!f.getAttribute('src')) f.src = 'manual.html?app=1&c=' + encodeURIComponent(JSON.stringify(manColors())) + (sec ? '#' + sec : '');
+    else if (f.contentWindow) f.contentWindow.postMessage({ ew: 'go', sec: sec || '', c: manColors() }, '*');
+  }
+  // любая кнопка или ссылка с data-man="раздел" (и в шапках экранов, и в панели, которую перерисовывают)
+  document.addEventListener('click', (e) => {
+    const m = e.target && e.target.closest ? e.target.closest('[data-man]') : null;
+    if (!m) return;
+    e.preventDefault();
+    openManual(m.dataset.man);
+  });
   // клавиатура не выскакивает сама: поиск активируется, только когда нажмёте на поле
   $('#instBtn').onclick = () => { openSheet('search'); $('#q').value = ''; $('#q').blur(); $('#qres').innerHTML = quickList(); bindRes(); };
   const POPULAR = [['SBER', 'Сбербанк'], ['GAZP', 'Газпром'], ['LKOH', 'Лукойл'], ['ROSN', 'Роснефть'], ['GMKN', 'Норникель'], ['NVTK', 'Новатэк'], ['YDEX', 'Яндекс'], ['T', 'Т-Технологии'], ['MOEX', 'Мосбиржа'], ['VTBR', 'ВТБ'], ['MGNT', 'Магнит'], ['PLZL', 'Полюс'], ['TATN', 'Татнефть'], ['SNGS', 'Сургутнефтегаз'], ['ALRS', 'Алроса'], ['CHMF', 'Северсталь'], ['NLMK', 'НЛМК'], ['AFLT', 'Аэрофлот'], ['OZON', 'Озон'], ['MTSS', 'МТС']];
@@ -2733,8 +2892,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const loc = univList().filter((x) => x.ticker.startsWith(up) || (x.name || '').toLowerCase().includes(low)).sort((a, b) => (b.ticker === up) - (a.ticker === up) || b.turn - a.turn).slice(0, 20);
     let h = loc.map((x) => resRow(x.id, x.ticker, x.name, 'TQBR', ` <span class="small">${fmtTurn(x.turn)}${x.turn < 1e9 ? ' млн' : ''} ₽/день</span>`)).join('');
     if (!loc.length && /^[A-Z0-9.]{1,12}$/.test(up)) h += resRow(up + '_TQBR', up, 'акция Мосбиржи', 'TQBR', ' <span class="small">тикер на Мосбирже (TQBR)</span>');
-    $('#qres').innerHTML = h + (S.token ? '<div class="small" style="padding:10px">поиск…</div>' : ''); bindRes();
-    if (!S.token) return;
+    $('#qres').innerHTML = h + '<div class="small" style="padding:10px">поиск…</div>'; bindRes();
     qTimer = setTimeout(async () => {
       try {
         const list = await D.findInstrument(S.token, v);
@@ -2785,10 +2943,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     let h = `<div class="small">Таймфрейм <b>${esc(D.TF[tf].name)}</b> (как на графике) · настройки и дополнения — текущие.</div>
       <div class="field" style="margin-top:8px"><label>Какие бумаги</label><select id="scanListSel">${LISTS.map(([k, t]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       ${mode !== 'fav' ? `<div class="field"><label>Мин. средний оборот, млн ₽ в день</label><input type="number" id="scanMinTurn" min="0" step="10" value="${S.scanMinTurn == null ? 50 : S.scanMinTurn}"></div>
-      <div class="small">${univ ? `Список акций от брокера: ${univ.list.length} шт., обновлён ${fmtTurnDate(univ.at)}. Подходит под фильтр: ${list.length}.` : 'Список акций ещё не загружен — сейчас взяты 20 популярных. Нажмите «Обновить список акций» (≈ 1–2 мин, раз в сутки).'} <button id="univBtn" ${scanBusy || !S.token ? 'disabled' : ''}>Обновить список акций</button></div>` : `<div class="small">Бумаг в избранном: ${list.length}.</div>`}
+      <div class="small">${univ ? `Список акций от брокера: ${univ.list.length} шт., обновлён ${fmtTurnDate(univ.at)}. Подходит под фильтр: ${list.length}.` : 'Список акций ещё не загружен — сейчас взяты 20 популярных. Нажмите «Обновить список акций» (≈ 1–2 мин, раз в сутки).'} <button id="univBtn" ${scanBusy ? 'disabled' : ''}>Обновить список акций</button></div>` : `<div class="small">Бумаг в избранном: ${list.length}.</div>`}
       <label class="sw"><input type="checkbox" id="scanOpt" ${S.scanOpt ? 'checked' : ''}><span>Подбирать порог для каждой бумаги<small>Дольше примерно в 10 раз. Без галочки — сохранённый порог бумаги или «Авто»</small></span></label>
-      <div class="row" style="margin:10px 0"><button id="scanGo" ${scanBusy || !S.token || !list.length ? 'disabled' : ''}>${scanBusy ? 'Сканирую…' : 'Сканировать ' + list.length}</button><span class="small" id="scanMsg">${esc(scanMsg)}</span></div>`;
-    if (!S.token) h += '<div class="banner">Нужен токен T-Invest API (в настройках).</div>';
+      <div class="row" style="margin:10px 0"><button id="scanGo" ${scanBusy || !list.length ? 'disabled' : ''}>${scanBusy ? 'Сканирую…' : 'Сканировать ' + list.length}</button><span class="small" id="scanMsg">${esc(scanMsg)}</span></div>`;
+    if (!S.token) h += '<div class="small">Без токена свечи и список акций — с Мосбиржи (задержка ~15 мин).</div>';
     if (last) {
       // Δ R и динамика — только по сканам тем же набором и тем же списком
       const same = (x) => (x.preset || '') === (last.preset || '') && (x.list || '') === (last.list || '');
@@ -2916,7 +3074,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
 
   async function loadUniverse(force) {
-    if (scanBusy || !S.token) return;
+    if (scanBusy) return;
     scanBusy = true; scanMsg = 'загружаю список…'; renderScanner();
     try {
       univ = await D.getUniverse(S.token, (k, n, t) => { scanMsg = `оборот ${k}/${n}: ${t}`; const m = $('#scanMsg'); if (m) m.textContent = scanMsg; }, force);
@@ -2925,7 +3083,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     scanBusy = false; renderScanner();
   }
   async function runScan() {
-    if (scanBusy || !S.token) return;
+    if (scanBusy) return;
     scanBusy = true; const tf = S.tf, list = scanList(), out = [];
     const hist = scanHist().filter((x) => x.tf === tf);
     renderScanner();
@@ -3036,7 +3194,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   }
 
   function bgStatus() {
-    if (!A || !S.bgMinutes) return '';
+    if (!A || DESK || !S.bgMinutes) return '';
     const lb = D.store.get('lastbg', null), now = Date.now(), lim = Math.max(S.bgMinutes, 15) * 60000 * 2.5;
     let h = '<div class="small" style="margin-top:4px">';
     if (!lb) h += '<span class="warn">Фоновая проверка ещё ни разу не запускалась.</span>';
@@ -3141,14 +3299,14 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="row"><button id="caBtn">${A.caInfo() ? 'Скачать заново' : 'Скачать с gu-st.ru'}</button></div></div>` : ''}
 `;
     if (tab === 'alerts') h = `<div class="card"><h3>Как это работает</h3>
-      <div class="small">Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
+      <div class="small">${DESK ? 'Пока программа открыта или свёрнута к часам, она каждые 5 минут' : 'Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно'} скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
       <div class="card${foldC('notifs')}" data-fold="notifs"><h3>📨 История оповещений</h3><div class="small">Все уведомления, что приходили (последние 50). Нажмите — откроется график бумаги.</div>${notifRows(50)}</div>
       <div class="card"><h3>Сигналы системы</h3>
       <div class="small">Бумаги и таймфреймы, по которым присылать вход, выход и уровни. Каждая проверяется по тем настройкам, что стояли, когда её добавили.</div>
       <div id="watchList"></div>
       <div class="row" style="margin-top:8px"><button id="wAdd">+ Добавить ${esc(S.inst.ticker)} ${D.TF[S.tf].name}</button><button id="wTest">Проверить сейчас</button></div>
-      <div class="field" style="margin-top:10px"><label>Как часто проверять</label><select id="bg">${[[0, 'Выключено'], [15, 'Каждые 15 минут'], [30, 'Каждые 30 минут'], [60, 'Каждый час'], [240, 'Каждые 4 часа']].map(([m, t]) => `<option value="${m}" ${S.bgMinutes === m ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div class="small">${A ? (sched ? 'Фоновая проверка включена.' : 'Фоновая проверка выключена.') : 'Фоновая проверка работает только в приложении на телефоне.'} ${(() => { const l = D.store.get('lastcheck', 0); return l ? 'Последняя проверка ' + fmtT(l, true) + '.' : ''; })()}</div>
+      ${DESK ? '' : `<div class="field" style="margin-top:10px"><label>Как часто проверять</label><select id="bg">${[[0, 'Выключено'], [15, 'Каждые 15 минут'], [30, 'Каждые 30 минут'], [60, 'Каждый час'], [240, 'Каждые 4 часа']].map(([m, t]) => `<option value="${m}" ${S.bgMinutes === m ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`}
+      <div class="small">${DESK ? 'На компьютере программа проверяет сигналы и роботов каждые 5 минут, пока она открыта или свёрнута к часам (значок рядом с часами Windows). Когда компьютер выключен или спит, проверок нет.' : A ? (sched ? 'Фоновая проверка включена.' : 'Фоновая проверка выключена.') : 'Фоновая проверка работает только в приложении на телефоне.'} ${(() => { const l = D.store.get('lastcheck', 0); return l ? 'Последняя проверка ' + fmtT(l, true) + '.' : ''; })()}</div>
       <div id="bgStat">${bgStatus()}</div>
       ${(() => { const le = D.store.get('lasterr', null); return le && Date.now() - le.at < 86400000 ? `<div class="note">Ошибка проверки ${fmtT(le.at, true)}: ${esc(le.msg)}</div>` : ''; })()}
       <label class="sw"><input type="checkbox" data-n="signal" ${S.notify.signal ? 'checked' : ''}><span>Новый сигнал на вход<small>Покупка/продажа с входом, стопом и целью</small></span></label>
@@ -3164,11 +3322,17 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="small">Уровни проверяются по 5-минутным свечам с прошлой проверки, так что касание не пропустится, даже если цена потом ушла обратно. Уведомление придёт с задержкой до интервала проверки.</div></div>
 `;
     if (tab === 'data') h = `<div class="card"><h3>Оформление</h3><div class="skins">${skinPick()}</div>
+      <label class="sw" style="margin-top:8px"><input type="checkbox" id="tzMsk" ${S.tz !== 'local' ? 'checked' : ''}><span>Время по Москве (МСК)<small>Как на бирже и у роботов: свечи, сделки, журнал и уведомления — по московскому времени, где бы вы ни были. Без галочки — по часам телефона (сейчас разница с Москвой ${(() => { const h = -new Date().getTimezoneOffset() / 60 - 3; return h ? (h > 0 ? '+' : '−') + Math.abs(h) + ' ч' : 'нет'; })()}). Роботы в любом случае считают по Москве.</small></span></label>
       <label class="sw" style="margin-top:8px"><input type="checkbox" id="animOn" ${animOn() ? 'checked' : ''}><span>Анимации<small>Роботы с настроением, колокольчик звенит, гонка роботов, салют за хорошую сделку и новый значок, пульсирующая точка входа на свежем сигнале. На торговлю не влияют.</small></span></label><div class="small" style="margin-top:4px">Меняются фон и цвет свечей. Цвета сигналов — стоп, цель, волны, сделки — во всех темах одинаковые. Тему можно сменить и в «Вид ▾» под графиком.</div></div>
 <div class="card"><h3>Свечи</h3>
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div class="field"><label>Дробная часть чисел</label><select id="decSel"><option value="dot" ${S.decComma ? '' : 'selected'}>Точка: 43.54</option><option value="comma" ${S.decComma ? 'selected' : ''}>Запятая: 43,54</option></select></div>
       <label class="sw"><input type="checkbox" id="divAdj" ${c.divAdj !== false ? 'checked' : ''}><span>Учитывать дивиденды<small>Свечи до отсечки уменьшаются на размер дивиденда, чтобы гэп отсечки не считался падением. Так делают терминалы.</small></span></label></div>
+<div class="card"><h3>Перенос на другое устройство</h3>
+      <div class="small">Роботы (счета, позиции, сделки, журнал), мои сделки, список слежения, уровни, избранное, оповещения и настройки — одним файлом. Без токена и номера счёта: на новом устройстве токен вводится заново.</div>
+      <div class="row" style="margin-top:8px"><button id="xferExp">Выгрузить в файл</button>${!A || DESK ? '<button id="xferImp">Загрузить из файла</button>' : ''}</div>
+      <input type="file" id="xferFile" accept=".json,application/json" hidden>
+      <div class="small" id="xferRes">${DESK ? 'С телефона: ⚙ → Данные → «Выгрузить в файл», файл из «Загрузок» перенесите на компьютер (Telegram, почта, кабель) и нажмите здесь «Загрузить из файла».' : 'Для программы на компьютере: файл появится в «Загрузках», отправьте его себе (Telegram, почта) и загрузите в программе.'} После переноса роботы на двух устройствах ведутся отдельно.</div></div>
 <div class="card"><h3>Журнал работы (лог)</h3>
       ${(() => { const L = D.logRead(), all2 = L.app.items.concat(L.bg.items), errN = all2.filter((x) => x.k === 'error' || x.k === 'crash').length, sigN = all2.filter((x) => x.k === 'signal').length, first = all2.reduce((m, x) => Math.min(m, x.t), Infinity);
         return `<div class="small">Приложение само записывает: ошибки, сбои связи с брокером, фоновые проверки, отправленные уведомления, новые сигналы (чтобы потом сверить, как они отработали) и смену настроек. Без токена, номеров счетов и сумм. Хранятся последние 3000 записей.</div>
@@ -3180,7 +3344,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     $('#setBody').innerHTML = h;
     skinBind($('#setBody'), renderSettings);
     { const ao = $('#animOn'); if (ao) ao.onchange = () => { S.anim = ao.checked; save(); applyAnim(); draw(); }; }
+    { const tz = $('#tzMsk'); if (tz) tz.onchange = () => { S.tz = tz.checked ? 'msk' : 'local'; save(); renderHead(); draw(); D.log('settings', 'время на экране: ' + (tz.checked ? 'МСК' : 'по телефону')); }; }
     const sv = $('#setVer'); if (sv) sv.textContent = 'v' + APP_VER;
+    $('#manBtn').dataset.man = { ready: 'sets', acct: 'token', alerts: 'alerts' }[tab] || 'settings';   // раздел инструкции про эту вкладку
     renderWatch();
     const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
     on('#caBtn', 'click', () => { const b = $('#caBtn'); b.disabled = true; b.textContent = 'Скачиваю…'; A.installRussianCA(); });
@@ -3190,9 +3356,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       const t = $('#tok').value.trim().replace(/\s+/g, '');
       $('#tokRes').textContent = 'Проверяю…';
       try {
-        const bars = await D.loadCandles(t, 'SBER_TQBR', '1d', 5, Date.now() - 10 * 86400000);
+        const t0 = Date.now(), bars = await D.loadCandles(t, 'SBER_TQBR', '1d', 5, Date.now() - 10 * 86400000);
         S.token = t; save();
-        $('#tokRes').innerHTML = `<span class="pos">Токен работает: получено ${bars.length} дневных свечей SBER.</span>`;
+        $('#tokRes').innerHTML = D.mxState().at >= t0 ? '<span class="warn">Сервер брокера сейчас не отвечает — токен сохранён, но не проверен. Пока цены с Мосбиржи.</span>'
+          : `<span class="pos">Токен работает: получено ${bars.length} дневных свечей SBER.</span>`;
         load(true);
       } catch (e) {
         if (e.cert) { S.token = t; save(); }
@@ -3237,6 +3404,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('#acctSel', 'change', () => { const a = (S.accounts || []).find((x) => x.id === $('#acctSel').value); if (a) { S.account = a; save(); refreshAccount(true); } });
     on('#capital', 'change', () => { S.capital = Math.max(0, Number($('#capital').value) || 0); save(); if (an) renderPanel(); });
     on('#logExp', 'click', exportLog);
+    on('#xferExp', 'click', exportXfer);
+    on('#xferImp', 'click', () => $('#xferFile').click());
+    on('#xferFile', 'change', () => { const f = $('#xferFile').files[0]; if (f) f.text().then(importXfer).catch((e) => { $('#xferRes').innerHTML = '<span class="neg">' + esc(e.message) + '</span>'; }); });
     on('#logClr', 'click', () => { D.logClear(); D.log('start', 'лог очищен'); renderSettings(); });
     on('#decSel', 'change', () => { S.decComma = $('#decSel').value === 'comma'; D.setDec(S.decComma); save(); renderHead(); renderChips(); if (an) { renderPanel(); draw(); renderQuote(); } renderSettings(); });
     on('#fibTime', 'change', () => { S.view.fibT = $('#fibTime').checked; save(); renderPanel(); draw(); });
@@ -3282,7 +3452,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- кнопка «назад», возврат в приложение, автообновление ----------
   window.appBack = () => {
-    for (const id of ['journal', 'robots', 'scanner', 'search', 'settings']) if (!$('#' + id).hidden) { closeSheet(id); if (id === 'settings') renderPanel(); return true; }
+    for (const id of ['manual', 'journal', 'robots', 'scanner', 'search', 'settings']) if (!$('#' + id).hidden) { closeSheet(id); if (id === 'settings') renderPanel(); return true; }
     if (sel >= 0) { sel = -1; renderPanel(); draw(); return true; }
     return false;
   };
@@ -3295,33 +3465,35 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   };
   // открыть бумагу на графике: { id, ticker, tf } — из уведомления, у роботов, в списке слежения
   function goChart(o) {
-    for (const id of ['journal', 'robots', 'scanner', 'search', 'settings']) closeSheet(id);
+    for (const id of ['manual', 'journal', 'robots', 'scanner', 'search', 'settings']) closeSheet(id);
     closePop();
     const ch = o.id !== S.inst.id || (o.tf && o.tf !== S.tf);
-    S.inst = { id: o.id, ticker: o.ticker, name: o.name || o.ticker, classCode: o.classCode || 'TQBR' };
+    S.inst = D.isCrypto(o.id) ? { id: o.id, ticker: 'BTC', name: 'Биткоин', classCode: 'CRYPTO' } : { id: o.id, ticker: o.ticker, name: o.name || o.ticker, classCode: o.classCode || 'TQBR' };
     if (o.tf && D.TF[o.tf]) S.tf = o.tf;
     save();
     if (ch) { sel = -1; an = null; view.init = false; renderHead(); load(false); }
   }
   // 2.43: пока приложение открыто — проверка сигналов и роботов каждые 5 минут (роботы ходят, только когда закрылась новая свеча их таймфрейма)
   let fgBusy = false;
-  setInterval(async () => {
-    if (fgBusy || robotBusy || tr || !S.token || document.hidden || !D.bgLock(8 * 60000)) return;
+  async function fgCheck() {
+    if (fgBusy || robotBusy || tr || (document.hidden && !DESK) || !D.bgLock(8 * 60000)) return;
     fgBusy = true;
     try { const ev = await D.checkAll(() => {}); sendNotes(ev, 900); if (ev.length) { renderBell(); renderRobIcon(); if (!$('#robots').hidden) renderRobot(); } }
     catch (e) { D.log('error', 'проверка в приложении: ' + e.message); }
     finally { D.bgUnlock(); fgBusy = false; D.logFlush(); if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm())); }
-  }, 5 * 60000);
-  window.appResume = () => { renderBell(); renderRobIcon(); if (S.token && Date.now() - lastLoad > 30000) load(false); };
-  setInterval(() => { if (S.token && !document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
+  }
+  setInterval(fgCheck, 5 * 60000);
+  window.appAlarm = fgCheck;   // 3.6: на компьютере «будильник» робота (закрытие свечи) и пробуждение компьютера — проверка сразу
+  window.appResume = () => { renderBell(); renderRobIcon(); if (Date.now() - lastLoad > 30000) load(false); };
+  setInterval(() => { if (!document.hidden && Date.now() - lastLoad > 60000) load(false); }, 15000);
   // 2.42: живая цена — последняя (незакрытая) свеча растёт каждые 5 с: запрос последней цены лёгкий; свечи целиком и анализ — по-прежнему раз в минуту
   let liveBusy = false, liveFail = 0;
   setInterval(async () => {
-    if (liveBusy || tr || demo || loading || err || !S.token || document.hidden || !lotInfo || !lotInfo.uid || !all.length || Date.now() - liveFail < 60000) return;
+    if (liveBusy || tr || demo || loading || err || document.hidden || !lotInfo || D.isCrypto(S.inst.id) || !all.length || Date.now() - liveFail < 60000) return;
     const b = all[all.length - 1]; if (b.done !== false) return;   // свеча закрыта (биржа закрыта) — обновлять нечего
     liveBusy = true;
     try {
-      const id = S.inst.id, uid = lotInfo.uid, m = await D.getLastPrices(S.token, [uid]), v = m[uid];
+      const id = S.inst.id, uid = lotInfo.uid || id, m = await D.getLastPrices(S.token, [uid]), v = m[uid];
       if (v && v.price > 0 && id === S.inst.id && all[all.length - 1] === b) { b.c = v.price; if (v.price > b.h) b.h = v.price; if (v.price < b.l) b.l = v.price; draw(); renderQuote(); }
     } catch (e) { liveFail = Date.now(); } finally { liveBusy = false; }
   }, 5000);
@@ -3336,10 +3508,46 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   window.addEventListener('error', (e) => D.log('crash', (e.message || 'ошибка') + ' @' + String(e.filename || '').split('/').pop() + ':' + e.lineno + ':' + e.colno, { stack: e.error && e.error.stack ? String(e.error.stack).slice(0, 1200) : undefined }));
   window.addEventListener('unhandledrejection', (e) => D.log('crash', 'promise: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), { stack: e.reason && e.reason.stack ? String(e.reason.stack).slice(0, 1200) : undefined }));
   document.addEventListener('visibilitychange', () => { if (document.hidden) D.logFlush(); });
+  // 3.6: перенос на другое устройство (телефон → компьютер): роботы, мои сделки, настройки — без токена и номера счёта
+  const XFER_FILES = ['vacc.json'], XFER_STORE = ['journal', 'notifHist', 'wcolors', 'jfired', 'pfired'];
+  const XFER_SECRET = ['token', 'account', 'accounts', 'acct'];
+  const xferKey = (k) => XFER_STORE.includes(k) || k.startsWith('last.') || k.startsWith('siglog.');
+  function exportXfer() {
+    const st = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('ew2.') && xferKey(k.slice(4))) st[k.slice(4)] = D.store.get(k.slice(4), null); } } catch (e) { /* нет хранилища */ }
+    const set = Object.assign({}, S); for (const k of XFER_SECRET) delete set[k];
+    const fl = {}; for (const n of XFER_FILES) { const v = D.files.get(n); if (v != null) fl[n] = v; }
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+    const name = `ew-perenos-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
+    const txt = JSON.stringify({ kind: 'ew-transfer', v: 1, app: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), settings: set, store: st, files: fl });
+    const say = (h) => { const el = $('#xferRes'); if (el) el.innerHTML = h; };
+    D.log('settings', 'перенос: выгрузка в файл');
+    if (A && A.saveDownload) { const r = A.saveDownload(name, 'application/json', txt).split('|'); say(r[0] === 'ok' ? 'Сохранено: ' + esc(r[1]) : '<span class="neg">' + esc(r[1]) + '</span>'); if (r[0] === 'ok' && A.shareLast) A.shareLast('application/json'); }
+    else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); say('Сохранено: ' + esc(name)); }
+  }
+  function importXfer(txt) {
+    let doc = null; try { doc = JSON.parse(txt); } catch (e) { /* ниже */ }
+    if (!doc || doc.kind !== 'ew-transfer' || !doc.settings) throw new Error('Это не файл переноса (нужен файл ew-perenos-….json из «Выгрузить в файл»).');
+    const V = doc.files && doc.files['vacc.json'], nRob = V && V.accs ? V.accs.length : 0, nJ = ((doc.store && doc.store.journal) || []).length;
+    if (!window.confirm(`Заменить данные на этом устройстве данными из файла?\n\n${doc.app || ''}, выгружено ${fmtT(Date.parse(doc.exportedAt), true)}.\nРоботов: ${nRob}, моих сделок: ${nJ}.\n\nТокен и выбранный счёт останутся здешние.`)) return;
+    for (const [k, v] of Object.entries(doc.store || {})) if (xferKey(k)) D.store.set(k, v);
+    for (const n of XFER_FILES) if (doc.files && doc.files[n] != null) D.files.set(n, doc.files[n]);
+    const keep = {}; for (const k of XFER_SECRET) if (S[k] !== undefined) keep[k] = S[k];
+    const ns = Object.assign({}, doc.settings); for (const k of XFER_SECRET) delete ns[k];
+    D.saveSettings(Object.assign(ns, keep));
+    D.log('settings', 'перенос: загружены данные из файла (' + (doc.app || '?') + ', роботов ' + nRob + ')'); D.logFlush();
+    location.reload();
+  }
   function exportLog() {
     const L = D.logRead(), d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const name = `ew-log-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
-    const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), note: 'Журнал работы: без токена, номеров счетов и сумм.',
+    // 3.9: сводка роботов (сделки в R и %) и «Мои сделки» — чтобы по выгрузке была полная картина
+    let robots = null; try { const V = D.vaccGet(); if (V && V.accs) robots = V.accs.map((a) => { const eq = D.vEquity(a), R = a.closed.map((c) => c.R).filter((x) => x != null);
+      return { key: a.key, name: a.name, tf: a.tf || '1d', riskPct: a.cfg && a.cfg.riskPct, riskOwn: !!a.riskOwn, be: !!a.be, resultPct: a.dep ? +((eq / a.dep - 1) * 100).toFixed(2) : 0, closed: a.closed.length, wins: a.closed.filter((c) => c.pl > 0).length, sumR: +R.reduce((x, y) => x + y, 0).toFixed(2), skipped: a.skipped || 0,
+        open: a.pos.map((p) => ({ ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, stop0: p.stop0, stop: p.stop, target: p.target, runner: !!p.runner, now: a.px[p.id] || null, src: p.src || '' })),
+        last: a.closed.slice(-30).map((c) => ({ ticker: c.ticker, side: c.side, qty: c.qty, entry: c.entry, entryT: c.entryT, exit: c.exit, exitT: c.exitT, why: c.why, R: c.R, pl: Math.round(c.pl) })) }; }); } catch (e) { robots = null; }
+    const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), tz: S.tz === 'local' ? 'телефон, UTC' + (-d.getTimezoneOffset() / 60 >= 0 ? '+' : '') + (-d.getTimezoneOffset() / 60) : 'МСК', note: 'Журнал работы: без токена и номеров счетов. Суммы в рублях есть (сделки роботов и вашего счёта).',
+      robots, journal: jList().slice(-100).map((x) => ({ ticker: x.ticker, side: x.side, lots: x.lots, openT: x.openT, openP: x.openP, stop: x.stop, target: x.target, closeT: x.closeT || null, closeP: x.closeP || null, src: x.src || '' })),
       settings: { inst: S.inst.ticker, tf: S.tf, preset: S.preset || '', cfg: S.cfg, swings: S.swings, bgMinutes: S.bgMinutes, notify: S.notify,
         watch: (S.watch || []).map((w) => ({ ticker: w.ticker, tf: w.tf, label: w.label, sw: w.sw })), levels: (S.palerts || []).map((a) => ({ ticker: a.ticker, price: a.price, dir: a.dir, at: a.at })) },
       lastbg: D.store.get('lastbg', null), lasterr: D.store.get('lasterr', null), app: L.app, background: L.bg };
@@ -3348,6 +3556,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); say('Сохранено: ' + esc(name)); }
   }
 
+  migrateRisk();
   renderHead(); setChartH(snapPx(S.view.pane || 0));
   if (!trRestore()) load(false);
   if (S.account && S.token && (!S.acct || Date.now() - S.acct.at > 3600000)) setTimeout(() => refreshAccount(false), 3000);

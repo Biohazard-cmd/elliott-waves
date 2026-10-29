@@ -6,3 +6,9 @@ apk/
 # книги владельца — только на компьютере, не на GitHub
 # часовики Мосбиржи для проверок (скачиваются research/moex_dl.js)
 research/data/moex*/
+# криптовалюты для проверок (скачиваются research/crypto_dl.js)
+research/data/crypto/
+
+# программа для компьютера: скачанный Electron и сборка
+desktop/cache/
+desktop/build/

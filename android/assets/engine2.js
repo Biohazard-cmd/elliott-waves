@@ -1207,7 +1207,38 @@
     for (let i = Math.max(0, t.iEntry); i < ctx.N; i++) if (ctx.beTrig(t, i, st) && t.side * (ctx.C[i] - be) > 0) return { i, be, why: ctx.beWhyText() };
     return null;
   }
-  const API = { rulesCheck, BE_WHY, beCheck, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
+  // 3.9: заранее — что будет со стопом открытой сделки на следующих свечах (для предупреждения «робот готовится перенести стоп»).
+  // bars/cfg — те же, по которым посчитана сделка t (an.bars, an.cfg); возвращает null или { kind: 'be'|'trail', at, stop, j }
+  function stopHint(bars, cfgIn, t) {
+    if (!t || t.reason !== 3) return null;
+    const c = merge(cfgIn), ctx = new Ctx(bars, c), N = ctx.N, i = N - 1, s = t.side, H = ctx.H, L = ctx.L, C = ctx.C;
+    if (N < 3 || t.iEntry >= i) return null;
+    // безубыток k×ATR: ещё не сработал, а до порога осталось не больше 0,5 ATR
+    if (c.beMode === 'auto' && (c.beRule || 'atr') === 'atr' && !t.runner) {
+      const be = ctx.beLevel(t), A = ctx.atr();
+      if (s * (be - t.stop) > 1e-12) {
+        const arm = t.entry + s * (c.beAtr || 3) * A[Math.max(0, t.iEntry - 1)];
+        let fav = -Infinity; for (let k = t.iEntry; k <= i; k++) fav = Math.max(fav, s > 0 ? H[k] : -L[k]);
+        const left = s * arm - fav;
+        if (left > 0 && left <= 0.5 * A[i]) return { kind: 'be', at: arm, stop: be, j: i };
+      }
+    }
+    // после цели: свеча-кандидат в локальный минимум (максимум у шорта), подтверждения ещё нет
+    if (t.runner) {
+      const K = Math.max(1, c.localBars), tbuf = c.trailBufPct / 100;
+      for (let j = i; j >= Math.max(t.iEntry + K, i - K + 1); j--) {
+        let ok = true;
+        for (let m = 1; m <= K && ok; m++) ok = s > 0 ? L[j] < L[j - m] : H[j] > H[j - m];
+        for (let m = 1; ok && j + m <= i; m++) ok = s > 0 ? L[j] <= L[j + m] : H[j] >= H[j + m];
+        if (!ok) continue;
+        const ns = s > 0 ? L[j] * (1 - tbuf) : H[j] * (1 + tbuf);
+        if (s * (ns - t.stop) > 0 && s * (C[i] - ns) > 0) return { kind: 'trail', at: s > 0 ? L[j] : H[j], stop: ns, j, left: K - (i - j) };
+        break;
+      }
+    }
+    return null;
+  }
+  const API = { rulesCheck, BE_WHY, beCheck, stopHint, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.EW2 = API;
 })(typeof window !== 'undefined' ? window : globalThis);

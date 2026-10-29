@@ -8,10 +8,10 @@ const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../
   await p.evaluate(() => { window.__view.barW = 2.4; window.__view.x0 = 1850; window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(6000);
   await p.evaluate(() => { window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(500);
   await p.screenshot({ path: 'shots/280-robot-chart.png', clip: { x: 0, y: 100, width: 390, height: 430 } });
-  await p.click('#jrnBtn'); await p.waitForTimeout(300); await p.click('[data-jtab="robot"]'); await p.waitForTimeout(500);
+  await p.click('#robBtn'); await p.waitForTimeout(500);
   await p.evaluate(() => { const o = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => { window.__csv = t; }); return o(b); }; });
   await p.click('#vCsv'); await p.waitForTimeout(500); console.log((await p.evaluate(() => window.__csv)).split('\\r\\n').slice(0, 9).join('\\n'));
-  await p.click('[data-close="journal"]').catch(() => {}); await p.waitForTimeout(300);
+  await p.click('[data-close="robots"]').catch(() => {}); await p.waitForTimeout(300);
   await p.click('#setBtn'); await p.waitForTimeout(300); await p.click('#setTabs button >> nth=0'); await p.waitForTimeout(200);
   await p.click('#presetBook'); await p.waitForTimeout(400);
   console.log('после «по книге»:', await p.evaluate(() => document.querySelector('#setBody .note').innerText), '|', await p.textContent('#presetBook'));
