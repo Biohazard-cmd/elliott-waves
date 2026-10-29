@@ -4,5 +4,6 @@ research/ui-tests/shots/*
 !research/ui-tests/shots/.keep
 apk/
 # книги владельца — только на компьютере, не на GitHub
-# часовики Мосбиржи для проверок (скачиваются research/moex_dl.js)
+# часовики Мосбиржи 2018–2026 (research/data/moex1h) — в git; 10-минутки и прочее — нет (скачиваются research/moex_dl.js)
 research/data/moex*/
+!research/data/moex1h/
