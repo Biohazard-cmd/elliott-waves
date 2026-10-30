@@ -33,7 +33,10 @@ const HDR = () => console.log('вариант'.padEnd(46), 'сделок    R  �
 const av = (q) => q.length ? (q.reduce((s, x) => s + x.nr, 0) / q.length).toFixed(2) : '—';
 const KS = ['any', 'engulf', 'hammer', 'mstar', 'doji', 'pierce'];
 console.log(`\nДНЕВКИ, ${PART === 'agr' ? 'агрессивный 3.1 (риск 1%)' : PART === 'main' ? 'основной 3.1 (риск 1,5%)' : 'отдельный робот по свечной фигуре (правила основного, риск 1,5%)'}`);
-if (process.env.STALL) {
+if (process.env.STALLE) {
+  HDR(); rep('  как сейчас', run({}));
+  for (const [b, k] of [[5, 0.5], [10, 0.5], [10, 0], [20, 0.5]]) rep(`  ${b} дней без роста → стоп вход−${k}R (движок)`, run({ stallOn: true, stallBars: b, stallK: k }));
+} else if (process.env.STALL) {
   const B = run({}), ST = require('./stall.js'); HDR(); rep('  как сейчас', B);
   for (const N of [5, 10, 20]) for (const g of [0, 0.5]) for (const k of [0.5, 0]) { const z = ST(B, N, g, k, FEE); rep(`  ${N} дней ≤ +${g}R → стоп вход−${k}R (${z.changed})`, z); }
 } else if (process.env.DUMP) {

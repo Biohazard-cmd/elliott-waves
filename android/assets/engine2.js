@@ -53,6 +53,7 @@
     complexCorr: true,    // по книге: волна 2/4 может быть расширенным флэтом (показ в подсчёте)
     addComplexTrade: false, // дополнение: входить по подсчёту со сложной волной 2/4
     beRule: 'atr', beAtr: 3,   // правило безубытка: r1 / r2 (+1R/+2R), atr (beAtr×ATR), ao, mkt, stall, wave, local (только подсказка)
+    stallOn: false, stallBars: 12, stallK: 0.5,   // 3.14 (проверка 30.10.2026, research/stall.js): за stallBars свечей после входа закрытие ни разу не выше входа — стоп на вход − stallK×R
     beMode: 'hint',            // 'hint' — только подсказка (сделки не меняются); 'auto' — система сама переносит стоп на вход + комиссии
     longOnly: false,
     shortOnly: false,     // только продажи
@@ -789,6 +790,15 @@
         }
       }
       if (cur) this.trailOne(cur, i, spiv, piv, mp, tbuf, keep ? cur.path : null);
+      // 3.14 «сделка стоит» (Кеннеди: сначала уменьшить риск): stallBars свечей с входа закрытие ни разу не выше входа — стоп на полпути к входу
+      if (cur && c.stallOn && cur.stallOn == null && i < N - 1) {
+        cur.bestC = Math.max(cur.bestC == null ? -Infinity : cur.bestC, cur.side * C[i]);
+        if (i - cur.iEntry + 1 >= c.stallBars) {
+          cur.stallOn = i;
+          if (cur.bestC <= cur.side * cur.entry) { const ns = cur.entry - cur.side * c.stallK * Math.abs(cur.entry - cur.stop0);
+            if (cur.side * (ns - cur.stop) > 0) { cur.stop = ns; cur.stallLv = ns; cur.moves++; if (keep) cur.path.push({ bar: i, p: ns }); } }
+        }
+      }
       // безубыток (опция «переносить стоп»): условие на закрытии свечи — стоп на вход + комиссии со следующей
       if (cur && c.beMode === 'auto' && cur.beOn == null && i < N - 1) {
         cur._bs = cur._bs || {};
@@ -1280,6 +1290,12 @@
         const left = s * arm - fav;
         if (left > 0 && left <= 0.5 * A[i]) return { kind: 'be', at: arm, stop: be, j: i };
       }
+    }
+    // 3.14: «сделка стоит» — следующая свеча последняя: если и она не закроется выше входа, стоп переедет на вход − stallK×R
+    if (c.stallOn && t.stallOn == null && !t.runner && i - t.iEntry + 2 === c.stallBars) {
+      let best = -Infinity; for (let k = t.iEntry; k <= i; k++) best = Math.max(best, s * C[k]);
+      const ns = t.entry - s * c.stallK * Math.abs(t.entry - t.stop0);
+      if (best <= s * t.entry && s * (ns - t.stop) > 0) return { kind: 'stall', at: t.entry, stop: ns, j: i };
     }
     // после цели: свеча-кандидат в локальный минимум (максимум у шорта), подтверждения ещё нет
     if (t.runner) {

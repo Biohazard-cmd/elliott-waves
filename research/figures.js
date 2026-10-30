@@ -174,6 +174,14 @@ for (const f of FIG) {
       console.log(`  входы накануне/в день решения: ${nd.length}, ср. ${av(nd)}R (половины ${av(nd.filter((x) => x.T < SPLIT))} / ${av(nd.filter((x) => x.T >= SPLIT))}); остальные ср. ${av(od)}R`);
     }
   }
+  if (f === 'stallE') {   // 3.14: «сделка стоит» внутри движка (stallOn), «4 часа · неделя» и «Охотник»
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
+    const hunt = (o) => tag(trades(Object.assign({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }, o)), '#h').concat(tag(trades(Object.assign({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }, o)), '#b'));
+    for (const [nm, F] of [['«4 часа · неделя»', (o) => trades(o)], ['«Охотник»', hunt]]) {
+      console.log('\n=== ' + nm + ' (движок)'); HDR(); rep('  как сейчас', F({}));
+      for (const [b, k] of [[6, 0.5], [12, 0.5], [12, 0], [12, 0.33], [18, 0.5], [24, 0.5]]) rep(`  ${b} свечей без роста → стоп вход−${k}R`, F({ stallOn: true, stallBars: b, stallK: k }));
+    }
+  }
   if (f === 'stall' || f === 'dump') {   // подтянуть стоп у стоящей сделки (stall.js) / выгрузка сделок для split.js
     const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k, dt: H4 }));
     const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));

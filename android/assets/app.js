@@ -705,6 +705,27 @@
   const robPc = (a) => { const eq = D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0); return a.dep > 0 ? eq / a.dep - 1 : 0; };
   const robIco = (a, V) => (a.manual ? '<span class="me">✋</span>' : botSvg(a.key, robotBusy === 'all' || robotBusy === a.key ? 'think' : !V.on ? 'sleep' : moodOf(robFresh[a.key]) || 'idle'));
   let robMore = false;   // открыт ли список «Ещё»
+  // 3.14: «Общий счёт» — отмеченные роботы вместе (их виртуальные счета складываются); проверка 30.10.2026 (research/split.js):
+  // дневной основной и «Охотник» мало связаны — пополам ~31%/год при просадке ~3,7% (у каждого 6,8 и 7,2%)
+  function comboCard(V) {
+    const el = V.accs.filter((a) => !a.manual && !a.crypto); if (el.length < 2) return '';
+    if (!Array.isArray(S.combo)) S.combo = ['d_long', 'h4_fig'].filter((k) => el.some((a) => a.key === k));
+    const L = el.filter((a) => S.combo.includes(a.key)), vim = (h) => (S.vimOn ? h.mm || 0 : 0);
+    const dd = (hs) => { const days = [...new Set(hs.flatMap((h) => h.map((x) => Math.floor((x.t + 3 * 36e5) / 864e5))))].sort((a, b) => a - b); let pk = 0, m = 0;
+      for (const d of days) { let e = 0, dp = 0; for (const h of hs) { let z = null; for (const x of h) if (Math.floor((x.t + 3 * 36e5) / 864e5) <= d) z = x; else break; z = z || h[0]; e += z.eq + vim(z); dp += z.dep; }
+        const r = dp > 0 ? e / dp : 1; pk = Math.max(pk, r); m = Math.max(m, 1 - r / pk); }
+      return { m, days }; };
+    let body = '';
+    if (L.length) {
+      const eq = L.reduce((t, a) => t + D.vEquity(a) + (S.vimOn ? a.mm || 0 : 0), 0), dep = L.reduce((t, a) => t + a.dep, 0), H = L.map((a) => a.hist && a.hist.length ? a.hist : [{ t: V.startAt, eq: a.dep, dep: a.dep }]), all = dd(H);
+      const syn = all.days.map((d) => { let e = 0, dp = 0; for (const h of H) { let z = h[0]; for (const x of h) if (Math.floor((x.t + 3 * 36e5) / 864e5) <= d) z = x; else break; e += z.eq + vim(z); dp += z.dep; } return { eq: e, dep: dp }; });
+      body = `<div class="row" style="align-items:center;margin:4px 0"><span class="grow">Вложено ${rub0(dep)} · сейчас <b>${rub0(eq)}</b> · <b class="${eq >= dep ? 'pos' : 'neg'}">${spc(dep > 0 ? eq / dep - 1 : 0)}</b></span>${eqSpark(syn)}</div>
+        <div class="small">Наибольшая просадка общего счёта: <b>${pc(all.m)}</b>${L.length > 1 ? ' · по отдельности: ' + L.map((a, k) => esc(a.name) + ' ' + pc(dd([H[k]]).m)).join(', ') : ''}.</div>`;
+    } else body = '<div class="small">Отметьте хотя бы одного робота.</div>';
+    return `<div class="card${foldC('robCombo', false)}" data-fold="robCombo"><h3>🧺 Общий счёт</h3>
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:4px">${el.map((a) => `<button data-combo="${a.key}" class="${S.combo.includes(a.key) ? 'on' : ''}" style="flex:none">${S.combo.includes(a.key) ? '✓ ' : ''}${esc(ROB_SHORT[a.key] || a.name)}</button>`).join('')}</div>${body}
+      <div class="small mut" style="margin-top:4px">Как если бы ваши деньги поделили между отмеченными роботами (у каждого свой счёт, свои сделки). На истории 2019–2026 дневной основной и «Охотник» почти не связаны: пополам — ~31%/год, а просадка общего счёта ~3,7% против 6,8 и 7,2% у каждого. Основной вместе с агрессивным помогают друг другу мало — они похожи. На реальном счёте так проще всего с двумя брокерскими счетами: на каждом повторять своего робота, капитал робота — как деньги этого счёта.</div></div>`;
+  }
   function robTable(V) {
     const row = (a) => { const pc = robPc(a), np = Object.keys(a.pend || {}).length;
       return `<div class="rrow" data-racc="${a.key}" role="button" style="--rc:${rmStyle(a.key).c}">${robIco(a, V)}<span class="grow"><b>${esc(a.name)}</b><small>${a.pos.length ? 'позиций ' + a.pos.length : 'без позиций'}${np ? ' · <span class="sigc">сигнал ' + np + '</span>' : ''} · закрыто ${a.closed.length}</small></span><b class="${pc >= 0 ? 'pos' : 'neg'}">${spc(pc)}</b></div>`; };
@@ -768,6 +789,7 @@
       h += `<div class="row" style="margin-bottom:8px;align-items:center"><button id="vVim" class="${S.vimOn ? 'on' : ''}">${S.vimOn ? '✓ С учётом ВИМ' : '＋ Рассчитать с ВИМ'}</button><span class="small mut" style="flex:1">${S.vimOn ? 'в капитале и результате — проценты ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги' : 'ВИМ ' + String(V.mmRate).replace('.', DEC()) + '% на свободные деньги дал бы ≈ +' + rub0(vimTot / Math.max(1, V.accs.filter((a) => !a.manual && !a.crypto).length)) + ' на робота'}</span></div>`;
       h += raceCard(V);
       h += robTable(V);
+      h += comboCard(V);
       if (!a0trades(V)) h += `<div class="note" style="margin:0 0 8px">Сделок у роботов пока нет — это нормально. Робот покупает только по <b>свежим</b> сигналам на дневках, появившимся после старта. На истории 2019–2026 таких сигналов в среднем около одного в неделю на робота, бывает и 2–3 недели тишины. Пока денег в бумагах нет, результат равен нулю; сколько дали бы проценты ВИМ на эти деньги — по кнопке «Рассчитать с ВИМ».</div>`;
       if (V.realStart && S.acct) h += `<div class="small" style="margin:-2px 0 8px">Ваш реальный счёт: на старте ${rub0(V.realStart)}, сейчас ${rub0(S.acct.total)}${V.flows.length ? ', пополнения/выводы ' + rub0(V.flows.reduce((s, f) => s + f.amount, 0)) : ''}.</div>`;
       h += robFeed();
@@ -821,18 +843,24 @@
       if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
         h += `<div class="card"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
       h += `<div class="card${foldC('robSet', true)}" data-fold="robSet"><h3>⚙ Настройки · ${esc(a.name)}</h3>
-        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${riskBox(a)}`}
+        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${(a.tf || '1d') === '4h' ? `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rstall="${a.key}" class="${a.stall ? 'on' : ''}" style="flex:none">⏳ Сделка стоит: ${a.stall ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.stall ? 'если 12 свечей (2–3 дня) после входа закрытие ни разу не выше входа — стоп на полпути к входу (риск вдвое меньше)' : 'выкл. — стоп как в наборе') + (a.pos.some((p) => !!p.stall !== !!a.stall) ? ' · открытые до переключения ведутся как были' : '')}. На истории 2018–2026: доход тот же, просадка ~7% вместо ~9% («неделя») и ~6,8% вместо 7,2% («Охотник»).</span></div>` : ''}${riskBox(a)}`}
         <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
     }
     $('#robBody').innerHTML = h; robNav(V);
     $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); runRobot(b.dataset.rrun); }; });
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
+    $('#robBody').querySelectorAll('[data-combo]').forEach((b) => { b.onclick = () => { const k = b.dataset.combo; S.combo = S.combo.includes(k) ? S.combo.filter((x) => x !== k) : S.combo.concat(k); save(); renderRobot(); }; });
     $('#robBody').querySelectorAll('[data-racc]').forEach((c) => { c.onclick = () => { S.robotAcc = c.dataset.racc; robMore = false; save(); renderRobot(); $('#robBody').scrollTop = 0; }; });
     $('#robBody').querySelectorAll('[data-rgo]').forEach((r) => { r.onclick = () => { const id = r.dataset.rgo; if (D.isCrypto(id)) { goChart({ id, tf: '1d' }); return; } closeSheet('robots'); const rtf = ra.tf || '1d'; if (S.inst.id !== id || S.tf !== rtf) { S.inst = { id, ticker: id.split('_')[0], name: id.split('_')[0], classCode: 'TQBR' }; S.tf = rtf; save(); sel = -1; an = null; view.init = false; renderHead(); load(false); } }; });
     $('#robBody').querySelectorAll('[data-ropen]').forEach((r) => { r.onclick = (e) => { e.stopPropagation(); const [id, tf] = r.dataset.ropen.split('|'); goChart({ id, ticker: id.split('_')[0], tf }); }; });
     const on = (id, f) => { const el = $(id); if (el) el.onclick = f; };
     on('#vRun', () => runRobot());
     { const vb = $('#vVim'); if (vb) vb.onclick = () => { S.vimOn = !S.vimOn; save(); renderRobot(); }; }
+    $('#robBody').querySelectorAll('[data-rstall]').forEach((b) => { b.onclick = (e) => {
+      e.stopPropagation(); if (robWait()) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rstall); if (!a) return;
+      a.stall = !a.stall; D.vaccSet(W); D.log('robot', a.name + ': «сделка стоит» ' + (a.stall ? 'включено' : 'выключено') + ' для новых сделок');
+      robotMsg = a.name + ': «сделка стоит» ' + (a.stall ? 'включено — если 12 свечей после входа закрытие ни разу не выше входа, стоп переедет на полпути к входу.' : 'выключено.') + (a.pos.length ? ' Открытые позиции ведутся так, как были открыты.' : ''); renderRobot();
+    }; });
     $('#robBody').querySelectorAll('[data-rbe]').forEach((b) => { b.onclick = (e) => {
       e.stopPropagation(); if (robWait()) return; const W = D.vaccGet(), a = W.accs.find((x) => x.key === b.dataset.rbe); if (!a) return;
       a.be = !a.be; D.vaccSet(W); D.log('robot', a.name + ': безубыток 3×ATR ' + (a.be ? 'включён' : 'выключен') + (a.manual ? '' : ' для новых сделок'));
@@ -897,7 +925,7 @@
       txt = '\ufeff' + rows.map((r) => r.map((c) => /[;"\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(';')).join('\r\n');
       name = 'ew-robots-' + stamp + '.csv'; mime = 'text/csv';
     } else {
-      const clean = (a) => ({ name: a.name, key: a.key, manual: !!a.manual, breakeven: a.manual ? null : a.be ? '3×ATR' : 'нет', dep: a.dep, equity: D.vEquity(a), vim: a.mm || 0, skipped: a.skipped || 0,
+      const clean = (a) => ({ name: a.name, key: a.key, manual: !!a.manual, breakeven: a.manual ? null : a.be ? '3×ATR' : 'нет', stall: !!a.stall, dep: a.dep, equity: D.vEquity(a), vim: a.mm || 0, skipped: a.skipped || 0,
         positions: a.pos.map((p) => Object.assign({}, p, { entryT: T(p.entryT), price: a.px[p.id] || null })), closed: a.closed.map((c) => Object.assign({}, c, { entryT: T(c.entryT), exitT: T(c.exitT) })), equityHistory: (a.hist || []).map((h) => ({ t: T(h.t), eq: Math.round(h.eq), dep: Math.round(h.dep), vim: Math.round(h.mm || 0) })), cfg: a.cfg });
       txt = JSON.stringify({ kind: 'ew-robots', app: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), startAt: T(V.startAt), lastRun: T(V.lastRun), vimRate: V.mmRate, accounts: V.accs.map(clean) }, null, 1);
       name = 'ew-robots-' + stamp + '.json'; mime = 'application/json';
@@ -1231,7 +1259,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.13';
+  const APP_VER = '3.14';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -3568,7 +3596,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     const name = `ew-log-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
     // 3.9: сводка роботов (сделки в R и %) и «Мои сделки» — чтобы по выгрузке была полная картина
     let robots = null; try { const V = D.vaccGet(); if (V && V.accs) robots = V.accs.map((a) => { const eq = D.vEquity(a), R = a.closed.map((c) => c.R).filter((x) => x != null);
-      return { key: a.key, name: a.name, tf: a.tf || '1d', riskPct: a.cfg && a.cfg.riskPct, riskOwn: !!a.riskOwn, be: !!a.be, resultPct: a.dep ? +((eq / a.dep - 1) * 100).toFixed(2) : 0, closed: a.closed.length, wins: a.closed.filter((c) => c.pl > 0).length, sumR: +R.reduce((x, y) => x + y, 0).toFixed(2), skipped: a.skipped || 0,
+      return { key: a.key, name: a.name, tf: a.tf || '1d', riskPct: a.cfg && a.cfg.riskPct, riskOwn: !!a.riskOwn, be: !!a.be, stall: !!a.stall, resultPct: a.dep ? +((eq / a.dep - 1) * 100).toFixed(2) : 0, closed: a.closed.length, wins: a.closed.filter((c) => c.pl > 0).length, sumR: +R.reduce((x, y) => x + y, 0).toFixed(2), skipped: a.skipped || 0,
         open: a.pos.map((p) => ({ ticker: p.ticker, side: p.side || 1, qty: p.qty, entry: p.entry, entryT: p.entryT, stop0: p.stop0, stop: p.stop, target: p.target, runner: !!p.runner, now: a.px[p.id] || null, src: p.src || '' })),
         last: a.closed.slice(-30).map((c) => ({ ticker: c.ticker, side: c.side, qty: c.qty, entry: c.entry, entryT: c.entryT, exit: c.exit, exitT: c.exitT, why: c.why, R: c.R, pl: Math.round(c.pl) })) }; }); } catch (e) { robots = null; }
     const doc = { version: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), tz: S.tz === 'local' ? 'телефон, UTC' + (-d.getTimezoneOffset() / 60 >= 0 ? '+' : '') + (-d.getTimezoneOffset() / 60) : 'МСК', note: 'Журнал работы: без токена и номеров счетов. Суммы в рублях есть (сделки роботов и вашего счёта).',

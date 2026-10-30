@@ -1115,8 +1115,9 @@
         const SC = sub ? sub.key : null, onSub = (z) => (z.sub || null) === SC, myPend = () => !!a.pend[id] && (a.pend[id].sub || null) === SC;
         const cfgA = sub ? Object.assign({}, a.cfg, sub.cfg) : a.cfg, cfgPA = a.cfgPrev ? (sub ? Object.assign({}, a.cfgPrev, sub.cfg) : a.cfgPrev) : null;
         const runs = {}, BE = { beMode: 'auto', beRule: 'atr', beAtr: 3 };
-        const runWith = (base, be) => { const k = (base === cfgA ? 'c' : 'p') + (be ? 1 : 0); if (!(k in runs)) { try { runs[k] = EW2.run(d.bars, Object.assign({}, base, be ? BE : { beMode: 'hint' }, { swingPct: a.sw[id], mkt: base.addMarket ? mkt : null }), TF[atf].ms); } catch (e) { runs[k] = null; } } return runs[k]; };
-        const an = runWith(cfgA, !!a.be);
+        // 3.14: «сделка стоит» (a.stall у счёта, p.stall у позиции) — 12 свечей без закрытия выше входа → стоп на полпути к входу
+        const runWith = (base, be, sl) => { const k = (base === cfgA ? 'c' : 'p') + (be ? 1 : 0) + (sl ? 's' : ''); if (!(k in runs)) { try { runs[k] = EW2.run(d.bars, Object.assign({}, base, be ? BE : { beMode: 'hint' }, sl ? { stallOn: true, stallBars: 12, stallK: 0.5 } : { stallOn: false }, { swingPct: a.sw[id], mkt: base.addMarket ? mkt : null }), TF[atf].ms); } catch (e) { runs[k] = null; } } return runs[k]; };
+        const an = runWith(cfgA, !!a.be, !!a.stall);
         if (!an) { say(d.x.ticker + ': ошибка расчёта'); continue; }
         const last = an.bars[an.N - 1]; a.px[id] = last.c;
         // а) открытые позиции: закрыть, если сделка бэктеста закрылась; подтянуть стоп
@@ -1132,7 +1133,7 @@
           const qty = Math.floor(val / (A.px * lot)) * lot;
           if (qty < lot) { log('robot', `${a.name}: ${d.x.ticker} — доливка пропущена, не хватает свободных денег`); return; }
           const cost = qty * A.px * (1 + VFEE); a.cash -= cost;
-          const q = { id, ticker: d.x.ticker, lot, qty, entry: A.px, entryT: tA, addOf: p.entryT, be: !!p.be, stop0: A.stop, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner };
+          const q = { id, ticker: d.x.ticker, lot, qty, entry: A.px, entryT: tA, addOf: p.entryT, be: !!p.be, stall: !!p.stall, stop0: A.stop, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner };
           a.pos.push(q);
           const msg = `долил ${q.ticker} ${qty} шт по ${fmtPrice(A.px, an.bars)} — волна 3 прошла 110% волны 1 (по Вильямсу)`;
           log('robot', a.name + ': ' + msg); ev.push({ title: q.ticker + ': долил · ' + tag, text: msg, open: { id, ticker: q.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
@@ -1140,11 +1141,11 @@
         };
         // позиции, открытые до обновления настроек робота, ведём по старым настройкам — иначе их «пересчитало» бы
         for (const p of a.pos.filter((z) => z.id === id && onSub(z))) {
-          const A2 = runWith(p.legacy && cfgPA ? cfgPA : cfgA, !!p.be) || an;
+          const A2 = runWith(p.legacy && cfgPA ? cfgPA : cfgA, !!p.be, !!p.stall) || an;
           const tr = A2.trades.find((t) => T(A2, t.iEntry) === (p.addOf || p.entryT));
           if (!tr) { sold(p, last.c, last.t, 'подсчёт пересчитан'); continue; }
           if (tr.reason !== 3) { sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]); continue; }
-          if (Math.abs(tr.stop - p.stop) > 1e-9) { log('robot', `${a.name}: ${p.ticker} стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}`, { kind: 'stop', key: a.key, ticker: p.ticker, tf: atf, from: p.stop, to: tr.stop, why: tr.runner && !p.runner ? 'цель пройдена' : tr.runner ? 'под откат' : tr.beOn != null && (p.side || 1) * (tr.stop - p.entry) >= 0 ? 'безубыток' : 'перенос', t: last.t }); if (tr.runner && !p.runner) ev.push({ title: p.ticker + ': цель пройдена — держим · ' + tag, text: 'Стоп переносится на ' + fmtPrice(tr.stop, an.bars), open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); else if (!tr.wkCarry || tr.wkCarry === (p.wk || 0)) ev.push({ title: p.ticker + ': стоп перенесён · ' + tag, text: `${p.ticker}: стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}${(p.side || 1) * (tr.stop - p.entry) >= 0 ? ' (не хуже входа — сделка уже не в убыток)' : ''}`, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
+          if (Math.abs(tr.stop - p.stop) > 1e-9) { log('robot', `${a.name}: ${p.ticker} стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}`, { kind: 'stop', key: a.key, ticker: p.ticker, tf: atf, from: p.stop, to: tr.stop, why: tr.runner && !p.runner ? 'цель пройдена' : tr.runner ? 'под откат' : tr.stallLv != null && Math.abs(tr.stop - tr.stallLv) < 1e-9 ? 'сделка стоит' : tr.beOn != null && (p.side || 1) * (tr.stop - p.entry) >= 0 ? 'безубыток' : 'перенос', t: last.t }); if (tr.runner && !p.runner) ev.push({ title: p.ticker + ': цель пройдена — держим · ' + tag, text: 'Стоп переносится на ' + fmtPrice(tr.stop, an.bars), open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); else if (!tr.wkCarry || tr.wkCarry === (p.wk || 0)) ev.push({ title: p.ticker + ': стоп перенесён · ' + tag, text: `${p.ticker}: стоп ${fmtPrice(p.stop, an.bars)} → ${fmtPrice(tr.stop, an.bars)}${(p.side || 1) * (tr.stop - p.entry) >= 0 ? ' (не хуже входа — сделка уже не в убыток)' : tr.stallLv != null && Math.abs(tr.stop - tr.stallLv) < 1e-9 ? ' — 12 свечей без роста, риск вдвое меньше' : ''}`, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           // «неделя»: в пятницу сделка в плюсе — остаётся на следующую неделю, стоп в безубытке
           if (tr.wkCarry && tr.wkCarry !== (p.wk || 0)) { p.wk = tr.wkCarry; const msg = `${p.ticker}: пятница, сделка в плюсе — переносим на следующую неделю, стоп ${fmtPrice(tr.stop, an.bars)} (безубыток)`; log('robot', a.name + ': ' + msg); ev.push({ title: p.ticker + ': на следующую неделю · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' }); }
           // 3.0: без прибыли, но канал цел — тоже на следующую неделю (стоп прежний); канал пробит — закрытие по открытию следующей свечи
@@ -1153,17 +1154,18 @@
           p.stop = tr.stop; p.runner = !!tr.runner;
           // 3.9: предупреждение заранее — на следующей свече робот, скорее всего, перенесёт стоп (один раз на каждый будущий перенос)
           try {
-            const hn = EW2.stopHint(A2.bars, A2.cfg, tr), hk = hn ? (hn.kind === 'be' ? 'be' : 'trail|' + T(A2, hn.j)) : '';   // безубыток — одно предупреждение на сделку
+            const hn = EW2.stopHint(A2.bars, A2.cfg, tr), hk = hn ? (hn.kind === 'be' || hn.kind === 'stall' ? hn.kind : 'trail|' + T(A2, hn.j)) : '';   // безубыток — одно предупреждение на сделку
             // 3.10: перенос за свечу — не повторяем, пока прежнее предупреждение в силе (стоп с тех пор не двигался) и новый уровень почти тот же
             // (у IRAO приходило дважды за 20 мин: новая свеча-кандидат, стоп 2,8280 → 2,8270)
-            const near = hn && hn.kind !== 'be' && p.hintS != null && p.hintP === p.stop && Math.abs(hn.stop - p.hintS) < (p.stop0 && p.stop0 !== p.entry ? 0.25 * Math.abs(p.entry - p.stop0) : 0.005 * p.entry);
+            const near = hn && hn.kind === 'trail' && p.hintS != null && p.hintP === p.stop && Math.abs(hn.stop - p.hintS) < (p.stop0 && p.stop0 !== p.entry ? 0.25 * Math.abs(p.entry - p.stop0) : 0.005 * p.entry);
             if (hn && p.hint !== hk && near) p.hint = hk;
             else if (hn && p.hint !== hk) {
               p.hint = hk; p.hintS = hn.stop; p.hintP = p.stop; const up = (p.side || 1) > 0, F = (x) => fmtPrice(x, an.bars);
-              const msg = hn.kind === 'be' ? `${p.ticker}: готовится безубыток — если цена дойдёт до ${F(hn.at)}, стоп переедет на ${F(hn.stop)} (цена входа с комиссией)`
+              const msg = hn.kind === 'stall' ? `${p.ticker}: сделка стоит — если и следующая свеча не закроется выше ${F(hn.at)} (цена входа), стоп переедет на ${F(hn.stop)} (сейчас ${F(p.stop)})`
+                : hn.kind === 'be' ? `${p.ticker}: готовится безубыток — если цена дойдёт до ${F(hn.at)}, стоп переедет на ${F(hn.stop)} (цена входа с комиссией)`
                 : `${p.ticker}: готовится перенос стопа — если ${hn.left > 1 ? 'следующие ' + hn.left + ' свечи не уйдут' : 'следующая свеча не уйдёт'} ${up ? 'ниже' : 'выше'} ${F(hn.at)}, стоп переедет на ~${F(hn.stop)} (сейчас ${F(p.stop)})`;
               log('robot', a.name + ': ' + msg, { ticker: p.ticker, tf: atf, kind: 'stopHint', hint: hn.kind, at: hn.at, stop: hn.stop, now: p.stop });
-              ev.push({ title: p.ticker + ': ' + (hn.kind === 'be' ? 'скоро безубыток' : 'скоро перенос стопа') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
+              ev.push({ title: p.ticker + ': ' + (hn.kind === 'be' ? 'скоро безубыток' : hn.kind === 'stall' ? 'сделка стоит' : 'скоро перенос стопа') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
             }
           } catch (e) { /* подсказка не должна мешать ходу */ }
           if (!p.addOf && !p.legacy && tr.add && a.cfg.addPyramid) openAdd(p, tr);
@@ -1180,7 +1182,7 @@
           if (qty < lot) { a.skipped++; log('robot', `${a.name}: ${d.x.ticker} — сигнал пропущен, не хватает свободных денег`); continue; }
           const side = tr.side < 0 ? -1 : 1, cost = side < 0 ? qty * tr.entry * (1 - VFEE) : qty * tr.entry * (1 + VFEE);
           a.cash += side < 0 ? cost : -cost;   // шорт: деньги от продажи на счёте, при закрытии бумаги откупаем (sold)
-          const p = { id, ticker: d.x.ticker, lot, qty, side, entry: tr.entry, entryT: tIn, stop0: tr.stop0, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner , be: !!a.be };
+          const p = { id, ticker: d.x.ticker, lot, qty, side, entry: tr.entry, entryT: tIn, stop0: tr.stop0, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner , be: !!a.be, stall: !!a.stall };
           if (SC) p.sub = SC;
           a.pos.push(p);
           if (tr.add && a.cfg.addPyramid) openAdd(p, tr);
