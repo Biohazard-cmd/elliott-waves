@@ -40,6 +40,13 @@ function pat(kind, o) {
   const d = o.side || 1, wait = o.wait || 30, buf = 0.001;
   return function (i, mp, sub) {
     const P = o.zz === 'sub' ? sub : mp, n = P.length, C = this.C, A = this.atr();
+    if (kind === 'cdl') {   // свечная фигура (candles.js) на свече i после снижения; стоп — под минимумом фигуры (не ближе o.minA×ATR), цель o.rr×риск
+      const CD = require('./candles.js'); this._bars = this._bars || this.T.map((t, j) => ({ o: this.O[j], h: this.H[j], l: this.L[j], c: C[j] }));
+      const w = CD.bull(this._bars, i, o.k); if (!w) return null;
+      let lo = Math.min(...this.L.slice(i - w + 1, i + 1)) * (1 - buf); lo = Math.min(lo, C[i] - (o.minA || 0) * A[i]);
+      const risk = C[i] - lo; if (!(risk > 0)) return null;
+      return { setup: 5, side: 1, entry: C[i], stop: lo, target: C[i] + (o.rr || 2) * risk, rr: o.rr || 2, score: 50, notgt: false, sigBar: -1, scen: -1, w1: null, i0: i - w + 1 };
+    }
     if (n < 3 || i < 1) return null;
     const last = P[n - 1];
     if (last.t !== -d || i - last.c > wait || (i <= last.c && kind !== 'bfly' && kind !== 'gart')) return null;
@@ -101,7 +108,7 @@ function trades(over) {
   const r = evalCfg(cfg, { ser, mkt, tr: (t, bars) => { t._b = bars; return t.NR; } });
   return r.all.map((x) => { const t = x.t, b = t._b, iX = Math.min(t.iExit, b.length - 1), TOut = b[iX].t + H4, cost = t.side < 0 ? t.entry * BOR * (TOut - x.T) / 864e5 / 365 : 0;
     const ex = t.exitP + (t.side < 0 ? cost : 0);
-    return { id: x.id, T: x.T, TOut, setup: t.setup, nr: (t.side * (ex - t.entry) - t.entry * FEE) / Math.abs(t.entry - t.stop0), turn: turn(b, t.iEntry), t: { side: t.side, entry: t.entry, stop0: t.stop0, exitP: ex } }; });
+    return { id: x.id, T: x.T, TOut, setup: t.setup, nr: (t.side * (ex - t.entry) - t.entry * FEE) / Math.abs(t.entry - t.stop0), turn: turn(b, t.iEntry), b, iE: t.iEntry, iX, t: { side: t.side, entry: t.entry, stop0: t.stop0, exitP: ex } }; });
 }
 const pct = (v) => (v * 100).toFixed(1).padStart(5);
 let seed = 23; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -165,6 +172,41 @@ for (const f of FIG) {
       console.log(`  сделки, пережившие решение ЦБ: ${sp.length}, ср. ${av(sp)}R; остальные ${ns.length}, ср. ${av(ns)}R`);
       const nd = L.filter((x) => near(x.T, 0, 1)), od = L.filter((x) => !near(x.T, 0, 1));
       console.log(`  входы накануне/в день решения: ${nd.length}, ср. ${av(nd)}R (половины ${av(nd.filter((x) => x.T < SPLIT))} / ${av(nd.filter((x) => x.T >= SPLIT))}); остальные ср. ${av(od)}R`);
+    }
+  }
+  if (f === 'cdl') {   // свечные фигуры: (1) фильтр входа «4 часа · неделя» и «Охотника», (2) выход по медвежьей фигуре, (3) отдельный робот
+    const CD = require('./candles.js'), KS = ['any', 'engulf', 'hammer', 'mstar', 'doji', 'pierce'];
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
+    const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));
+    B = B || base();
+    const av = (q) => q.length ? (q.reduce((s, x) => s + x.nr, 0) / q.length).toFixed(3) : '—';
+    const w2lo = (x) => { let m = x.iE - 1; for (let j = Math.max(0, x.iE - 30); j < x.iE; j++) if (x.b[j].l < x.b[m].l) m = j; return m; };
+    const WIN = { 'сигнальная свеча': (x) => [x.iE - 1], 'сигнальная или прошлая': (x) => [x.iE - 1, x.iE - 2], 'у минимума отката ±2': (x) => { const m = w2lo(x); return [m - 2, m - 1, m, m + 1, m + 2].filter((j) => j < x.iE); } };
+    for (const [nm, L] of [['«4 часа · неделя»', B], ['«Охотник»', pair]]) {
+      console.log('\n=== ФИЛЬТР ВХОДА: ' + nm); HDR(); rep(nm + ' как сейчас', L);
+      for (const [wn, wf] of Object.entries(WIN)) for (const k of KS) for (const ctx of [true, false]) {
+        if (!ctx && k !== 'any') continue;
+        const ok = (x) => wf(x).some((j) => CD.bull(x.b, j, k, ctx)), kp = L.filter(ok), dr = L.filter((x) => !ok(x));
+        rep(`  ${wn}: ${k}${ctx ? '' : ' (без «после снижения»)'}`, kp);
+        console.log(`     оставлено ${kp.length} по ${av(kp)}R (половины ${av(kp.filter((x) => x.T < SPLIT))}/${av(kp.filter((x) => x.T >= SPLIT))}), отсеяно ${dr.length} по ${av(dr)}R`);
+      }
+    }
+    // (2) выход: медвежья фигура на закрытой свече при прибыли ≥ pr R → выход по открытию следующей свечи (если она раньше выхода системы)
+    console.log('\n=== ВЫХОД ПО МЕДВЕЖЬЕЙ ФИГУРЕ: «4 часа · неделя»'); HDR(); rep('как сейчас', B);
+    for (const k of ['any', 'engulf', 'star', 'estar']) for (const pr of [-99, 0, 0.5, 1, 2]) {
+      let ch = 0;
+      const L = B.map((x) => { const r = Math.abs(x.t.entry - x.t.stop0);
+        for (let j = x.iE; j < x.iX - 1; j++) if ((x.b[j].c - x.t.entry) / r >= pr && CD.bear(x.b, j, k)) { const ex = x.b[j + 1].o; ch++;
+          return Object.assign({}, x, { TOut: x.b[j + 1].t + H4, nr: ((ex - x.t.entry) - x.t.entry * FEE) / r, t: Object.assign({}, x.t, { exitP: ex }) }); }
+        return x; });
+      rep(`  ${k}, прибыль ≥ ${pr < -9 ? 'любая' : pr + 'R'} (выходов ${ch})`, L);
+    }
+    // (3) отдельный робот по свечной фигуре: правила «4 часа · неделя», фильтры рынка/тренда/AO или только рынок
+    console.log('\n=== ОТДЕЛЬНЫЙ РОБОТ ПО СВЕЧНОЙ ФИГУРЕ (4ч)'); HDR();
+    for (const k of KS) for (const filt of ['all', 'mkt']) for (const minA of [0, 1]) {
+      const al = trades({ setups: NONE, patHook: pat('cdl', { k, rr: 2, minA }), patFilt: filt });
+      rep(`  ${k}, ${filt === 'all' ? 'все фильтры' : 'только рынок'}${minA ? ', стоп ≥ 1 ATR' : ''}`, al, SP);
+      if (k === 'any' || k === 'engulf') rep('     + на одном счёте с «неделей»', B.concat(tag(al, '#c')));
     }
   }
   if (f === 'w5') {
