@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.widget.RemoteViews;
 
 import org.json.JSONObject;
@@ -56,7 +57,9 @@ public class WidgetProvider extends AppWidgetProvider {
         Intent open = new Intent(ctx, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         // шаблон для строк: к нему добавляется бумага из строки (поэтому без FLAG_IMMUTABLE)
-        v.setPendingIntentTemplate(R.id.wlist, PendingIntent.getActivity(ctx, 1, open, PendingIntent.FLAG_UPDATE_CURRENT));
+        // 3.12: с targetSdk 31 изменяемость указывается явно — FLAG_MUTABLE (0x02000000; android.jar сборки — API 29, константы в нём нет)
+        int pmut = Build.VERSION.SDK_INT >= 31 ? 0x02000000 : 0;
+        v.setPendingIntentTemplate(R.id.wlist, PendingIntent.getActivity(ctx, 1, open, PendingIntent.FLAG_UPDATE_CURRENT | pmut));
         v.setOnClickPendingIntent(R.id.wtitle, PendingIntent.getActivity(ctx, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         return v;
     }

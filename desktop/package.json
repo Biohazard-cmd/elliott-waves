@@ -1,0 +1,9 @@
+{
+  "name": "elliott-waves-desktop",
+  "productName": "Волны Эллиотта",
+  "version": "3.8.0",
+  "description": "Волны Эллиотта для компьютера",
+  "main": "main.js",
+  "author": "Егор",
+  "private": true
+}

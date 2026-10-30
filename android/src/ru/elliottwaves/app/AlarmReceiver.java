@@ -21,8 +21,13 @@ public class AlarmReceiver extends BroadcastReceiver {
         PendingIntent pi = PendingIntent.getBroadcast(ctx, 7, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         am.cancel(pi);
         if (at <= 0) return;
-        if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-        else am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
+        // 3.12: с targetSdk 31 точный будильник требует разрешения (USE_EXACT_ALARM в манифесте); нет его — неточный, Android сдвинет на несколько минут
+        try {
+            if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+            else am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
+        } catch (SecurityException e) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+        }
     }
 
     @Override
@@ -35,6 +40,8 @@ public class AlarmReceiver extends BroadcastReceiver {
             return;
         }
         Intent s = new Intent(ctx, AlarmService.class);
-        if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(s); else ctx.startService(s);
+        // 3.12: Android 12+ может не дать запустить службу из фона (нет точного будильника) — тогда ход сделает фоновая проверка
+        try { if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(s); else ctx.startService(s); }
+        catch (Exception e) { /* ForegroundServiceStartNotAllowedException */ }
     }
 }

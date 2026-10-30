@@ -14,7 +14,7 @@ AAPT2=$T/aapt2_64
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) AAPT2=$T/aapt2.exe;; esac
 $AAPT2 compile --dir res -o build/res.zip
 $AAPT2 link -o build/base.apk -I $T/android.jar --manifest AndroidManifest.xml -A assets build/res.zip \
-  --java build/gen --min-sdk-version 24 --target-sdk-version 29 --version-code $VER_CODE --version-name $VER_NAME --auto-add-overlay
+  --java build/gen --min-sdk-version 24 --target-sdk-version 35 --version-code $VER_CODE --version-name $VER_NAME --auto-add-overlay
 javac -nowarn --release 8 -cp $T/android.jar -d build/classes $(find src build/gen -name '*.java') 2>&1 | grep -v "JAVA_TOOL_OPTIONS\|bootstrap\|source value 8\|target value 8\|To suppress\|^[0-9] warning" || true
 (cd build/classes && jar cf ../classes.jar .)
 java -cp $T/dex-tools-v2.4/lib/dx-30.0.2.jar com.android.dx.command.Main --dex --min-sdk-version=24 --output=build/classes.dex build/classes.jar

@@ -8,8 +8,8 @@
   const LV_R5 = [0.618, 1.0, 1.618], LV_R5B = [0.618, 1.618], LV_B = [0.382, 0.5, 0.618];
   const LV_CZZ = [0.618, 1.0, 1.618], LV_CEXP = [1.618, 2.618], LV_CREG = [1.0, 1.236], LV_T = [0.618];
   const SENS_K = [0.6, 0.8, 1.0, 1.25, 1.6];
-  const SETUP_NAME = ['Вход в волну 3', 'Вход в волну 5', 'После коррекции A-B-C', 'Рывок из треугольника', 'Против тренда после 5 волн'];
-  const SETUP_SHORT = ['W3', 'W5', 'ABC', 'Тр', 'Пр'];
+  const SETUP_NAME = ['Вход в волну 3', 'Вход в волну 5', 'После коррекции A-B-C', 'Рывок из треугольника', 'Против тренда после 5 волн', 'Перевёрнутая голова и плечи', 'Пробой уровня'];
+  const SETUP_SHORT = ['W3', 'W5', 'ABC', 'Тр', 'Пр', 'ГП', 'Пб'];
   const REASON_NAME = ['стоп', 'цель', 'срок вышел', 'конец данных', 'конец недели', 'смена фазы', 'смена подсчёта', 'стоп после цели', 'безубыток', 'дивергенция волны 5'];
   const BE_WHY = { r1: 'цена прошла +1R', r2: 'цена прошла +2R', atr: 'цена ушла на N×ATR', ao: 'AO 5/34 повернул против сделки', mkt: 'рынок ушёл ниже своей средней за 50 дней', stall: '20 свечей без движения (меньше +0,5R)', wave: 'волна 3 прошла вершину волны 1, подтвердился первый откат' };
   const FIG_NAME = ['Импульс', 'Клин', 'Зигзаг', 'Флэт', 'Треугольник'];
@@ -42,6 +42,9 @@
     addMinRR: false, minRR: 1.5,
     addDepth: false, w2Min: 0.30, w2Max: 0.80, w4Max: 0.50,
     setupCounter: false,
+    // 3.13, классические фигуры (не волны; проверка 29.10.2026, research/figures.js): setups.hs — перевёрнутая «голова и плечи» на младшем зигзаге,
+    // setups.brk — пробой максимума за brkN свечей (стоп под последней точкой основного зигзага, цель brkRR × риск); вход — по открытию следующей свечи
+    hsTol: 0.3, hsWait: 30, brkN: 500, brkRR: 2,
     addBreak24: false,
     addPhaseExit: false,
     addFlipExit: false,
@@ -50,6 +53,7 @@
     complexCorr: true,    // по книге: волна 2/4 может быть расширенным флэтом (показ в подсчёте)
     addComplexTrade: false, // дополнение: входить по подсчёту со сложной волной 2/4
     beRule: 'atr', beAtr: 3,   // правило безубытка: r1 / r2 (+1R/+2R), atr (beAtr×ATR), ao, mkt, stall, wave, local (только подсказка)
+    stallOn: false, stallBars: 12, stallK: 0.5,   // 3.14 (проверка 30.10.2026, research/stall.js): за stallBars свечей после входа закрытие ни разу не выше входа — стоп на вход − stallK×R
     beMode: 'hint',            // 'hint' — только подсказка (сделки не меняются); 'auto' — система сама переносит стоп на вход + комиссии
     longOnly: false,
     shortOnly: false,     // только продажи
@@ -683,7 +687,7 @@
   // ---------- бэктест: сигнал по данным до бара, вход по открытию следующего ----------
   Ctx.prototype.backtest = function (swingPct, keep) {
     const c = this.cfg, N = this.N, O = this.O, H = this.H, L = this.L, C = this.C;
-    const st = { cashRet: 0, trades: 0, wins: 0, sumR: 0, sumNR: 0, gp: 0, gl: 0, totalRet: 0, maxDD: 0, worst: 0, sumBars: 0, sn: [0, 0, 0, 0, 0], sw: [0, 0, 0, 0, 0], sr: [0, 0, 0, 0, 0] };
+    const st = { cashRet: 0, trades: 0, wins: 0, sumR: 0, sumNR: 0, gp: 0, gl: 0, totalRet: 0, maxDD: 0, worst: 0, sumBars: 0, sn: [0, 0, 0, 0, 0, 0, 0], sw: [0, 0, 0, 0, 0, 0, 0], sr: [0, 0, 0, 0, 0, 0, 0] };
     const trades = [];
     if (N < 30) return { st, trades };
     const zm = zzInit(swingPct / 100), zs = zzInit(swingPct / 100 * c.subRatio);
@@ -692,6 +696,7 @@
     const fee = c.feePct / 100, slip = c.slipPct / 100, tbuf = c.trailBufPct / 100;
     let equity = 1, peak = 1, maxdd = 0, streak = 0, hasSig = false, sig = null, sigBar = 0;
     let cur = null, frac = 0, phaseExit = false, flipExit = false;
+    this._used = new Set(); this.lastSig = null;   // фигуры: каждая — один сигнал; сигнал на последней свече — для плана (analyzeNow)
     const cashY = (c.cashYield || 0) / 100;
     for (let i = 0; i < N; i++) {
       // свободная часть капитала лежит в фонде денежного рынка и приносит проценты
@@ -702,6 +707,7 @@
         if (!cur && sig.side * (e - sig.stop) > 0 && sig.side * (sig.target - e) > 0 && !(c.weekExit && wkDay(this.T[i]) % 6 === 0)) {
           frac = Math.min(c.riskPct / 100 / (Math.abs(e - sig.stop) / e), c.maxLev);
           cur = { setup: sig.setup, side: sig.side, iSig: sigBar, iEntry: i, entry: e, stop: sig.stop, stop0: sig.stop, target: sig.target, notgt: sig.notgt, i0: sig.i0, cnt: sig.cnt, moves: 0, best: e, path: [] };
+          if (sig.pat) cur.pat = sig.pat;
           // уровень доливки по Вильямсу: волна 3 прошла 110% волны 1 (подтверждение, что третья волна настоящая)
           if (sig.w1) { const lv = sig.w1[1] + sig.side * 0.1 * Math.abs(sig.w1[1] - sig.w1[0]); if (sig.side * (lv - e) > 0) cur.addLvl = lv; }
           phaseExit = false; flipExit = false;
@@ -784,6 +790,15 @@
         }
       }
       if (cur) this.trailOne(cur, i, spiv, piv, mp, tbuf, keep ? cur.path : null);
+      // 3.14 «сделка стоит» (Кеннеди: сначала уменьшить риск): stallBars свечей с входа закрытие ни разу не выше входа — стоп на полпути к входу
+      if (cur && c.stallOn && cur.stallOn == null && i < N - 1) {
+        cur.bestC = Math.max(cur.bestC == null ? -Infinity : cur.bestC, cur.side * C[i]);
+        if (i - cur.iEntry + 1 >= c.stallBars) {
+          cur.stallOn = i;
+          if (cur.bestC <= cur.side * cur.entry) { const ns = cur.entry - cur.side * c.stallK * Math.abs(cur.entry - cur.stop0);
+            if (cur.side * (ns - cur.stop) > 0) { cur.stop = ns; cur.stallLv = ns; cur.moves++; if (keep) cur.path.push({ bar: i, p: ns }); } }
+        }
+      }
       // безубыток (опция «переносить стоп»): условие на закрытии свечи — стоп на вход + комиссии со следующей
       if (cur && c.beMode === 'auto' && cur.beOn == null && i < N - 1) {
         cur._bs = cur._bs || {};
@@ -810,6 +825,11 @@
           const pl = this.makePlan(s, C[i]);
           if (pl && this.trendOK(pl.side, tr[i]) && this.marketOK(pl.side, this.T[i]) && this.aoOK(pl.side, i)) { sig = pl; sig.i0 = s.idx[0]; sig.cnt = keep ? snapCount(s) : null; sigBar = i; hasSig = true; break; }
         }
+      }
+      // классические фигуры (setups.hs / setups.brk): проверка на каждой свече без позиции; фильтры — те же, что у волновых сигналов
+      if (!cur && !hasSig && (c.setups.hs || c.setups.brk)) {
+        const pl = this.patSignal(i, mp);
+        if (pl && this.trendOK(pl.side, tr[i]) && this.marketOK(pl.side, this.T[i]) && this.aoOK(pl.side, i)) { if (i < N - 1) { sig = pl; sigBar = i; hasSig = true; } else this.lastSig = Object.assign(pl, { sigBar: i }); }
       }
       const eqNow = cur ? equity * (1 + frac * (cur.side * (C[i] - cur.entry) / cur.entry) + (cur.add ? cur.add.frac * cur.side * (C[i] - cur.add.px) / cur.add.px : 0)) : equity;
       if (eqNow > peak) peak = eqNow;
@@ -844,6 +864,54 @@
         if (pl && this.trendOK(pl.side, this.trend[lp.c]) && this.marketOK(pl.side, this.T[lp.c]) && this.aoOK(pl.side, lp.c)) { pl.scen = k; pl.sigBar = lp.c; this.plan = pl; break; }
       }
     }
+    // фигура на последней свече (её нашёл бэктест) — план; волновой план с прошлой свечи уступает свежему сигналу фигуры
+    if (this.lastSig && (!this.plan || this.plan.sigBar < N - 1)) this.plan = this.lastSig;
+  };
+
+  // ---------- классические фигуры (3.13) ----------
+  // Покупка. Голова и плечи (перевёрнутая), по младшему зигзагу: минимумы плечо — голова (ниже) — плечо (выше головы), плечи различаются
+  // не больше hsTol глубины головы; вход — первое закрытие выше линии шеи (через два максимума между ними), не позже hsWait свечей после
+  // подтверждения правого плеча; стоп — под правым плечом; цель — линия шеи + глубина головы.
+  // Пробой уровня, по основному зигзагу: первое закрытие выше максимума за brkN свечей (до этой свечи); стоп — под последним минимумом
+  // зигзага; цель — brkRR × риск. Дальше сделку ведут общие правила (бегунок, безубыток, неделя).
+  Ctx.prototype.patSignal = function (i, mp) {
+    const c = this.cfg, C = this.C, buf = 0.001, wait = c.hsWait || 30;
+    if (i < 1) return null;
+    const mk = (kind, last, lvl, stop, target, i0, pts) => {
+      if (!(C[i] > lvl && C[i - 1] <= lvl)) return null;
+      const key = kind + last.i; if (this._used.has(key)) return null;
+      stop *= 1 - buf;
+      const risk = C[i] - stop, rew = target - C[i];
+      if (risk <= 0 || rew <= 0) return null;
+      this._used.add(key);
+      return { setup: kind === 'hs' ? 5 : 6, side: 1, entry: C[i], stop, target, rr: rew / risk, score: 50, notgt: false, sigBar: -1, scen: -1, w1: null, i0, pat: { kind, pts, lvl } };
+    };
+    if (c.setups.hs) {
+      const P = this.sub, n = P.length, l3 = P[n - 1];
+      if (n >= 5 && l3.t === -1 && i > l3.c && i - l3.c <= wait) {
+        const l1 = P[n - 5], h1 = P[n - 4], hd = P[n - 3], h2 = P[n - 2];
+        if (l1.p > hd.p && l3.p > hd.p) {
+          const neck = (j) => h1.p + (h2.p - h1.p) * (j - h1.i) / (h2.i - h1.i), depth = neck(hd.i) - hd.p;
+          if (depth > 0 && Math.abs(l1.p - l3.p) <= (c.hsTol || 0.3) * depth) {
+            const pl = mk('hs', l3, neck(i), l3.p, neck(i) + depth, l1.i, [l1, h1, hd, h2, l3].map((q) => ({ i: q.i, p: q.p })));
+            if (pl) return pl;
+          }
+        }
+      }
+    }
+    if (c.setups.brk) {
+      const n = mp.length, last = mp[n - 1], N = c.brkN || 500;
+      if (n >= 3 && last.t === -1 && i > last.c && i - last.c <= wait) {
+        if (!this._hh || this._hhN !== N) {   // максимум за N свечей до j (не включая j)
+          const H = this.H, q = new Array(this.N).fill(NaN), dq = [];
+          for (let j = 0; j < this.N; j++) { while (dq.length && dq[0] < j - N) dq.shift(); if (dq.length) q[j] = H[dq[0]]; while (dq.length && H[dq[dq.length - 1]] <= H[j]) dq.pop(); dq.push(j); }
+          this._hh = q; this._hhN = N;
+        }
+        const lvl = this._hh[i];
+        if (!isNaN(lvl) && lvl > last.p) return mk('brk', last, lvl, last.p, lvl + (c.brkRR || 2) * (lvl - last.p), last.i, [{ i: last.i, p: last.p }]);
+      }
+    }
+    return null;
   };
 
   Ctx.prototype.planActive = function () {
@@ -1207,7 +1275,44 @@
     for (let i = Math.max(0, t.iEntry); i < ctx.N; i++) if (ctx.beTrig(t, i, st) && t.side * (ctx.C[i] - be) > 0) return { i, be, why: ctx.beWhyText() };
     return null;
   }
-  const API = { rulesCheck, BE_WHY, beCheck, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
+  // 3.9: заранее — что будет со стопом открытой сделки на следующих свечах (для предупреждения «робот готовится перенести стоп»).
+  // bars/cfg — те же, по которым посчитана сделка t (an.bars, an.cfg); возвращает null или { kind: 'be'|'trail', at, stop, j }
+  function stopHint(bars, cfgIn, t) {
+    if (!t || t.reason !== 3) return null;
+    const c = merge(cfgIn), ctx = new Ctx(bars, c), N = ctx.N, i = N - 1, s = t.side, H = ctx.H, L = ctx.L, C = ctx.C;
+    if (N < 3 || t.iEntry >= i) return null;
+    // безубыток k×ATR: ещё не сработал, а до порога осталось не больше 0,5 ATR
+    if (c.beMode === 'auto' && (c.beRule || 'atr') === 'atr' && !t.runner) {
+      const be = ctx.beLevel(t), A = ctx.atr();
+      if (s * (be - t.stop) > 1e-12) {
+        const arm = t.entry + s * (c.beAtr || 3) * A[Math.max(0, t.iEntry - 1)];
+        let fav = -Infinity; for (let k = t.iEntry; k <= i; k++) fav = Math.max(fav, s > 0 ? H[k] : -L[k]);
+        const left = s * arm - fav;
+        if (left > 0 && left <= 0.5 * A[i]) return { kind: 'be', at: arm, stop: be, j: i };
+      }
+    }
+    // 3.14: «сделка стоит» — следующая свеча последняя: если и она не закроется выше входа, стоп переедет на вход − stallK×R
+    if (c.stallOn && t.stallOn == null && !t.runner && i - t.iEntry + 2 === c.stallBars) {
+      let best = -Infinity; for (let k = t.iEntry; k <= i; k++) best = Math.max(best, s * C[k]);
+      const ns = t.entry - s * c.stallK * Math.abs(t.entry - t.stop0);
+      if (best <= s * t.entry && s * (ns - t.stop) > 0) return { kind: 'stall', at: t.entry, stop: ns, j: i };
+    }
+    // после цели: свеча-кандидат в локальный минимум (максимум у шорта), подтверждения ещё нет
+    if (t.runner) {
+      const K = Math.max(1, c.localBars), tbuf = c.trailBufPct / 100;
+      for (let j = i; j >= Math.max(t.iEntry + K, i - K + 1); j--) {
+        let ok = true;
+        for (let m = 1; m <= K && ok; m++) ok = s > 0 ? L[j] < L[j - m] : H[j] > H[j - m];
+        for (let m = 1; ok && j + m <= i; m++) ok = s > 0 ? L[j] <= L[j + m] : H[j] >= H[j + m];
+        if (!ok) continue;
+        const ns = s > 0 ? L[j] * (1 - tbuf) : H[j] * (1 + tbuf);
+        if (s * (ns - t.stop) > 0 && s * (C[i] - ns) > 0) return { kind: 'trail', at: s > 0 ? L[j] : H[j], stop: ns, j, left: K - (i - j) };
+        break;
+      }
+    }
+    return null;
+  }
+  const API = { rulesCheck, BE_WHY, beCheck, stopHint, quickStats, optimizeSwing, optimizeReturn, countPath, DEFAULTS, SETUP_NAME, SETUP_SHORT, REASON_NAME, FIG_NAME, run, autoSwing, trimGaps, scenTitle, pointLabel, figName, channelLines, lineAt, merge, Ctx, zzInit, zzPush };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.EW2 = API;
 })(typeof window !== 'undefined' ? window : globalThis);
