@@ -31,8 +31,8 @@ const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../
   await p.evaluate(() => { const now = Date.now();
     const mk = (key, name) => ({ key, name, cfg: { maxBars: 2000, riskPct: 1, longOnly: true }, cash: 50000, dep: 100000, mm: 0, pos: key === 'd_aggr' ? [{ id: 'OZON_TQBR', ticker: 'OZON', lot: 1, qty: 5, entry: 3800, entryT: now - 86400000 * 5, stop0: 3600, stop: 3600, cost: 19000 }] : [], closed: [], hist: [{ t: now, eq: 100000, dep: 100000 }], px: {}, seen: {}, pend: {}, skipped: 0 });
     window.EWData.vaccSet({ on: true, startAt: now - 86400000 * 10, mmRate: 13, top: 50, flows: [], lastAccrue: now, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный')] }); });
-  await p.click('#jrnBtn'); await p.waitForTimeout(300); await p.click('[data-jtab="robot"]'); await p.waitForTimeout(400);
-  await p.click('[data-racc="d_aggr"] h3'); await p.waitForTimeout(300);
+  await p.click('#robBtn'); await p.waitForTimeout(400);
+  await p.click('[data-rnav="d_aggr"]'); await p.waitForTimeout(300);
   console.log('после клика:', errs.join(' / ') || 'нет', (await p.textContent('#jrnBody')).replace(/\s+/g, ' ').match(/Позиции.{0,200}/)?.[0]);
   await p.screenshot({ path: 'shots/355-robot.png' }); console.log('кнопки:', await p.evaluate(() => [...document.querySelectorAll('[data-rgo],[data-racc]')].map((e) => e.tagName + ':' + (e.dataset.rgo || e.dataset.racc)).join(' ')));
   await p.click('[data-rgo="OZON_TQBR"]'); await p.waitForTimeout(2500);

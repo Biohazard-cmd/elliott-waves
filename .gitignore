@@ -7,3 +7,9 @@ apk/
 # часовики Мосбиржи 2018–2026 (research/data/moex1h) — в git; 10-минутки и прочее — нет (скачиваются research/moex_dl.js)
 research/data/moex*/
 !research/data/moex1h/
+# криптовалюты для проверок (скачиваются research/crypto_dl.js)
+research/data/crypto/
+
+# программа для компьютера: скачанный Electron и сборка
+desktop/cache/
+desktop/build/

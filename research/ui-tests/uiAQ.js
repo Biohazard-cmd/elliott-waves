@@ -7,18 +7,20 @@ const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../
     window.EWData.vaccSet({ on: true, mm2: true, startAt: now - 86400000 * 20, mmRate: 13.5, top: 50, flows: [], lastAccrue: now, accs: [mk('d_long', 'основной'), mk('d_aggr', 'агрессивный'), Object.assign(mk('manual', 'мой (вручную)'), { manual: true, pos: [{ id: 'SBER_TQBR', ticker: 'SBER', lot: 10, qty: 10, side: 1, entry: 286, entryT: now - 30 * H, stop: 284, cost: 2860, divs: 0, beOn: now - 10 * H, beLv: 286.6 }], closed: [] })] }); });
   await p.evaluate(() => { window.__view.barW = 2.4; window.__view.x0 = 1850; window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(6000);
   await p.evaluate(() => { window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(500);
-  await p.click('#jrnBtn'); await p.waitForTimeout(300); await p.click('[data-jtab="robot"]'); await p.waitForTimeout(500);
+  await p.click('#robBtn'); await p.waitForTimeout(500);
+  const robGo = async (k) => { await p.click('[data-rnav="' + k + '"]'); await p.waitForTimeout(300); if (await p.$('[data-fold="robSet"].folded')) { await p.click('[data-fold="robSet"] > h3'); await p.waitForTimeout(200); } };   // 3.4+: робот — на своём экране, настройки — в свёрнутой карточке
+  await robGo('d_long');
   await p.click('[data-rms="d_long|star"]'); await p.waitForTimeout(200); await p.click('[data-rmc="d_long|#3fbf7f"]'); await p.waitForTimeout(200);
-  await p.click('[data-rbe="manual"]'); await p.waitForTimeout(200);
-  console.log('стиль:', await p.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('ew2.settings')).rmStyle)), 'manual be:', await p.evaluate(() => window.EWData.vaccGet().accs[2].be));
-  await (await p.$('[data-rbe="manual"]')).scrollIntoViewIfNeeded(); await p.screenshot({ path: 'shots/330-rstyle.png' });
-  await p.click('[data-close="journal"]'); await p.waitForTimeout(400);
+  console.log('стиль:', await p.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('ew2.settings')).rmStyle)), 'manual be:', await p.evaluate(() => !!window.EWData.vaccGet().accs[2].be));
+  await (await p.$('[data-rms="d_long|star"]')).scrollIntoViewIfNeeded(); await p.screenshot({ path: 'shots/330-rstyle.png' });
+  await p.click('[data-close="robots"]'); await p.waitForTimeout(400);
   await p.evaluate(() => { window.__view.x0 = 1850; window.dispatchEvent(new Event('resize')); }); await p.waitForTimeout(600);
   await p.screenshot({ path: 'shots/331-rchart.png', clip: { x: 0, y: 100, width: 390, height: 430 } });
-  await p.click('#jrnBtn'); await p.waitForTimeout(300); await p.click('[data-jtab="robot"]'); await p.waitForTimeout(500);
+  await p.click('#robBtn'); await p.waitForTimeout(500);
   await p.evaluate(() => { const o = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => { window.__csv = t; }); return o(b); }; });
+  await p.click('[data-rnav="all"]'); await p.waitForTimeout(300);
   await p.click('#vCsv'); await p.waitForTimeout(500); console.log((await p.evaluate(() => window.__csv)).split('\\r\\n').slice(0, 9).join('\\n'));
-  await p.click('[data-close="journal"]').catch(() => {}); await p.waitForTimeout(300);
+  await p.click('[data-close="robots"]').catch(() => {}); await p.waitForTimeout(300);
   await p.click('#setBtn'); await p.waitForTimeout(300); await p.click('#setTabs button >> nth=0'); await p.waitForTimeout(200);
   await p.click('#presetBook'); await p.waitForTimeout(400);
   console.log('после «по книге»:', await p.evaluate(() => document.querySelector('#setBody .note').innerText), '|', await p.textContent('#presetBook'));

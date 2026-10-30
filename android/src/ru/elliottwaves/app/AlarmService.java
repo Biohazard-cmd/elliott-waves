@@ -41,7 +41,8 @@ public class AlarmService extends Service implements BgTask {
             b.setPriority(Notification.PRIORITY_MIN);
         }
         b.setSmallIcon(R.drawable.ic_stat).setContentTitle("Робот проверяет свечи…").setOngoing(true);
-        startForeground(77, b.build());
+        // 3.12: с targetSdk 34 у службы на переднем плане обязателен тип (dataSync = 1, как в манифесте)
+        if (Build.VERSION.SDK_INT >= 29) startForeground(77, b.build(), 1); else startForeground(77, b.build());
         if (!running) {
             running = true;
             web = new WebView(getApplicationContext());
