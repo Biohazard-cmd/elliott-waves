@@ -813,7 +813,7 @@
         // характер и настроение робота: последняя сделка за 2 дня — в плюс 🎉, в минус 😢
         const lc = a.closed[a.closed.length - 1], mood = lc && Date.now() - lc.exitT < 2 * 86400000 ? (lc.pl >= 0 ? '🎉' : '😢') : '';
         const pu = Object.values(a.pend || {}).map((z) => pendUntil(z, accTf(a), nowW)).filter((u) => u > nowW);   // 3.10: сигнал робота на 4ч — таймер до закрытия свечи входа
-        robots.push({ u: pu.length ? Math.min(...pu) : 0, h: `${({ d_aggr: '🔥', h4_week: '⏰', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
+        robots.push({ u: pu.length ? Math.min(...pu) : 0, h: `${({ d_aggr: '🔥', h4_week: '⏰', h4_fig: '📐', manual: '✋', btc_trend: '₿' })[a.key] || '🤖'}${mood} ${esc(a.name)}: позиций ${a.pos.length} · <font color="${pc >= 0 ? col.pos : col.neg}">${pc >= 0 ? '+' : '−'}${Math.abs(pc).toFixed(1).replace('.', decComma ? ',' : '.')}%</font>`, o: '' });
       }
       const list = sig.concat(robots, other, unclear);
       const t = store.get('lastcheck', 0), d = dispDate(t || Date.now()), p2 = (n) => String(n).padStart(2, '0');
@@ -1109,9 +1109,14 @@
         a.sw = a.sw || {}; a.swAt = a.swAt || {};
         if (!a.sw[id] || (!a.pos.some((z) => z.id === id) && now - (a.swAt[id] || 0) > 30 * 86400000)) { a.sw[id] = EW2.autoSwing(d.bars.slice(-(a.cfg.maxBars || 2000)), a.cfg.swingMult || 1); a.swAt[id] = now; }
         // безубыток 3×ATR — переключатель у каждого робота; позиция ведётся так, как была открыта (p.be)
+        // 3.13: «несколько роботов на одном счёте» (a.cfg.subs) — у каждой части свои сигналы и сделки (по бумаге может быть по позиции
+        // на часть), деньги общие. Позиция помнит свою часть (p.sub), заявка — тоже (a.pend[id].sub)
+        for (const sub of a.cfg.subs || [null]) {
+        const SC = sub ? sub.key : null, onSub = (z) => (z.sub || null) === SC, myPend = () => !!a.pend[id] && (a.pend[id].sub || null) === SC;
+        const cfgA = sub ? Object.assign({}, a.cfg, sub.cfg) : a.cfg, cfgPA = a.cfgPrev ? (sub ? Object.assign({}, a.cfgPrev, sub.cfg) : a.cfgPrev) : null;
         const runs = {}, BE = { beMode: 'auto', beRule: 'atr', beAtr: 3 };
-        const runWith = (base, be) => { const k = (base === a.cfg ? 'c' : 'p') + (be ? 1 : 0); if (!(k in runs)) { try { runs[k] = EW2.run(d.bars, Object.assign({}, base, be ? BE : { beMode: 'hint' }, { swingPct: a.sw[id], mkt: base.addMarket ? mkt : null }), TF[atf].ms); } catch (e) { runs[k] = null; } } return runs[k]; };
-        const an = runWith(a.cfg, !!a.be);
+        const runWith = (base, be) => { const k = (base === cfgA ? 'c' : 'p') + (be ? 1 : 0); if (!(k in runs)) { try { runs[k] = EW2.run(d.bars, Object.assign({}, base, be ? BE : { beMode: 'hint' }, { swingPct: a.sw[id], mkt: base.addMarket ? mkt : null }), TF[atf].ms); } catch (e) { runs[k] = null; } } return runs[k]; };
+        const an = runWith(cfgA, !!a.be);
         if (!an) { say(d.x.ticker + ': ошибка расчёта'); continue; }
         const last = an.bars[an.N - 1]; a.px[id] = last.c;
         // а) открытые позиции: закрыть, если сделка бэктеста закрылась; подтянуть стоп
@@ -1134,8 +1139,8 @@
           if (tr.reason !== 3) sold(q, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]);
         };
         // позиции, открытые до обновления настроек робота, ведём по старым настройкам — иначе их «пересчитало» бы
-        for (const p of a.pos.filter((z) => z.id === id)) {
-          const A2 = runWith(p.legacy && a.cfgPrev ? a.cfgPrev : a.cfg, !!p.be) || an;
+        for (const p of a.pos.filter((z) => z.id === id && onSub(z))) {
+          const A2 = runWith(p.legacy && cfgPA ? cfgPA : cfgA, !!p.be) || an;
           const tr = A2.trades.find((t) => T(A2, t.iEntry) === (p.addOf || p.entryT));
           if (!tr) { sold(p, last.c, last.t, 'подсчёт пересчитан'); continue; }
           if (tr.reason !== 3) { sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]); continue; }
@@ -1165,10 +1170,10 @@
         }
         // б) новые сделки бэктеста после старта робота
         for (const tr of an.trades) {
-          const tIn = T(an, tr.iEntry), key = id + '|' + tIn;
+          const tIn = T(an, tr.iEntry), key = id + '|' + tIn + (SC ? '|' + SC : '');
           // только новые сделки: после старта и не раньше прошлого хода (иначе после смены порога «вспомнились» бы старые)
           if (tIn < aStart || tIn < Math.max(aLast, aStart) - 10 * 86400000 || a.seen[key]) continue;
-          a.seen[key] = 1; delete a.pend[id];
+          a.seen[key] = 1; if (myPend()) delete a.pend[id];
           const eq = vEquity(a), dist = Math.abs(tr.entry - tr.stop0) / tr.entry, lot = d.x.lot || 1;
           let val = Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE));
           const qty = Math.floor(val / (tr.entry * lot)) * lot;
@@ -1176,33 +1181,36 @@
           const side = tr.side < 0 ? -1 : 1, cost = side < 0 ? qty * tr.entry * (1 - VFEE) : qty * tr.entry * (1 + VFEE);
           a.cash += side < 0 ? cost : -cost;   // шорт: деньги от продажи на счёте, при закрытии бумаги откупаем (sold)
           const p = { id, ticker: d.x.ticker, lot, qty, side, entry: tr.entry, entryT: tIn, stop0: tr.stop0, stop: tr.stop, target: tr.target, setup: tr.setup, cost, divs: 0, runner: !!tr.runner , be: !!a.be };
+          if (SC) p.sub = SC;
           a.pos.push(p);
           if (tr.add && a.cfg.addPyramid) openAdd(p, tr);
-          const msg = `${side < 0 ? 'продал (шорт)' : 'купил'} ${p.ticker} ${qty} шт по ${fmtPrice(tr.entry, an.bars)}, стоп ${fmtPrice(tr.stop0, an.bars)}${tr.notgt ? '' : ', цель ' + fmtPrice(tr.target, an.bars)}`;
+          const msg = `${side < 0 ? 'продал (шорт)' : 'купил'} ${p.ticker} ${qty} шт по ${fmtPrice(tr.entry, an.bars)}, стоп ${fmtPrice(tr.stop0, an.bars)}${tr.notgt ? '' : ', цель ' + fmtPrice(tr.target, an.bars)}${SC ? ' — ' + EW2.SETUP_NAME[tr.setup].toLowerCase() : ''}`;
           log('robot', a.name + ': ' + msg, { kind: 'open', key: a.key, ticker: p.ticker, tf: atf, side, qty, entry: tr.entry, entryT: tIn, stop0: tr.stop0, target: tr.notgt ? null : tr.target, riskPct: a.cfg.riskPct, setup: EW2.SETUP_NAME[tr.setup] || '', sigT: T(an, tr.iSig), swing: an.swing, be: !!a.be }); ev.push({ title: p.ticker + ': ' + (side < 0 ? 'продал (шорт)' : 'купил') + ' · ' + tag, text: msg, open: { id, ticker: p.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot' });
           if (tr.reason !== 3) sold(p, tr.exitP, T(an, tr.iExit), EW2.REASON_NAME[tr.reason]);   // вошёл и вышел между проверками
         }
         // в) сигнал на последней закрытой свече — заявка «купить на открытии» (чтобы успеть повторить)
         // 2.42: пока у бэктеста по бумаге открыта прошлая сделка (робот её не брал — была до старта или без денег), новый вход он не сделает — и робот не купит; такой сигнал не объявляем
-        if (an.plan && an.planActive && an.plan.sigBar === an.N - 1 && !a.pos.some((z) => z.id === id) && !an.trades.some((t) => t.reason === 3)) {
+        if (an.plan && an.planActive && an.plan.sigBar === an.N - 1 && !a.pos.some((z) => z.id === id && onSub(z)) && !an.trades.some((t) => t.reason === 3) && (!a.pend[id] || myPend())) {
           const sigT = T(an, an.plan.sigBar);
           if (!a.pend[id] || a.pend[id].sigT !== sigT) {
             const eq = vEquity(a), dist = Math.abs(an.plan.entry - an.plan.stop) / an.plan.entry, lot = d.x.lot || 1;
             const qty = Math.floor(Math.min(eq * (a.cfg.riskPct || 1) / 100 / dist, eq * VMAXPOS, a.cash / (1 + VFEE)) / (an.plan.entry * lot)) * lot;   // как при самой покупке (пункт «б»)
             const until = atf === '1d' ? 0 : candleEnd(atf);   // 3.10: свеча входа закроется — таймер в карточке, виджете и уведомлении
-            a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty, until };
-            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} ${an.plan.side < 0 ? 'продаст (шорт)' : 'купит'} ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
+            a.pend[id] = { sigT, side: an.plan.side, entry: an.plan.entry, stop: an.plan.stop, target: an.plan.target, qty, until, setup: an.plan.setup };
+            if (SC) a.pend[id].sub = SC;
+            const msg = qty >= lot ? `${atf === '1d' ? 'завтра на открытии' : 'вход сейчас, по открытию новой свечи:'} ${an.plan.side < 0 ? 'продаст (шорт)' : 'купит'} ${d.x.ticker} ~${qty} шт (~${fmtPrice(an.plan.entry, an.bars)}), стоп ${fmtPrice(an.plan.stop, an.bars)}${SC ? ' — ' + EW2.SETUP_NAME[an.plan.setup].toLowerCase() : ''}` : `сигнал ${d.x.ticker}, но свободных денег нет — пропустит`;
             log('robot', a.name + ': ' + msg); ev.push({ title: d.x.ticker + ': ' + (qty >= lot ? (atf === '1d' ? 'сигнал, завтра на открытии' : 'сигнал — вход сейчас') : 'сигнал, пропуск — нет денег') + ' · ' + tag, text: msg, open: { id, ticker: d.x.ticker, classCode: 'TQBR', tf: atf }, kind: 'robot', until: qty >= lot && until ? until : 0 });
           }
         }
         // свеча входа уже закрылась, а сделки нет (купил бы — заявку убрал бы пункт «б») — убираем и пишем почему
-        if (a.pend[id] && last.t > a.pend[id].sigT) {
+        if (myPend() && last.t > a.pend[id].sigT) {
           const q = a.pend[id], sd = q.stop < q.entry ? 1 : -1, k = an.bars.findIndex((b) => b.t > q.sigT), o = k >= 0 ? an.bars[k].o : 0;
           const why = o && sd * (o - q.stop) <= 0 ? 'цена открылась за стопом — вход отменён' : o && q.target && sd * (q.target - o) <= 0 ? 'цена открылась за целью — вход отменён'
             : an.trades.some((t) => t.reason === 3 && T(an, t.iEntry) <= q.sigT) ? 'по истории система ещё в прошлой сделке по этой бумаге' : 'после новой свечи подсчёт пересчитался и сигнал не подтвердился';
           log('robot', `${a.name}: ${d.x.ticker} — сигнал не исполнен: ${why}`); delete a.pend[id];
         }
-        if (a.pend[id] && now - a.pend[id].sigT > 5 * 86400000) delete a.pend[id];
+        if (myPend() && now - a.pend[id].sigT > 5 * 86400000) delete a.pend[id];
+        }   // части счёта (a.cfg.subs)
       }
       if (a.cfgPrev && !a.pos.some((z) => z.legacy)) { delete a.cfgPrev; log('robot', a.name + ': старые позиции закрыты — дальше только новые настройки'); }
       // г) дивиденды по бумагам в позиции (за вычетом налога 13%; по шорту дивиденды не начисляем)
