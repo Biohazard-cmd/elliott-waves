@@ -724,7 +724,7 @@
     } else body = '<div class="small">Отметьте хотя бы одного робота.</div>';
     return `<div class="card${foldC('robCombo', false)}" data-fold="robCombo"><h3>🧺 Общий счёт</h3>
       <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:4px">${el.map((a) => `<button data-combo="${a.key}" class="${S.combo.includes(a.key) ? 'on' : ''}" style="flex:none">${S.combo.includes(a.key) ? '✓ ' : ''}${esc(ROB_SHORT[a.key] || a.name)}</button>`).join('')}</div>${body}
-      <div class="small mut" style="margin-top:4px">Как если бы ваши деньги поделили между отмеченными роботами (у каждого свой счёт, свои сделки). На истории 2019–2026 дневной основной и «Охотник» почти не связаны: пополам — ~31%/год, а просадка общего счёта ~3,7% против 6,8 и 7,2% у каждого. Основной вместе с агрессивным помогают друг другу мало — они похожи. На реальном счёте так проще всего с двумя брокерскими счетами: на каждом повторять своего робота, капитал робота — как деньги этого счёта.</div></div>`;
+      <div class="small mut" style="margin-top:4px">Как если бы ваши деньги поделили между отмеченными роботами (у каждого свой счёт, свои сделки). На истории 2019–2026 дневной основной и «Охотник» почти не связаны: пополам — ~31%/год, а просадка общего счёта ~3,7% против 6,8 и 7,2% у каждого. Основной вместе с агрессивным помогают друг другу мало — они похожи. На реальном счёте так проще всего с двумя брокерскими счетами: на каждом повторять своего робота, капитал робота — как деньги этого счёта.</div><button class="manl" data-man="strategy">📖 Стратегия: как поделить деньги</button></div>`;
   }
   function robTable(V) {
     const row = (a) => { const pc = robPc(a), np = Object.keys(a.pend || {}).length;
@@ -1259,7 +1259,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '3.15';
+  const APP_VER = '4.0';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();

@@ -15,6 +15,11 @@ const tail = `
   await p.click('[data-combo="h4_week"]'); await p.waitForTimeout(400);
   console.log('после «неделя»:', await p.evaluate(() => JSON.parse(localStorage.getItem('ew2.settings')).combo), ((await p.textContent('#robBody')).match(/Вложено[^·]*/) || [''])[0]);
   const card = await p.$('[data-fold="robCombo"]'); if (card) await card.screenshot({ path: __dirname + '/shots/BH1-combo.png' });
+  await p.click('[data-man="strategy"]'); await p.waitForTimeout(2500);
+  const man = await p.evaluate(() => { const f = document.querySelector('#manFrame'), d = f && f.contentDocument, e = d && d.querySelector('#strategy'); return e ? Math.round(e.getBoundingClientRect().top) : null; });
+  console.log('📖 «Стратегия» открыта, раздел вверху экрана:', man !== null && Math.abs(man) < 120, man);
+  await p.screenshot({ path: __dirname + '/shots/BH3-strategy.png' });
+  await p.click('[data-close="manual"]'); await p.waitForTimeout(800);
   await p.click('#robNav [data-rnav="h4_fig"]'); await p.waitForTimeout(500);
   const set = await p.$('[data-fold="robSet"] h3'); if (set) { await set.click(); await p.waitForTimeout(300); }
   console.log('кнопка «Сделка стоит» у 4ч:', !!(await p.$('[data-rstall="h4_fig"]')));
