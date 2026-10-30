@@ -1,11 +1,12 @@
 // Раздельные деньги между роботами (30.10.2026): у каждого робота своя доля счёта, кривые счёта (по закрытым сделкам, деньги в фонде)
 // складываются по долям; «ребаланс» — доли выравниваются каждый день (как общий счёт с постоянными долями), «без» — доли плывут.
-// Нужны выгрузки: FIG=dump OUT=…/t4h.json node figures.js, PART=main|agr DUMP=…/td_main|agr.json node candles_d.js
+// Нужны выгрузки (+ «треугольник» — tri_dump.js): FIG=dump OUT=…/t4h.json node figures.js, PART=main|agr DUMP=…/td_main|agr.json node candles_d.js
 const fs = require('fs'), { portfolio } = require('./maxpos_add.js'), D = process.env.DIR || '/tmp/claude-0';
 const ld = (f) => JSON.parse(fs.readFileSync(D + '/' + f));
 const fix = (z) => { const m = new Map(z.map((x) => [x.id, x])); for (const x of z) if (x.ofId) x.of = m.get(x.ofId); return z; };
 const h4 = ld('t4h.json'), R = { main: [fix(ld('td_main.json')), 0.015], agr: [fix(ld('td_agr.json')), 0.01], week: [h4.week, 0.015], hunt: [h4.hunt, 0.015] };
-const NM = { main: 'основной', agr: 'агрессивный', week: '«неделя»', hunt: '«Охотник»' };
+if (fs.existsSync(D + '/ttri.json')) R.tri = [ld('ttri.json'), 0.01];   // OUT=…/ttri.json node tri_dump.js
+const NM = { main: 'основной', agr: 'агрессивный', week: '«неделя»', hunt: '«Охотник»', tri: '«треугольник»' };
 const DAY = 864e5, T0 = Date.UTC(2019, 0, 1), SPLIT = Date.UTC(2023, 0, 1);
 const curves = {};
 for (const [k, [z, risk]] of Object.entries(R)) { portfolio.curve = []; z.forEach((x) => { x.i = -(x.of || x).turn; }); portfolio(z, 0.25, (x) => x.i, 0.0005, risk); curves[k] = portfolio.curve.sort((a, b) => a[0] - b[0]); }
@@ -31,4 +32,5 @@ const mon = (e) => { const r = []; for (let i = 30; i < e.length; i += 30) r.pus
 const cor = (a, b) => { const n = a.length, ma = a.reduce((s, v) => s + v, 0) / n, mb = b.reduce((s, v) => s + v, 0) / n; let c = 0, va = 0, vb = 0; for (let i = 0; i < n; i++) { c += (a[i] - ma) * (b[i] - mb); va += (a[i] - ma) ** 2; vb += (b[i] - mb) ** 2; } return c / Math.sqrt(va * vb); };
 const ks = Object.keys(G); console.log('корреляция месячных доходов: ' + ks.flatMap((a, i) => ks.slice(i + 1).map((b) => `${NM[a]}–${NM[b]} ${cor(mon(G[a]), mon(G[b])).toFixed(2)}`)).join(', '));
 const C = [{ main: 0.5, hunt: 0.5 }, { main: 0.5, week: 0.5 }, { main: 0.5, agr: 0.5 }, { hunt: 0.5, week: 0.5 }, { agr: 0.5, hunt: 0.5 }, { main: 1 / 3, hunt: 1 / 3, week: 1 / 3 }, { main: 0.25, agr: 0.25, hunt: 0.25, week: 0.25 }, { main: 0.67, hunt: 0.33 }, { main: 0.33, hunt: 0.67 }];
+if (G.tri) C.push({ main: 1 / 3, hunt: 1 / 3, tri: 1 / 3 }, { main: 0.4, hunt: 0.4, tri: 0.2 }, { main: 0.5, tri: 0.5 }, { hunt: 0.5, tri: 0.5 }, { main: 0.25, hunt: 0.25, week: 0.25, tri: 0.25 });
 for (const ws of C) for (const reb of [true, false]) show(Object.entries(ws).map(([k, w]) => `${NM[k]} ${Math.round(w * 100)}%`).join(' + ') + (reb ? ' (выравн.)' : ' (без)'), mix(ws, reb));
