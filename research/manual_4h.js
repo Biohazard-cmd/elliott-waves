@@ -4,6 +4,9 @@ const S = require('./store.js'), { BASE } = require('./strat.js'), E = S.E, D = 
 const mkt = D.buildMarket('4h', 200);
 const SETS = {
   week: { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: true, w5: false, abc: false, tri: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true, wkChan: true, wkNextOpen: true, topOnly: true },
+  hunt: { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: false, w5: false, abc: false, tri: false, hs: true, brk: true }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true, wkChan: true, wkNextOpen: true, topOnly: true },
+  hs: { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: false, w5: false, abc: false, tri: false, hs: true, brk: false }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true, wkChan: true, wkNextOpen: true, topOnly: true },
+  brk: { longOnly: true, shortOnly: false, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, addAO: true, addSma200: true, setups: { w3: false, w5: false, abc: false, tri: false, hs: false, brk: true }, beMode: 'auto', beRule: 'atr', beAtr: 3, weekExit: true, wkChan: true, wkNextOpen: true, topOnly: true },
   tri: { longOnly: false, shortOnly: true, swingMult: 1, addMarket: true, addRunner: true, addFlipExit: true, addStruct: false, setups: { w3: false, w5: false, abc: false, tri: true } },
 };
 const ser = S.series.filter((s) => s.tf === '4h');
@@ -23,6 +26,7 @@ module.exports = { SETS, runOf, ser, cfgOf, mkt };
 // ---------- выгрузка: свечи окна + подсчёт на каждой свече + сделка ----------
 const rd = (x) => (x == null ? null : Math.round(x * 100) / 100);
 const day = (t) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
+function lvlBar(a, t) { let bi = -1, bv = -Infinity; for (let i = Math.max(0, t.iSig - 500); i < t.iSig; i++) if (a.bars[i].c > bv) { bv = a.bars[i].c; bi = i; } return [a.bars[bi].t, t.iSig - bi]; }
 function exportOne([id, k, d]) {
   const a = runOf(id, k), cfg = E.merge(cfgOf(k, 99999));
   const t = a.trades.find((x) => x.reason !== 3 && day(a.bars[x.iEntry].t) === d);
@@ -41,7 +45,7 @@ function exportOne([id, k, d]) {
   const cntPts = (s) => (s ? E.countPath(s).filter((p) => !p.small).map((p) => [p.i - i0, rd(p.p), p.lbl]) : []);
   return { id: id.replace('_TQBR', ''), set: k, d, bars, snaps,
     tr: { side: t.side, iSig: t.iSig - i0, iE: t.iEntry - i0, iX: t.iExit - i0, iT: iT < 0 ? -1 : iT - i0, entry: rd(t.entry), stop0: rd(t.stop0), target: rd(t.target), exitP: rd(t.exitP), R: rd(t.R), why: E.REASON_NAME[t.reason], reason: t.reason,
-      path: (t.path || []).map((p) => [p.bar - i0, rd(p.p), p.be ? 1 : 0]), beWhy: t.beWhy || '', wkCarry: t.wkCarry || 0, wkHold: t.wkHold || 0, fri, cnt: cntPts(t.cnt), setup: E.SETUP_NAME[t.setup] } };
+      path: (t.path || []).map((p) => [p.bar - i0, rd(p.p), p.be ? 1 : 0]), beWhy: t.beWhy || '', wkCarry: t.wkCarry || 0, wkHold: t.wkHold || 0, fri, cnt: cntPts(t.cnt), setup: E.SETUP_NAME[t.setup], pat: t.pat ? { kind: t.pat.kind, lvl: rd(t.pat.lvl), pts: (t.pat.pts || []).map((q) => [q.i - i0, rd(q.p)]), lvlT: t.pat.kind === 'brk' ? lvlBar(a, t) : null } : null } };
 }
 if (require.main === module && process.env.OUT) {
   const out = JSON.parse(process.env.PICK).map(exportOne);
