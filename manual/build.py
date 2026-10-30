@@ -8,6 +8,7 @@ def embed(m):
     return 'src="data:image/jpeg;base64,' + data + '"'
 html = re.sub(r'src="(img/[^"]+\.jpg)"', embed, html)
 html = html.replace('/*@EX4@*/null', (here / 'data' / 'examples4h.json').read_text(encoding='utf-8'))   # сделки роботов на 4ч: research/manual_4h.js
+html = html.replace('/*@EXC@*/null', (here / 'data' / 'examples_cbr.json').read_text(encoding='utf-8'))   # входы рядом с решениями ЦБ: research/manual_4h.js
 html = html.replace('/*@EXH@*/null', (here / 'data' / 'examples_hunt.json').read_text(encoding='utf-8'))   # сделки «Охотника»: research/manual_4h.js
 html = html.replace('/*@SWING@*/null', (here / 'data' / 'swing.json').read_text(encoding='utf-8'))   # порог разворота: research/manual_swing.js
 html = html.replace('/*@EXAMPLES@*/null', (here / 'data' / 'examples.json').read_text(encoding='utf-8'))   # настоящие примеры: research/manual_examples.js
