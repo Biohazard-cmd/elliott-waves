@@ -174,6 +174,16 @@ for (const f of FIG) {
       console.log(`  входы накануне/в день решения: ${nd.length}, ср. ${av(nd)}R (половины ${av(nd.filter((x) => x.T < SPLIT))} / ${av(nd.filter((x) => x.T >= SPLIT))}); остальные ср. ${av(od)}R`);
     }
   }
+  if (f === 'dd') {   // правила против просадки (размер позиции, сигналы те же): research/dd_list.js
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
+    const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));
+    B = B || base();
+    for (const [nm, L] of [['«4 часа · неделя»', B], ['«Охотник»', pair]]) {
+      console.log('\n=== ' + nm); HDR();
+      for (const [lab, R] of require('./dd_list.js')) { portfolio.rules = R; rep('  ' + lab, L); }
+      portfolio.rules = null;
+    }
+  }
   if (f === 'cdl') {   // свечные фигуры: (1) фильтр входа «4 часа · неделя» и «Охотника», (2) выход по медвежьей фигуре, (3) отдельный робот
     const CD = require('./candles.js'), KS = ['any', 'engulf', 'hammer', 'mstar', 'doji', 'pierce'];
     const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));

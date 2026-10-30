@@ -33,7 +33,11 @@ const HDR = () => console.log('вариант'.padEnd(46), 'сделок    R  �
 const av = (q) => q.length ? (q.reduce((s, x) => s + x.nr, 0) / q.length).toFixed(2) : '—';
 const KS = ['any', 'engulf', 'hammer', 'mstar', 'doji', 'pierce'];
 console.log(`\nДНЕВКИ, ${PART === 'agr' ? 'агрессивный 3.1 (риск 1%)' : PART === 'main' ? 'основной 3.1 (риск 1,5%)' : 'отдельный робот по свечной фигуре (правила основного, риск 1,5%)'}`);
-if (PART !== 'alone') {
+if (process.env.DD) {
+  const B = run({}); HDR();
+  for (const [lab, R] of require('./dd_list.js')) { portfolio.rules = R; rep('  ' + lab, B); }
+  portfolio.rules = null;
+} else if (PART !== 'alone') {
   const B = run({}); HDR(); rep('набор как сейчас', B);
   const w2lo = (x) => { let m = x.iE - 1; for (let j = Math.max(0, x.iE - 30); j < x.iE; j++) if (x.b[j].l < x.b[m].l) m = j; return m; };
   const WIN = { 'сигнальная свеча': (x) => [x.iE - 1], 'сигнальная или прошлая': (x) => [x.iE - 1, x.iE - 2], 'у минимума отката ±2': (x) => { const m = w2lo(x); return [m - 2, m - 1, m, m + 1, m + 2].filter((j) => j < x.iE); } };
