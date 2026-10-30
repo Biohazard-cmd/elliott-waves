@@ -33,7 +33,13 @@ const HDR = () => console.log('вариант'.padEnd(46), 'сделок    R  �
 const av = (q) => q.length ? (q.reduce((s, x) => s + x.nr, 0) / q.length).toFixed(2) : '—';
 const KS = ['any', 'engulf', 'hammer', 'mstar', 'doji', 'pierce'];
 console.log(`\nДНЕВКИ, ${PART === 'agr' ? 'агрессивный 3.1 (риск 1%)' : PART === 'main' ? 'основной 3.1 (риск 1,5%)' : 'отдельный робот по свечной фигуре (правила основного, риск 1,5%)'}`);
-if (process.env.DD) {
+if (process.env.STALL) {
+  const B = run({}), ST = require('./stall.js'); HDR(); rep('  как сейчас', B);
+  for (const N of [5, 10, 20]) for (const g of [0, 0.5]) for (const k of [0.5, 0]) { const z = ST(B, N, g, k, FEE); rep(`  ${N} дней ≤ +${g}R → стоп вход−${k}R (${z.changed})`, z); }
+} else if (process.env.DUMP) {
+  const B = run({}), adds = B.filter((x) => x.t.add && x.t.add.NR != null && PRE.addPyramid).map((x) => ({ id: x.id + '+', ofId: x.id, t: { side: 1, entry: x.t.add.px, stop0: x.t.add.stop, exitP: x.t.exitP }, T: Math.max(x.T + 1, x.t.addT || 0), TOut: x.TOut, turn: x.t.turn }));
+  require('fs').writeFileSync(process.env.DUMP, JSON.stringify(B.map((x) => ({ id: x.id, T: x.T, TOut: x.TOut, turn: x.t.turn, nr: x.nr, t: { side: x.t.side, entry: x.t.entry, stop0: x.t.stop0, exitP: x.t.exitP } })).concat(adds)));
+} else if (process.env.DD) {
   const B = run({}); HDR();
   for (const [lab, R] of require('./dd_list.js')) { portfolio.rules = R; rep('  ' + lab, B); }
   portfolio.rules = null;

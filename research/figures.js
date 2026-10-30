@@ -174,6 +174,18 @@ for (const f of FIG) {
       console.log(`  входы накануне/в день решения: ${nd.length}, ср. ${av(nd)}R (половины ${av(nd.filter((x) => x.T < SPLIT))} / ${av(nd.filter((x) => x.T >= SPLIT))}); остальные ср. ${av(od)}R`);
     }
   }
+  if (f === 'stall' || f === 'dump') {   // подтянуть стоп у стоящей сделки (stall.js) / выгрузка сделок для split.js
+    const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k, dt: H4 }));
+    const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));
+    B = tag(B || base(), '');
+    if (f === 'dump') { const sl = (z) => z.map((x) => ({ id: x.id, T: x.T, TOut: x.TOut, turn: x.turn, nr: x.nr, t: x.t }));
+      require('fs').writeFileSync(process.env.OUT || 'trades4h.json', JSON.stringify({ week: sl(B), hunt: sl(pair) })); continue; }
+    const ST = require('./stall.js');
+    for (const [nm, L] of [['«4 часа · неделя»', B], ['«Охотник»', pair]]) {
+      console.log('\n=== ' + nm); HDR(); rep('  как сейчас', L);
+      for (const N of [6, 12, 24]) for (const g of [0, 0.5]) for (const k of [0.5, 0]) { const z = ST(L, N, g, k, FEE); rep(`  ${N} свечей ≤ +${g}R → стоп вход−${k}R (${z.changed})`, z); }
+    }
+  }
   if (f === 'dd') {   // правила против просадки (размер позиции, сигналы те же): research/dd_list.js
     const tag = (z, k) => z.map((x) => Object.assign({}, x, { id: x.id + k }));
     const pair = tag(trades({ setups: NONE, patHook: pat('hs', { zz: 'sub', tol: 0.3 }), patFilt: 'all' }), '#h').concat(tag(trades({ setups: NONE, patHook: pat('brk', { zz: 'main', N: 500, rr: 2 }), patFilt: 'all' }), '#b'));

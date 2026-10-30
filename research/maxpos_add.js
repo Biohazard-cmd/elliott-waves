@@ -13,7 +13,7 @@ function portfolio(all, maxPos, key, fee = 0.0005, risk = 0.01, lev = 1, mrate =
   const done = [], hist = [];
   const RATE = { 2019: 0.066, 2020: 0.043, 2021: 0.051, 2022: 0.098, 2023: 0.092, 2024: 0.173, 2025: 0.183, 2026: 0.143 };
   const accrue = (t) => { if (!lastT) { lastT = t; return; } const dt = (t - lastT) / 31557600000; if (dt <= 0) return; const used = open.reduce((s, p) => s + p.val, 0), free = eq - used; eq += free > 0 ? free * (RATE[new Date(t).getUTCFullYear()] || 0.1) * dt : free * mrate * dt; borrow += Math.max(0, -free) * mrate * dt; maxExpo = Math.max(maxExpo, used / eq); lastT = t; };
-  const closeUntil = (t) => { open.sort((a, b) => a.tOut - b.tOut); while (open.length && open[0].tOut <= t) { const p = open.shift(); accrue(p.tOut); const g = p.val * (p.side * (p.exit - p.entry) / p.entry - 2 * fee - 2 * slip); eq += g; if (!p.x.of) done.push({ t: p.tOut, g }); hist.push(eq); if (eq > peak) peak = eq; mdd = Math.max(mdd, 1 - eq / peak); } };
+  const closeUntil = (t) => { open.sort((a, b) => a.tOut - b.tOut); while (open.length && open[0].tOut <= t) { const p = open.shift(); accrue(p.tOut); const g = p.val * (p.side * (p.exit - p.entry) / p.entry - 2 * fee - 2 * slip); eq += g; if (!p.x.of) done.push({ t: p.tOut, g }); hist.push(eq); if (portfolio.curve) portfolio.curve.push([p.tOut, eq]); if (eq > peak) peak = eq; mdd = Math.max(mdd, 1 - eq / peak); } };
   for (const t of tr) {
     if (t.x.of && !took.has(t.x.of)) continue;
     closeUntil(t.tIn); accrue(t.tIn); const dist = Math.abs(t.entry - t.stop) / t.entry;
