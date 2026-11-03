@@ -637,7 +637,38 @@
     robMarkSeen(V);
     if (big) fireworks();   // сделка закрылась с хорошей прибылью (≈1,5 риска и больше)
   }
-  function openRobots() { robFresh = {}; const V = D.vaccGet(); if (V) robTakeNews(V); renderRobot(); openSheet('robots'); renderRobIcon(); }
+  let serverSyncBusy = false, serverSyncError = '';
+  async function updateRobotsFromServer(silent) {
+    if (serverSyncBusy) return false;
+    const sr0 = D.store.get('serverRobots', {});
+    if (S.robotMode !== 'server' && sr0.offline && !window.confirm('Вернуться к состоянию сервера? Автономные изменения телефона на сервер не переносятся. Копия телефона будет сохранена.')) return false;
+    if (!S.serverUrl) { serverSyncError = 'Укажите адрес сервера в ⚙ → Данные.'; if (!silent) renderRobot(); return false; }
+    serverSyncBusy = true; serverSyncError = ''; robotMsg = 'Получаю состояние роботов с сервера…'; if (!$('#robots').hidden) renderRobot();
+    try {
+      await D.serverSync();
+      S = D.settings(); applySchedule();
+      robCache.at = 0; renderRobIcon(); draw();
+      serverSyncError = ''; robotMsg = 'С сервера: обновлено ' + fmtT(Date.now(), true);
+      D.log('robot', 'получено состояние роботов с сервера');
+      if (!$('#robots').hidden) { const V = D.vaccGet(); if (V) robTakeNews(V); renderRobot(); }
+      return true;
+    } catch (e) {
+      serverSyncError = e.message || 'сервер недоступен';
+      D.store.set('serverRobots', Object.assign({}, D.store.get('serverRobots', {}), { ok: false, attemptAt: Date.now(), error: serverSyncError }));
+      D.log('error', 'сервер роботов: ' + serverSyncError);
+      robotMsg = 'Сервер недоступен: ' + serverSyncError;
+      if (!silent) renderRobot();
+      return false;
+    } finally { serverSyncBusy = false; if (!$('#robots').hidden) renderRobot(); }
+  }
+  function switchRobotsToLocal() {
+    if (serverSyncBusy) return;
+    const at = D.store.get('serverRobots', {}).at;
+    if (!window.confirm('Продолжить расчёт на телефоне с последней полученной копии' + (at ? ' от ' + fmtT(at, true) : '') + '? Сервер продолжит работать отдельно. При возврате будут показаны его сделки.')) return;
+    if (!D.serverOffline()) { serverSyncError = 'Локальная копия роботов ещё не сохранена.'; renderRobot(); return; }
+    S = D.settings(); serverSyncError = ''; robotMsg = 'Автономная работа включена — считаю на телефоне.'; D.log('robot', 'переключены на автономную работу'); ensureBg(); renderRobot(); runRobot();
+  }
+  function openRobots() { robFresh = {}; const V = D.vaccGet(); if (V) robTakeNews(V); openSheet('robots'); renderRobot(); renderRobIcon(); if (S.serverUrl && S.robotMode === 'server') updateRobotsFromServer(true); }
   function fireworks() {
     if (!animOn()) return;
     const cv = document.createElement('canvas'); cv.id = 'fx'; document.body.appendChild(cv);
@@ -754,6 +785,14 @@
   function renderRobot() {
     const V = D.vaccGet();
     let h = '';
+    const sr = D.store.get('serverRobots', {}), serverOn = S.robotMode === 'server' && !!S.serverUrl;
+    h += `<div class="card" style="border-color:${serverSyncError ? '#ef5b5b' : serverOn ? '#3f6fb3' : '#2e3744'}"><h3>☁ Роботы ${serverOn ? 'с сервера' : 'на телефоне'}</h3>
+      <div class="small">${serverOn ? 'Состояние и сделки приходят с сервера через Tailscale.' : 'Телефон считает роботов самостоятельно.'}${sr.at ? ' Успешно получено: ' + fmtT(sr.at, true) : ''}</div>
+      <div class="row" style="margin-top:7px"><button id="vServerUpd" ${serverSyncBusy ? 'disabled' : ''}>${serverSyncBusy ? '⏳ Обновляю…' : '⟳ Обновить с сервера'}</button>
+      ${serverSyncError && (D.files.get('vacc-server.json') || D.files.get('vacc.json')) ? '<button id="vServerLocal" style="background:#5a1f25;border-color:#ef5b5b;color:#fff">⚠ Перейти на автономную работу</button>' : ''}</div>
+      ${serverSyncError ? '<div class="small neg" style="margin-top:6px">' + esc(serverSyncError) + '</div>' : ''}</div>`;
+    const bindServerButtons = () => { const u = $('#vServerUpd'); if (u) u.onclick = () => updateRobotsFromServer(false); const l = $('#vServerLocal'); if (l) l.onclick = switchRobotsToLocal; };
+    if (!V && S.robotMode === 'server') { $('#robBody').innerHTML = h + '<div class="card">Состояние ещё не получено. Проверьте Tailscale и обновите с сервера.</div>'; robNav(null); bindServerButtons(); return; }
     if (!V) {
       const cap = Math.round((S.acct && S.acct.total) || S.capital || 300000);
       h += `<div class="card"><h3>Виртуальный счёт робота</h3>
@@ -769,7 +808,7 @@
         <div class="small" style="margin-top:6px">Вместе с роботами появится счёт <b>«мой (вручную)»</b>: в нём — ваши настоящие сделки и деньги со счёта Т-Инвестиций, чтобы сравнивать себя с роботами.</div>
         <div class="row" style="margin-top:10px"><button id="vStart">🤖 Запустить роботов</button></div>
         ${S.token ? '' : '<div class="note">Без токена роботы ходят по ценам Мосбиржи (задержка ~15 мин); пополнения и сделки вашего счёта не повторяются.</div>'}</div>`;
-      $('#robBody').innerHTML = h; robNav(null);
+      $('#robBody').innerHTML = h; robNav(null); bindServerButtons();
       const b = $('#vStart'); if (b) b.onclick = () => {
         const cap2 = Math.max(1000, Number($('#vCap').value) || cap), rate = Math.max(0, Number($('#vRate').value) || 0), now = Date.now();
         const mk = (key, name) => ({ key, name, tf: robotTf(key), cfg: robotCfg(key), be: key !== 'h4_tri', cash: cap2, dep: cap2, mm: 0, pos: [], closed: [], hist: [{ t: now, eq: cap2, dep: cap2 }], px: {}, seen: {}, pend: {}, skipped: 0 });
@@ -837,8 +876,10 @@
           <div class="small">${fmtT(p.entryT, false)} по ${usd0(p.entry)}${Math.abs(p.entry / (p.cost / p.qty) - 1) > 0.005 ? ' (средняя ' + usd0(p.cost / p.qty) + ')' : ''} · сейчас ${usd0(px)} · ${days} дн. · стопа нет: выход, когда дневное закрытие ниже средней-100</div></div>`; }
         if (ra.manual) return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '▼ шорт ' : ''}${p.qty} шт${p.src ? ' <span class="small mut">· с вашего счёта</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
           <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}</div></div>`;
+        const stop = p.stop > 0 ? pr(p.stop) : '—', target = p.target > 0 ? pr(p.target) : '—';
         return `<div class="jrow ${pl >= 0 ? 'jp' : 'jn'}" data-rgo="${esc(p.id)}"><div class="row"><span><b>${esc(p.ticker)}</b> ${p.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${p.qty} шт${p.addOf ? ' <span class="small" style="color:#c9a6f5">доливка</span>' : ''}</span><span class="${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${rub0(Math.abs(pl))} · ${spc((p.side < 0 ? -1 : 1) * (px / p.entry - 1))}</span></div>
-          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · стоп ${pr(p.stop)}${p.runner ? ' (цель пройдена, ведём)' : p.target ? ' · цель ' + pr(p.target) : ''} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : ra.crypto ? '<div class="small">Нет — все деньги в долларах. Робот купит, когда дневное закрытие биткоина будет выше средней за 100 дней.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
+          <div class="small">${fmtT(p.entryT, false)} по ${pr(p.entry)} · сейчас ${pr(px)} · ${days} дн.${p.divs ? ' · дивиденды +' + rub0(p.divs) : ''}${p.wk ? ' · <span class="wk">🧳</span> перенесена на следующую неделю (стоп в безубытке)' : ''}</div>
+          <div class="small"><b>Стоп:</b> ${stop} · <b>Тейк-профит:</b> ${target}${p.runner ? ' · цель пройдена, ведём' : ''}</div></div>`; }).join('') : (ra.manual ? '<div class="small">Нет. Здесь появятся акции, когда они будут на вашем счёте.</div>' : ra.crypto ? '<div class="small">Нет — все деньги в долларах. Робот купит, когда дневное закрытие биткоина будет выше средней за 100 дней.</div>' : '<div class="small">Нет. Робот ждёт сигналов.</div>')}</div>`;
       const cl = ra.closed.slice(-40).reverse();
       if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
         h += `<div class="card"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
@@ -847,6 +888,8 @@
         <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
     }
     $('#robBody').innerHTML = h; robNav(V);
+    bindServerButtons();
+    if (serverOn) $('#robBody').querySelectorAll('button, input, select').forEach((el) => { if (el.matches('[data-rrun], [data-rbe], [data-rstall], [data-rrisk], [data-rrrec], [data-rarm], #rRisk, [id^=vAdd], #vToggle, #vReset, #vUpd, #vFlowOk, #vFlow')) { el.disabled = true; el.title = 'Изменение доступно в автономном режиме'; } });
     $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); runRobot(b.dataset.rrun); }; });
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
     $('#robBody').querySelectorAll('[data-combo]').forEach((b) => { b.onclick = () => { const k = b.dataset.combo; S.combo = S.combo.includes(k) ? S.combo.filter((x) => x !== k) : S.combo.concat(k); save(); renderRobot(); }; });
@@ -967,8 +1010,9 @@
   }
   const a0trades = (V) => V.accs.some((a) => !a.manual && (a.pos.length || a.closed.length || Object.keys(a.pend || {}).length));
   // 3.7: пока идёт ход робота (по расписанию, в фоне), счета роботов не трогаем — ход в конце записал бы поверх старые данные
-  function robWait() { if (!D.robBusy()) return false; alertMsg('Сейчас идёт ход робота — подождите минуту и нажмите ещё раз.'); return true; }
-  async function runRobot(only) {   // only — ключ одного робота (кнопка «⟳ Ход» на его карточке)
+  function robWait() { if (S.robotMode === 'server' || serverSyncBusy) { alertMsg('Изменения роботов доступны в автономном режиме после окончания синхронизации.'); return true; } if (!D.robBusy()) return false; alertMsg('Сейчас идёт ход робота — подождите минуту и нажмите ещё раз.'); return true; }
+  async function runRobot(only) {
+    if (S.robotMode === 'server') { await updateRobotsFromServer(false); return; }   // only — ключ одного робота (кнопка «⟳ Ход» на его карточке)
     if (robotBusy || robWait()) return;
     const V0 = D.vaccGet(), nm = only && V0 ? (V0.accs.find((a) => a.key === only) || {}).name : '';
     robotBusy = only || 'all'; robotMsg = nm ? '«' + nm + '» проверяет бумаги…' : 'роботы проверяют бумаги…'; if (!$('#robots').hidden) renderRobot(); renderRobIcon();
@@ -1259,7 +1303,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '4.0';
+  const APP_VER = '4.2';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -3377,6 +3421,10 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     if (tab === 'data') h = `<div class="card"><h3>Оформление</h3><div class="skins">${skinPick()}</div>
       <label class="sw" style="margin-top:8px"><input type="checkbox" id="tzMsk" ${S.tz !== 'local' ? 'checked' : ''}><span>Время по Москве (МСК)<small>Как на бирже и у роботов: свечи, сделки, журнал и уведомления — по московскому времени, где бы вы ни были. Без галочки — по часам телефона (сейчас разница с Москвой ${(() => { const h = -new Date().getTimezoneOffset() / 60 - 3; return h ? (h > 0 ? '+' : '−') + Math.abs(h) + ' ч' : 'нет'; })()}). Роботы в любом случае считают по Москве.</small></span></label>
       <label class="sw" style="margin-top:8px"><input type="checkbox" id="animOn" ${animOn() ? 'checked' : ''}><span>Анимации<small>Роботы с настроением, колокольчик звенит, гонка роботов, салют за хорошую сделку и новый значок, пульсирующая точка входа на свежем сигнале. На торговлю не влияют.</small></span></label><div class="small" style="margin-top:4px">Меняются фон и цвет свечей. Цвета сигналов — стоп, цель, волны, сделки — во всех темах одинаковые. Тему можно сменить и в «Вид ▾» под графиком.</div></div>
+      <div class="card"><h3>☁ Сервер роботов</h3><div class="small">При входе в экран «Роботы» приложение получает готовое состояние с домашнего сервера через Tailscale. Если сервер недоступен, красная кнопка переключит роботов на расчёт в телефоне.</div>
+      <div class="field" style="margin-top:8px"><label>Адрес API сервера</label><input id="robServerUrl" placeholder="http://100.99.24.36:8090/api/robots" value="${esc(S.serverUrl || '')}"></div>
+      <div class="field"><label>Ключ доступа к серверу</label><input id="robServerKey" type="password" autocomplete="off" value="${esc(S.serverKey || '')}"></div>
+      <div class="row"><button id="robServerSave">Сохранить адрес</button>${S.robotMode === 'server' ? '<span class="small pos">режим сервера включён</span>' : '<span class="small mut">режим телефона</span>'}</div></div>
 <div class="card"><h3>Свечи</h3>
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div class="field"><label>Дробная часть чисел</label><select id="decSel"><option value="dot" ${S.decComma ? '' : 'selected'}>Точка: 43.54</option><option value="comma" ${S.decComma ? 'selected' : ''}>Запятая: 43,54</option></select></div>
@@ -3405,6 +3453,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('#caBtn', 'click', () => { const b = $('#caBtn'); b.disabled = true; b.textContent = 'Скачиваю…'; A.installRussianCA(); });
     on('#tokShow', 'click', () => { const t = $('#tok'); t.type = t.type === 'password' ? 'text' : 'password'; });
     on('#tokDel', 'click', () => { S.token = ''; save(); renderSettings(); load(false); });
+    on('#robServerSave', 'click', () => { const url = $('#robServerUrl').value.trim().replace(/\/$/, ''); if (!url && S.robotMode === 'server') { alertMsg('Сначала перейдите на автономную работу на экране роботов.'); return; } S.serverUrl = url; S.serverKey = $('#robServerKey').value; save(); alertMsg(S.serverUrl ? 'Адрес сервера сохранён. Откройте «Роботы» и нажмите «Обновить с сервера».' : 'Адрес сервера очищен.'); renderSettings(); });
     on('#tokSave', 'click', async () => {
       const t = $('#tok').value.trim().replace(/\s+/g, '');
       $('#tokRes').textContent = 'Проверяю…';
@@ -3563,13 +3612,13 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   document.addEventListener('visibilitychange', () => { if (document.hidden) D.logFlush(); });
   // 3.6: перенос на другое устройство (телефон → компьютер): роботы, мои сделки, настройки — без токена и номера счёта
   const XFER_FILES = ['vacc.json'], XFER_STORE = ['journal', 'notifHist', 'wcolors', 'jfired', 'pfired'];
-  const XFER_SECRET = ['token', 'account', 'accounts', 'acct'];
+  const XFER_SECRET = ['token', 'account', 'accounts', 'acct', 'serverKey', 'serverUrl', 'robotMode'];
   const xferKey = (k) => XFER_STORE.includes(k) || k.startsWith('last.') || k.startsWith('siglog.');
   function exportXfer() {
     const st = {};
     try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('ew2.') && xferKey(k.slice(4))) st[k.slice(4)] = D.store.get(k.slice(4), null); } } catch (e) { /* нет хранилища */ }
     const set = Object.assign({}, S); for (const k of XFER_SECRET) delete set[k];
-    const fl = {}; for (const n of XFER_FILES) { const v = D.files.get(n); if (v != null) fl[n] = v; }
+    const fl = {}; for (const n of XFER_FILES) { const v = n === 'vacc.json' ? D.vaccGet() : D.files.get(n); if (v != null) fl[n] = v; }
     const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const name = `ew-perenos-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
     const txt = JSON.stringify({ kind: 'ew-transfer', v: 1, app: 'Волны Эллиотта ' + APP_VER, exportedAt: d.toISOString(), settings: set, store: st, files: fl });
@@ -3616,4 +3665,5 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   if (A && S.bgMinutes && D.needBg(S) && A.isScheduled && !A.isScheduled()) applySchedule();
   if (A && A.setAlarm) A.setAlarm(String(D.nextAlarm()));   // 2.43: «будильник» робота — при каждом запуске (после обновления приложения он сброшен)
   window.appOpen();
+  if (S.robotMode === 'server' && S.serverUrl) setTimeout(() => updateRobotsFromServer(true), 1200);
 })();

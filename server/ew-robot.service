@@ -1,0 +1,11 @@
+[Unit]
+Description=Ход робота «Волн Эллиотта» на сервере
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/elliott-waves-web/server
+Environment=NODE_EXTRA_CA_CERTS=%h/projects/elliott-waves-web/server/nuc-ca.pem
+ExecStart=%h/opt/node/bin/node run.js
+TimeoutStartSec=900

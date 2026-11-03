@@ -13,3 +13,8 @@ research/data/crypto/
 # программа для компьютера: скачанный Electron и сборка
 desktop/cache/
 desktop/build/
+
+# серверный робот: секреты и состояние — только на сервере
+server/config.json
+server/data/
+server/mktest.js

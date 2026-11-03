@@ -40,6 +40,9 @@
       cfg: { maxBars: 2000 },
       watch: [],                // [{ id, ticker, name, tf }] — что проверять в фоне
       bgMinutes: 0,             // 0 — фоновая проверка выключена
+      robotMode: 'local',       // 'local' — расчёт на телефоне, 'server' — состояние с сервера
+      serverUrl: '',            // POST endpoint серверных роботов (обычно через Tailscale)
+      serverKey: '',            // необязательный ключ API, хранится только на устройстве
       notify: { signal: true, exit: true, stop: true },
       view: { figs: [true, true, true, true, true], channels: true, be: false, trades: true, clean: false, panel: true },
     }, store.get('settings', {}));
@@ -72,6 +75,17 @@
     const A = root.Android;
     if (A && A.getAsync) return new Promise((res) => { const id = ++seq; pending[id] = res; A.getAsync(id, url); }).then((r) => { if (r.status === 0) throw new Error(r.text || 'нет связи'); return r; });
     return fetch(url).then(async (r) => ({ status: r.status, text: await r.text() }));
+  }
+  async function serverGet(url, key) {
+    if (!url) throw new Error('не указан адрес сервера роботов');
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && u.hostname === '100.99.24.36')) throw new Error('Нужен HTTPS или HTTP домашнего сервера 100.99.24.36');
+    let timer;
+    const r = await Promise.race([httpPost(url, key || '', { kind: 'ew-robots-request', v: 1 }), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('сервер не ответил за 20 секунд')), 20000); })]).finally(() => clearTimeout(timer));
+    if (r.status < 200 || r.status >= 300) throw new Error('сервер роботов: ответ ' + r.status);
+    let x; try { x = JSON.parse(r.text || '{}'); } catch (e) { throw new Error('сервер роботов: неверный JSON'); }
+    if (x.kind !== 'ew-robots-state' || x.v !== 1 || !x.state || !Array.isArray(x.state.accs) || !x.state.accs.length || x.state.accs.some((a) => !a || !a.key || !Array.isArray(a.pos) || !Array.isArray(a.closed) || !Array.isArray(a.hist) || !Number.isFinite(a.cash) || !Number.isFinite(a.dep))) throw new Error('сервер роботов: неполное состояние');
+    return x;
   }
 
   // ---------- журнал работы (лог) ----------
@@ -874,7 +888,7 @@
     return out;
   }
   // нужна ли фоновая проверка вообще
-  function needBg(s) { s = s || settings(); const V = files.get('vacc.json'); return !!(((s.watch || []).length || priceItems(s).length || (V && V.on))); }
+  function needBg(s) { s = s || settings(); const V = files.get('vacc.json'); return !!(((s.watch || []).length || priceItems(s).length || (V && V.on && s.robotMode !== 'server'))); }
 
   // ---------- виртуальный счёт робота ----------
   // Робот повторяет сделки бэктеста по топ-50 акциям (дневки) на общем капитале: риск на сделку, позиция ≤ 25% счёта,
@@ -882,13 +896,38 @@
   // Пополнения и выводы реального счёта повторяются автоматически. Цены — реальные, комиссия брокера с каждой стороны.
   const VFILE = 'vacc.json', VFEE = 0.0005, VMAXPOS = 0.25, VTAX = 0.87;
   function vaccGet() {
-    const V = files.get(VFILE);
+    const s = settings(), V = s.robotMode === 'server' ? files.get('vacc-server.json') : files.get(VFILE);
     // 2.27: проценты фонда ВИМ больше не смешиваются с деньгами робота — считаются отдельно, только для оценки.
     // Раньше начисленное уже лежит в cash — вынимаем его оттуда один раз.
-    if (V && V.accs && !V.mm2) { for (const a of V.accs) { if (a.mm) a.cash -= a.mm; } V.mm2 = true; files.set(VFILE, V); }
+    if (V && V.accs && !V.mm2) { for (const a of V.accs) { if (a.mm) a.cash -= a.mm; } V.mm2 = true; files.set(s.robotMode === 'server' ? 'vacc-server.json' : VFILE, V); }
     return V;
   }
-  function vaccSet(V) { files.set(VFILE, V); }
+  function vaccSet(V) { if (settings().robotMode === 'server') return false; return files.set(VFILE, V); }
+  let serverGeneration = 0;
+  async function serverSync() {
+    if (robBusy()) throw new Error('Дождитесь окончания локального хода роботов');
+    const s = settings(), generation = serverGeneration;
+    const x = await serverGet(s.serverUrl, s.serverKey);
+    const current = settings();
+    if (robBusy()) throw new Error('Дождитесь окончания локального хода роботов');
+    if (generation !== serverGeneration || current.serverUrl !== s.serverUrl || current.serverKey !== s.serverKey) throw new Error('Режим или адрес сервера изменён — ответ пропущен');
+    const local = files.get(VFILE);
+    if (current.robotMode !== 'server' && local && !files.set('vacc-local.json', local)) throw new Error('Не удалось сохранить локальную копию');
+    if (!files.set('vacc-server.json', x.state)) throw new Error('Не удалось сохранить состояние сервера');
+    current.robotMode = 'server'; saveSettings(current);
+    store.set('serverRobots', { at: Date.now(), serverAt: x.serverAt, lastRun: x.lastRun || x.state.lastRun || 0, ok: true, error: '' });
+    widgetPush();
+    return x;
+  }
+  function serverOffline() {
+    serverGeneration++;
+    const s = settings(), restore = s.robotMode === 'server' ? (files.get('vacc-server.json') || files.get(VFILE) || files.get('vacc-local.json')) : files.get(VFILE);
+    if (!restore || !files.set(VFILE, restore)) return false;
+    s.robotMode = 'local'; saveSettings(s);
+    store.set('serverRobots', Object.assign({}, store.get('serverRobots', {}), { ok: false, offline: true, offlineAt: Date.now() }));
+    widgetPush();
+    return !!restore;
+  }
   // 3.10: денежные операции счёта: пополнения/выводы (flows) и расходы/доходы брокера (costs: обслуживание, комиссии, налог, дивиденды и купоны).
   // Раньше брались только OPERATION_TYPE_INPUT/OUTPUT — пополнение картой, по СБП или переводом между счетами (свои типы) не находилось
   // и у «мой (вручную)» выглядело как прибыль. Типы не перечисляем в запросе (неизвестный брокеру тип ломает весь запрос) — разбираем ответ
@@ -923,6 +962,7 @@
   const robBusy = () => Date.now() - store.get('robRun', 0) < 8 * 60000;
   // only — ключ одного счёта (кнопка «Ход» у робота); без него ходят все
   async function robotStep(onLog, force, only) {
+    if (settings().robotMode === 'server') { log('robot', 'локальный ход пропущен: включён серверный режим'); return []; }
     if (robBusy()) { log('robot', 'ход робота уже идёт — этот пропускаем'); if (onLog) onLog('ход робота уже идёт'); return []; }
     store.set('robRun', Date.now());
     try { return await robotRun(onLog, force, only); } finally { store.del('robRun'); widgetPush(); }   // 3.10: виджет — и после хода в приложении (раньше только после фоновой проверки)
@@ -1328,6 +1368,7 @@
   const accTf = (a) => (a.crypto ? 'u1d' : a.manual ? '1d' : a.tf || '1d');
   // когда разбудить телефон: сразу после закрытия ближайшей свечи роботов (+90 с); 0 — роботов нет или они на паузе
   function nextAlarm() {
+    if (settings().robotMode === 'server') return 0;
     const V = vaccGet(); if (!V || !V.on) return 0;
     const dly = settings().token ? 0 : MX_DELAY;   // без токена свечи с Мосбиржи видны через ~15 мин после закрытия
     const now = Date.now(), tfs = new Set(V.accs.filter((a) => !a.manual).map(accTf)); let t = 0;
@@ -1362,5 +1403,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { pendUntil, notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { pendUntil, notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, serverGet, serverSync, serverOffline, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

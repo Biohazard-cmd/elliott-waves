@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Доверять и системным сертификатам, и установленным пользователем (например, сертификату Минцифры с Госуслуг) -->
 <network-security-config>
+    <!-- Сервер роботов доступен по HTTP внутри Tailscale; остальные запросы приложения остаются HTTPS. -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
     </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.99.24.36</domain>
+    </domain-config>
 </network-security-config>
