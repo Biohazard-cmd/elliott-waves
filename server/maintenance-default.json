@@ -1,0 +1,25 @@
+{
+  "trackingStartedOn": "2026-11-03",
+  "timezone": "Europe/Moscow",
+  "lastCleaningOn": null,
+  "lastThermalPasteReplacementOn": null,
+  "lastBatteryInspectionOn": null,
+  "lastBackupRestoreTestOn": null,
+  "note": "Дата начала учёта, а не подтверждение выполненного обслуживания. Фактические даты работ пока неизвестны.",
+  "lastWakeTest": {
+    "date": "2026-11-03",
+    "mode": "mem/deep",
+    "kernelSuccessCount": 1,
+    "kernelFailureCount": 0,
+    "sshRecovered": true,
+    "activeServices": [
+      "NetworkManager",
+      "tailscaled",
+      "cron"
+    ],
+    "robotApiStatus": 200,
+    "robotAccountCount": 7,
+    "exactSleepDurationVerified": false,
+    "powerOffWakeTested": false
+  }
+}

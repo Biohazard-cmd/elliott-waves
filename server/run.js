@@ -3,6 +3,7 @@
 // Тот же движок, что в приложении (assets/engine2.js + assets/data.js), цены — с Мосбиржи (без токена).
 'use strict';
 const fs = require('fs'), path = require('path');
+const health = require('./monitor-lib');
 
 const DIR = __dirname;
 const DATA = path.join(DIR, 'data');
@@ -97,6 +98,22 @@ function fmtT(t) {
   const force = args.includes('--force');
   const oi = args.indexOf('--only'), only = oi >= 0 ? args[oi + 1] : undefined;
   const t0 = Date.now();
+  if (health.read(health.file('control-lock.json'), {}).until > t0) { console.log('Проверка отложена: запрошено управление сервером.'); process.exit(0); }
+  const lock = health.file('run.lock');
+  try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 }); }
+  catch (e) {
+    const owner = +(health.raw(lock) || 0);
+    if (health.processes('run.js').includes(owner)) { console.log('Предыдущая проверка ещё работает.'); process.exit(0); }
+    fs.writeFileSync(lock, String(process.pid), { mode: 0o600 });
+  }
+  process.once('exit', () => { if (health.raw(lock) === String(process.pid)) { try { fs.unlinkSync(lock); } catch (e) {} } });
+  const priorHealth = health.read(health.file('run-health.json'), {});
+  health.write(health.file('run-health.json'), { ...priorHealth, startedAt: t0, running: true, pid: process.pid });
+  let runFailed = false;
+  process.once('uncaughtException', () => {
+    health.write(health.file('run-health.json'), { startedAt: t0, finishedAt: Date.now(), running: false, ok: false, lastSuccessAt: priorHealth.lastSuccessAt || 0 });
+    console.error('Аварийное завершение проверки роботов.'); process.exit(1);
+  });
   D.logInit('log_srv.json');
   D.log('server', 'ход робота на сервере' + (force ? ' (принудительно)' : '') + (only ? ' (только ' + only + ')' : ''));
 
@@ -105,8 +122,9 @@ function fmtT(t) {
   try {
     ev = (await D.robotStep(onLog, force, only)) || [];
   } catch (e) {
+    runFailed = true;
     D.log('error', 'ход робота: ' + (e && e.message));
-    outbox.push({ title: 'Робот на сервере: ошибка', text: String((e && e.message) || e) });
+    // Техническое письмо отправит независимый монитор от имени «Домашний сервер».
   }
   try { D.logFlush(); } catch (e) { /* не важно */ }
 
@@ -147,6 +165,10 @@ function fmtT(t) {
 
   try { D.logFlush(); } catch (e) { /* не важно */ }
   lsSave();
+  const logState = health.read(health.file('files/log_srv.json'), {});
+  const errors = (logState.items || []).filter((x) => x.t >= t0 && x.k === 'error').length;
+  runFailed = runFailed || errors > 0;
+  health.write(health.file('run-health.json'), { startedAt: t0, finishedAt: Date.now(), running: false, ok: !runFailed, errorCount: errors, durationMs: Date.now() - t0, lastSuccessAt: runFailed ? priorHealth.lastSuccessAt || 0 : Date.now() });
   console.log(ev.length ? 'Событий: ' + ev.length : 'Событий нет', '· заняло ' + ((Date.now() - t0) / 1000).toFixed(0) + ' с');
   process.exit(0);
 })();
