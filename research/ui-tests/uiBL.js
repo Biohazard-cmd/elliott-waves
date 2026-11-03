@@ -1,0 +1,38 @@
+// 5.1: компактная шапка, сохранение без alert, серверные параметры и локальные оповещения.
+const assert=require('assert'),fs=require('fs'),path=require('path');
+const base=fs.readFileSync(path.join(__dirname,'ui19.js'),'utf8'),head=base.slice(0,base.indexOf('  await p.goto('));
+const tail=`
+  const now=Date.now(),acc=(key,tf)=>({key,name:key==='btc_trend'?'Биткоин · тренд':'Охотник',tf,cfg:{riskPct:1.5},crypto:key==='btc_trend',be:true,stall:true,cash:100000,dep:100000,mm:0,pos:[],closed:[],hist:[],px:{},seen:{},pend:{},skipped:0,lastRun:now});
+  const state={on:true,mm2:true,startAt:now,lastRun:now,mmRate:13,flows:[],accs:[acc('h4_fig','4h'),acc('btc_trend','1d')]};
+  await ctx.route('https://robots.test/api/robots',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({kind:'ew-robots-state',v:1,state})}));
+  await ctx.addInitScript(()=>{const s=JSON.parse(localStorage.getItem('ew2.settings'));s.robotMode='server';s.serverUrl='https://robots.test/api/robots';s.serverKey='test';s.watch=[{id:'SBER_TQBR',ticker:'SBER',tf:'1h'}];localStorage.setItem('ew2.settings',JSON.stringify(s));});
+  const dialogs=[];p.on('dialog',async d=>{dialogs.push(d.type());await d.accept();});
+  await p.goto('file://'+path.resolve(__dirname,'../../android/assets/index.html'));await p.waitForTimeout(3000);await p.click('#robBtn');
+  await p.waitForFunction(()=>window.EWData.vaccGet()?.accs.length===2);
+  const h=await p.locator('#robots > header').boundingBox();assert(h.height<=50);assert(h.width<=390);
+  assert.strictEqual(await p.locator('#vRun,#vToggle,#vReset,#vFlow,[data-rrun]').count(),0);assert(await p.locator('#vCsv').count());
+  await p.screenshot({path:path.resolve(__dirname,'../../manual/img/robots.jpg')});
+  await p.click('#robNav [data-rnav="h4_fig"]');await p.click('[data-fold="robSet.h4_fig"] > h3');
+  assert.match(await p.textContent('#robBody'),/Настроено на сервере/);assert.match(await p.textContent('#robBody'),/Сделка стоит: вкл/);
+  assert.strictEqual(await p.locator('[data-rbe],[data-rstall],#rRisk,[data-rrun]').count(),0);
+  await p.screenshot({path:path.resolve(__dirname,'../../manual/img/robot-v5.jpg')});
+  await p.click('#robNav [data-rnav="btc_trend"]');assert.strictEqual(await p.locator('[data-rrun]').count(),0);
+  await p.click('[data-close="robots"]');await p.click('#setBtn');await p.click('#setTabs [data-tab="data"]');
+  await p.click('#robServerSave');assert.match(await p.textContent('#robServerSaveStatus'),/Адрес сохранён/);assert.deepStrictEqual(dialogs,[]);
+  await p.fill('#robServerUrl','');await p.click('#robServerSave');assert.match(await p.textContent('#robServerSaveStatus'),/Сначала выберите/);assert.strictEqual(await p.evaluate(()=>window.EWData.settings().serverUrl),'https://robots.test/api/robots');assert.deepStrictEqual(dialogs,[]);
+  await p.locator('#robModeLocal').scrollIntoViewIfNeeded();await p.screenshot({path:path.resolve(__dirname,'../../manual/img/server-v5.jpg')});
+  await p.click('#setTabs [data-tab="alerts"]');assert.strictEqual(await p.locator('[data-n="robot"]').count(),0);
+  assert(await p.locator('[data-n="signal"]').isVisible());assert(await p.locator('[data-n="mine"]').isVisible());
+  assert.match(await p.textContent('#setBody'),/не новых сигналов/);assert.match(await p.textContent('#setBody'),/не управляют серверной почтой/);
+  assert.strictEqual(await p.evaluate(()=>window.EWData.settings().watch.length),1);
+  await p.screenshot({path:path.resolve(__dirname,'../../manual/img/alerts-v51.jpg')});
+  await p.click('#setTabs [data-tab="ready"]');assert.match(await p.textContent('#setBody'),/Серверных роботов выбор набора не перенастраивает/);
+  await p.click('#setTabs [data-tab="data"]');await p.evaluate(()=>{window.EWData.robotStep=async()=>[];});await p.click('#robModeLocal');
+  assert.deepStrictEqual(dialogs,['confirm']);await p.waitForFunction(()=>window.EWData.settings().robotMode==='local');
+  await p.fill('#robServerUrl','');await p.click('#robServerSave');assert.match(await p.textContent('#robServerSaveStatus'),/Адрес очищен/);assert.deepStrictEqual(dialogs,['confirm']);
+  await p.click('#setTabs [data-tab="alerts"]');assert(await p.locator('[data-n="robot"]').isVisible());
+  await p.click('[data-close="settings"]');await p.click('#robBtn');await p.click('#robNav [data-rnav="all"]');assert.strictEqual(await p.locator('#vRun').count(),1);
+  await p.click('#robNav [data-rnav="h4_fig"]');assert.strictEqual(await p.locator('[data-rrun],[data-rbe],[data-rstall]').count(),3);
+  assert.deepStrictEqual(errs,[]);console.log('5.1: шапка, сохранение без alert, подтверждение режима, сервер/телефон, Биткоин, отчёты и оповещения — ОК.');await b.close();
+})().catch(e=>{console.error(e);process.exit(1);});`;
+eval(head+tail);

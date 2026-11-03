@@ -642,7 +642,7 @@
     robMarkSeen(V);
     if (big) fireworks();   // сделка закрылась с хорошей прибылью (≈1,5 риска и больше)
   }
-  let serverSyncBusy = false, serverSyncError = '';
+  let serverSyncBusy = false, serverSyncError = '', serverSaveMsg = '';
   async function updateRobotsFromServer(silent) {
     if (serverSyncBusy) return false;
     const sr0 = D.store.get('serverRobots', {});
@@ -787,6 +787,13 @@
       robMore = false; S.robotAcc = k; save(); renderRobot(); $('#robBody').scrollTop = 0;
     }; });
   }
+  function serverRobotParams(a) {
+    let h = `<div class="small"><b>Настроено на сервере</b><br>Робот: ${esc(a.name)} · ${esc(a.tf || '1d')}</div>`;
+    if (a.manual) return h + '<div class="small mut">Позиции и деньги приходят со счёта. Сверка выполняется на сервере.</div>';
+    if (a.crypto) return h + '<div class="small mut">Биткоин · тренд. Новое решение — по закрытой дневной свече. Изменение серверных параметров с телефона пока недоступно.</div>';
+    h += `<div class="small">Риск на сделку: ${a.cfg && Number.isFinite(a.cfg.riskPct) ? a.cfg.riskPct + '%' : 'не указан'}<br>Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}${(a.tf || '1d') === '4h' ? '<br>Сделка стоит: ' + (a.stall ? 'вкл' : 'выкл') : ''}</div>`;
+    return h + '<div class="small mut">Это параметры сервера. Открытые позиции могут вестись по прежним настройкам. Выбор готового набора для графика их не меняет.</div>';
+  }
   function renderRobot() {
     const V = D.vaccGet();
     let h = '';
@@ -886,11 +893,20 @@
       if (cl.length) { const w = ra.closed.filter((c) => c.pl > 0).length, s1 = ra.closed.reduce((s, c) => s + c.pl, 0);
         h += `<div class="card${foldC('robClosed.' + ra.key, true)}" data-fold="robClosed.${ra.key}"><h3>✅ Закрытые · ${esc(ra.name)} (${ra.closed.length}, прибыльных ${Math.round(w / ra.closed.length * 100)}%, итого ${s1 >= 0 ? '+' : '−'}${money(ra, Math.abs(s1))})</h3>${cl.map((c) => `<div class="jrow ${Math.abs(c.pl) < 1 ? 'jz' : c.pl > 0 ? 'jp jc' : 'jn jc'}" data-rgo="${esc(c.id)}"><div class="row"><span><b>${esc(c.ticker)}</b> ${c.side < 0 ? '<span class="shrt">▼ шорт</span> ' : ''}${c.crypto ? c.qty.toFixed(5).replace('.', DEC()) : c.qty + ' шт'} · ${esc(c.why)}</span><span class="${c.pl >= 0 ? 'pos' : 'neg'}">${c.pl >= 0 ? '+' : '−'}${money(ra, Math.abs(c.pl))}</span></div><div class="small">${fmtT(c.entryT, false)} по ${c.crypto ? usd0(c.entry) : pr(c.entry)} → ${fmtT(c.exitT, false)} по ${c.crypto ? usd0(c.exit) : pr(c.exit)}</div></div>`).join('')}</div>`; }
       h += `<div class="card${foldC('robSet.' + a.key, true)}" data-fold="robSet.${a.key}"><h3>⚙ Настройки · ${esc(a.name)}</h3>
-        ${a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${(a.tf || '1d') === '4h' ? `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rstall="${a.key}" class="${a.stall ? 'on' : ''}" style="flex:none">⏳ Сделка стоит: ${a.stall ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.stall ? 'если 12 свечей (2–3 дня) после входа закрытие ни разу не выше входа — стоп на полпути к входу (риск вдвое меньше)' : 'выкл. — стоп как в наборе') + (a.pos.some((p) => !!p.stall !== !!a.stall) ? ' · открытые до переключения ведутся как были' : '')}. На истории 2018–2026: доход тот же, просадка ~7% вместо ~9% («неделя») и ~6,8% вместо 7,2% («Охотник»).</span></div>` : ''}${riskBox(a)}`}
+        ${serverOn ? serverRobotParams(a) : a.manual || a.crypto ? '' : `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rbe="${a.key}" class="${a.be ? 'on' : ''}" style="flex:none">🛡 Безубыток 3×ATR: ${a.be ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.be ? 'новые сделки: стоп на вход, когда цена ушла на 3×ATR' : 'стоп как в наборе') + (a.pos.some((p) => !!p.be !== !!a.be) ? ' · открытые до переключения ведутся как были' : '')}</span></div>${(a.tf || '1d') === '4h' ? `<div class="row" style="margin:2px 0 6px;align-items:center"><button data-rstall="${a.key}" class="${a.stall ? 'on' : ''}" style="flex:none">⏳ Сделка стоит: ${a.stall ? 'вкл' : 'выкл'}</button><span class="small mut" style="flex:1">${(a.stall ? 'если 12 свечей (2–3 дня) после входа закрытие ни разу не выше входа — стоп на полпути к входу (риск вдвое меньше)' : 'выкл. — стоп как в наборе') + (a.pos.some((p) => !!p.stall !== !!a.stall) ? ' · открытые до переключения ведутся как были' : '')}. На истории 2018–2026: доход тот же, просадка ~7% вместо ~9% («неделя») и ~6,8% вместо 7,2% («Охотник»).</span></div>` : ''}${riskBox(a)}`}
         <div class="row rmst" style="margin:4px 0 2px;align-items:center;gap:4px" data-stop="1"><span class="small mut" style="flex:none">На графике:</span>${RM_SHAPES.map(([k, ic]) => `<button class="tg ${rmStyle(a.key).sh === k ? 'on' : ''}" data-rms="${a.key}|${k}" style="flex:none;padding:4px 8px">${ic}</button>`).join('')}<span style="width:6px"></span>${RM_COLORS.map((cl) => `<button class="tg" data-rmc="${a.key}|${cl}" style="flex:none;width:22px;height:22px;padding:0;border-radius:50%;background:${cl};border:2px solid ${rmStyle(a.key).c === cl ? '#fff' : 'transparent'}"></button>`).join('')}</div></div>`;
     }
     $('#robBody').innerHTML = h; robNav(V);
     bindServerButtons();
+    if (serverOn) {
+      $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { const a = V.accs.find((x) => x.key === b.dataset.rrun), text = b.parentElement.querySelector('span'); if (a && text) text.textContent = 'Последний ход сервера: ' + (a.lastRun ? fmtT(a.lastRun, true) : 'ещё не было') + (a.crypto ? ' · решение по закрытой дневной свече' : ''); b.remove(); });
+      const management = $('#vRun') && $('#vRun').closest('.card');
+      if (management) {
+        const title = management.querySelector('h3'), reports = $('#vCsv').closest('.row'), result = $('#vExpRes');
+        title.textContent = 'Отчёты'; management.replaceChildren(title, reports, result);
+        const note = document.createElement('div'); note.className = 'small mut'; note.textContent = 'Сервер считает по расписанию. Обновление данных и выбор режима — в ⚙ → Данные → Сервер роботов.'; management.appendChild(note);
+      }
+    }
     if (serverOn) $('#robBody').querySelectorAll('button, input, select').forEach((el) => { if (el.matches('[data-rrun], [data-rbe], [data-rstall], [data-rrisk], [data-rrrec], [data-rarm], #rRisk, [id^=vAdd], #vToggle, #vReset, #vUpd, #vFlowOk, #vFlow')) { el.disabled = true; el.title = 'Изменение доступно в автономном режиме'; } });
     $('#robBody').querySelectorAll('[data-rrun]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); runRobot(b.dataset.rrun); }; });
     requestAnimationFrame(() => requestAnimationFrame(() => $('#robBody').querySelectorAll('.runner').forEach((r) => { r.style.left = r.dataset.to + '%'; })));
@@ -1305,7 +1321,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
 
   // ---------- выгрузка для разбора ----------
   let lastExport = '';
-  const APP_VER = '5.0';
+  const APP_VER = '5.1';
   function exportData() {
     if (!an) return;
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date();
@@ -3285,7 +3301,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function presetBlock() {
     const mine = S.myCfg;
     return `<div class="note" style="margin-bottom:10px">Сейчас стоит: <b>${esc(presetLabel())}</b> · ${esc(D.TF[S.tf].name)}${presetFlash ? ' — <span class="pos">' + esc(presetFlash) + '</span>' : ''}</div><div class="card"><h3>Готовые настройки</h3>
-      <div class="small">Проверены на 65 акциях Мосбиржи (чистый R — после комиссии). Ставят таймфрейм и дополнения; риск, комиссия, капитал и ручные пороги не меняются.</div>
+      <div class="small">Проверены на 65 акциях Мосбиржи (чистый R — после комиссии). Ставят таймфрейм и дополнения для анализа графика; риск, комиссия, капитал и ручные пороги не меняются. Серверных роботов выбор набора не перенастраивает.</div>
       ${PRESETS.map(([k, t, tf, , d]) => `<div class="jrow"><div class="row"><b>${t}</b><button data-preset="${k}" class="${S.preset === k ? 'on' : ''}">${S.preset === k ? '✓ Выбрано' : 'Поставить'}</button></div><div class="small">${d}</div></div>`).join('')}
       ${S.cfg.addMarket && !mktFor(S.tf) ? `<div class="note">Для фильтра рынка нужен индекс на ${esc(D.TF[S.tf].name)}: откройте сканер и просканируйте «Топ-50» на этом таймфрейме.</div>` : ''}</div>
       <div class="card"><h3>Свои настройки</h3>
@@ -3317,7 +3333,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
   function renderSettings() {
     const c = Object.assign({}, E.DEFAULTS, S.cfg);
     const sched = A && A.isScheduled ? A.isScheduled() : false;
-    const TABS = [['ready', 'Готовые'], ['anal', 'Анализ'], ['acct', 'Счёт'], ['alerts', 'Сигналы'], ['data', 'Данные']];
+    const TABS = [['ready', 'Готовые'], ['anal', 'Анализ'], ['acct', 'Счёт'], ['alerts', 'Оповещения'], ['data', 'Данные']];
     const tab = TABS.some(([k]) => k === S.setTab) ? S.setTab : (S.token ? 'ready' : 'acct');
     $('#setTabs').innerHTML = TABS.map(([k, t]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${t}${k === 'acct' && !S.token ? '<span class="dot"></span>' : ''}${k === 'alerts' && (S.watch.length + (S.palerts || []).length) ? ' ' + (S.watch.length + (S.palerts || []).length) : ''}</button>`).join('');
     $('#setTabs').querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { S.setTab = b.dataset.tab; save(); renderSettings(); $('#setBody').scrollTop = 0; }; });
@@ -3400,9 +3416,9 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div id="caInfo" class="small" style="margin:6px 0">${caText()}</div>
       <div class="row"><button id="caBtn">${A.caInfo() ? 'Скачать заново' : 'Скачать с gu-st.ru'}</button></div></div>` : ''}
 `;
-    if (tab === 'alerts') h = `<div class="card"><h3>Как это работает</h3>
+    if (tab === 'alerts') h = `<div class="card"><h3>Оповещения телефона</h3><div class="small">Слежений и ценовых уровней: <b>${S.watch.length + (S.palerts || []).length}</b>. Это число настроек, а не новых сигналов. Здесь сохраняются выбранные бумаги, личные уровни, стопы и цели дневника.</div>${S.robotMode === 'server' ? '<div class="note">Роботы работают на сервере и отправляют события на настроенную почту. Звук, интервал и переключатели этой вкладки относятся к телефону и не управляют серверной почтой.</div>' : ''}</div><div class="card"><h3>Как это работает</h3>
       <div class="small">${DESK ? 'Пока программа открыта или свёрнута к часам, она каждые 5 минут' : 'Android раз в 15 минут — 4 часа (как выберете ниже) будит приложение, даже закрытое. Оно'} скачивает свечи, пересчитывает волны и сравнивает с прошлой проверкой: появилось новое — присылает уведомление. Нажатие на уведомление открывает эту бумагу.<br>Быстрее всего включать с главного экрана: кнопка 🔔 рядом с таймфреймом.</div></div>
-      <div class="card${foldC('notifs')}" data-fold="notifs"><h3>📨 История оповещений</h3><div class="small">Все уведомления, что приходили (последние 50). Нажмите — откроется график бумаги.</div>${notifRows(50)}</div>
+      <div class="card${foldC('notifs')}" data-fold="notifs"><h3>📨 История оповещений телефона</h3><div class="small">Последние 50 уведомлений этого телефона. Серверная история писем сюда не загружается. Нажмите — откроется график бумаги.</div>${notifRows(50)}</div>
       <div class="card"><h3>Сигналы системы</h3>
       <div class="small">Бумаги и таймфреймы, по которым присылать вход, выход и уровни. Каждая проверяется по тем настройкам, что стояли, когда её добавили.</div>
       <div id="watchList"></div>
@@ -3415,7 +3431,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <label class="sw"><input type="checkbox" data-n="exit" ${S.notify.exit ? 'checked' : ''}><span>Сигналы на выход<small>Фигура завершена, а при включённом дополнении — подсчёт развернулся против сделки</small></span></label>
       <label class="sw"><input type="checkbox" data-n="levels" ${S.notify.levels !== false ? 'checked' : ''}><span>Уровни<small>Сделка дошла до цели или стопа; цена прошла уровень отмены подсчёта</small></span></label>
       <label class="sw"><input type="checkbox" data-n="stop" ${S.notify.stop ? 'checked' : ''}><span>Безубыток и подтягивание стопа<small>Новый минимум выше входа у открытой сделки индикатора</small></span></label>
-      <label class="sw"><input type="checkbox" data-n="robot" ${S.notify.robot !== false ? 'checked' : ''}><span>Действия робота (виртуальный счёт)<small>Сигнал «завтра купит», покупка, продажа, перенос стопа после цели. Включается в 📒 → «🤖 Робот»</small></span></label></div>
+      ${S.robotMode === 'server' ? '' : `<label class="sw"><input type="checkbox" data-n="robot" ${S.notify.robot !== false ? 'checked' : ''}><span>Действия робота (виртуальный счёт)<small>Сигнал «завтра купит», покупка, продажа, перенос стопа после цели. Действует для локальных роботов в режиме «Телефон»</small></span></label>`}</div>
       <div class="card"><h3>Мои уровни и сделки</h3>
       ${(() => { const pf = D.store.get('pfired', {}), l = (S.palerts || []).slice().sort((a, b) => a.ticker.localeCompare(b.ticker) || b.price - a.price);
         return l.length ? l.map((a) => `<div class="watch"><span><b>${esc(a.ticker)}</b> ${a.dir > 0 ? '▲ выше' : '▼ ниже'} <span class="mono">${a.price.toFixed(a.price < 10 ? 4 : 2).replace('.', DEC())}</span><br><span class="small">${pf[a.id] ? 'сработал ' + fmtT(pf[a.id], true) : 'ждёт · поставлен ' + fmtT(a.at, true)}</span></span><button data-lvdel="${a.id}">✕</button></div>`).join('') : '<div class="small" style="padding:4px 0 8px">Уровней нет. Поставить: 🔔 на главном экране или долгое нажатие на графике.</div>'; })()}
@@ -3433,7 +3449,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
       <div class="row"><button id="vServerUpd" ${serverSyncBusy ? 'disabled' : ''}>${serverSyncBusy ? 'Обновляю…' : '⟳ Обновить с сервера'}</button></div>
       <div class="small ${serverSyncError ? 'neg' : 'mut'}" role="status">${serverSyncError ? esc(serverSyncError) : (D.store.get('serverRobots', {}).at ? 'Последнее получение: ' + fmtT(D.store.get('serverRobots', {}).at, true) : '')}</div>
       <div class="small mut">При выборе «Телефон» расчёт продолжится с последней копии. Сервер продолжит работу отдельно; при возврате его история станет основной, копия телефона сохранится.</div>
-      <div class="row"><button id="robServerSave">Сохранить адрес</button>${S.robotMode === 'server' ? '<span class="small pos">режим сервера включён</span>' : '<span class="small mut">режим телефона</span>'}</div></div>
+      <div class="row"><button id="robServerSave">Сохранить адрес</button>${S.robotMode === 'server' ? '<span class="small pos">режим сервера включён</span>' : '<span class="small mut">режим телефона</span>'}</div><div class="small" id="robServerSaveStatus" role="status" aria-live="polite">${esc(serverSaveMsg)}</div></div>
 <div class="card"><h3>Свечи</h3>
       <div class="field"><label>Сколько свечей загружать и анализировать</label><select id="maxBars">${[1000, 2000, 3000].map((m) => `<option ${(c.maxBars || 2000) === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div class="field"><label>Дробная часть чисел</label><select id="decSel"><option value="dot" ${S.decComma ? '' : 'selected'}>Точка: 43.54</option><option value="comma" ${S.decComma ? 'selected' : ''}>Запятая: 43,54</option></select></div>
@@ -3465,7 +3481,7 @@ ${n && n < 30 ? '<div class="note">Сделок меньше 30: результ�
     on('#vServerUpd', 'click', () => updateRobotsFromServer(false));
     on('#robModeServer', 'click', () => { if (S.robotMode !== 'server') updateRobotsFromServer(false); });
     on('#robModeLocal', 'click', () => { if (S.robotMode === 'server') switchRobotsToLocal(); });
-    on('#robServerSave', 'click', () => { const url = $('#robServerUrl').value.trim().replace(/\/$/, ''); if (!url && S.robotMode === 'server') { alertMsg('Сначала выберите режим «Телефон» в этой карточке.'); return; } S.serverUrl = url; S.serverKey = $('#robServerKey').value; save(); alertMsg(S.serverUrl ? 'Адрес сервера сохранён. Нажмите «Обновить с сервера» в этой карточке.' : 'Адрес сервера очищен.'); renderSettings(); });
+    on('#robServerSave', 'click', () => { const url = $('#robServerUrl').value.trim().replace(/\/$/, ''); if (!url && S.robotMode === 'server') { serverSaveMsg = 'Адрес не изменён. Сначала выберите режим «Телефон».'; renderSettings(); return; } S.serverUrl = url; S.serverKey = $('#robServerKey').value; save(); serverSaveMsg = S.serverUrl ? 'Адрес сохранён. Подключение ещё не проверено — нажмите «Обновить с сервера».' : 'Адрес очищен.'; serverSyncError = ''; renderSettings(); });
     on('#tokSave', 'click', async () => {
       const t = $('#tok').value.trim().replace(/\s+/g, '');
       $('#tokRes').textContent = 'Проверяю…';
