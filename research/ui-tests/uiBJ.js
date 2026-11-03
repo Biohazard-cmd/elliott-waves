@@ -1,63 +1,23 @@
-// 4.2: серверные роботы, ошибки связи и автономное продолжение.
-const assert = require('assert');
-const base = require('fs').readFileSync(require('path').join(__dirname, 'ui19.js'), 'utf8');
-const head = base.slice(0, base.indexOf('  await p.goto('));
-const tail = `
-  const now = Date.now();
-  const mk = (cash) => ({ on: true, mm2: true, startAt: now, lastRun: now, mmRate: 13, top: 5, flows: [], accs: [{ key: 'd_long', name: 'основной', tf: '1d', cfg: {riskPct: 1.5}, cash, dep: 100000, mm: 0, pos: [], closed: [], hist: [{t: now, eq: cash, dep: 100000}], px: {}, seen: {}, pend: {}, skipped: 0, lastRun: now }] });
-  let reply = { kind: 'ew-robots-state', v: 1, serverAt: now, lastRun: now, state: mk(123456) }, status = 200;
-  await ctx.route('https://robots.test/api/robots', (r) => status === -1 ? undefined : r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(reply) }));
-  await ctx.addInitScript(() => { const s = JSON.parse(localStorage.getItem('ew2.settings')); s.robotMode = 'server'; s.serverUrl = 'https://robots.test/api/robots'; s.serverKey = 'test-key'; localStorage.setItem('ew2.settings', JSON.stringify(s)); });
-  await p.goto('file://' + require('path').resolve(__dirname, '../../android/assets/index.html')); await p.waitForTimeout(3000);
-  await p.click('#robBtn');
-  await p.waitForFunction(() => window.EWData.vaccGet()?.accs[0].cash === 123456 && !document.querySelector('#vServerUpd').disabled);
-  assert.strictEqual(await p.evaluate(() => window.EWData.nextAlarm()), 0);
-  assert.deepStrictEqual(await p.evaluate(() => window.EWData.robotStep()), []);
-  assert.strictEqual(await p.locator('#vToggle').isDisabled(), true);
-  assert.strictEqual(await p.evaluate(() => window.EWData.vaccSet({accs: []})), false);
-  const firstAt = await p.evaluate(() => window.EWData.store.get('serverRobots').at);
-  status = -1; await p.click('#vServerUpd');
-  await p.waitForFunction(() => document.querySelector('#robBody').textContent.includes('20 секунд') && !document.querySelector('#vServerUpd').disabled, null, {timeout: 25000});
-  assert.strictEqual(await p.evaluate(() => window.EWData.vaccGet().accs[0].cash), 123456);
-  assert.strictEqual(await p.evaluate(() => window.EWData.store.get('serverRobots').at), firstAt);
-  status = 200;
-  reply = {kind: 'ew-robots-state', v: 1, state: {accs: [{}]}};
-  await p.click('#vServerUpd');
-  await p.waitForFunction(() => document.querySelector('#vServerLocal'));
-  assert.strictEqual(await p.evaluate(() => window.EWData.vaccGet().accs[0].cash), 123456);
-  assert.strictEqual(await p.evaluate(() => window.EWData.store.get('serverRobots').at), firstAt);
-  assert.strictEqual(await p.locator('#vServerUpd').isDisabled(), false);
-  await p.screenshot({path: __dirname + '/shots/BJ1-server-error.png'});
-  // Разрешённый переход продолжает последнюю серверную копию, а не старые локальные деньги.
-  await p.evaluate(() => { window.EWData.files.set('vacc.json', {accs: [{cash: 1}]}); window.EWData.robotStep = async () => []; });
-  p.once('dialog', (d) => d.accept()); await p.click('#vServerLocal');
-  await p.waitForFunction(() => window.EWData.settings().robotMode === 'local');
-  assert.strictEqual(await p.evaluate(() => window.EWData.vaccGet().accs[0].cash), 123456);
-  assert.strictEqual(await p.locator('#vToggle').isDisabled(), false);
-  await p.evaluate(() => { const v = window.EWData.vaccGet(); v.accs[0].cash = 130000; window.EWData.vaccSet(v); });
-  reply = {kind: 'ew-robots-state', v: 1, state: mk(125000)};
-  p.once('dialog', (d) => d.dismiss()); await p.click('#vServerUpd');
-  assert.strictEqual(await p.evaluate(() => window.EWData.settings().robotMode), 'local');
-  p.once('dialog', (d) => d.accept()); await p.click('#vServerUpd');
-  await p.waitForFunction(() => window.EWData.settings().robotMode === 'server' && !document.querySelector('#vServerUpd').disabled);
-  assert.strictEqual(await p.evaluate(() => window.EWData.files.get('vacc-local.json').accs[0].cash), 130000);
-  assert.strictEqual(await p.evaluate(() => window.EWData.vaccGet().accs[0].cash), 125000);
-  await p.screenshot({path: __dirname + '/shots/BJ2-server-restored.png'});
-  await p.click('[data-close="robots"]'); await p.click('#setBtn'); await p.click('#setTabs [data-tab="data"]');
-  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#xferExp')]);
-  const doc = JSON.parse(require('fs').readFileSync(await dl.path(), 'utf8'));
-  for (const k of ['serverKey', 'serverUrl', 'robotMode', 'token', 'account']) assert.strictEqual(k in doc.settings, false);
-  assert.strictEqual(doc.files['vacc.json'].accs[0].cash, 125000);
-  // Перезапуск без единой копии и неверный ключ: сообщение об ошибке, не запуск новых счетов.
-  status = 401;
-  await p.evaluate(() => { localStorage.removeItem('ew2f.vacc-server.json'); localStorage.removeItem('ew2f.vacc.json'); });
-  await p.reload(); await p.waitForTimeout(2000); await p.click('#robBtn');
-  await p.waitForFunction(() => document.querySelector('#robBody').textContent.includes('401') && !document.querySelector('#vServerUpd').disabled);
-  assert.strictEqual(await p.locator('#vStart').count(), 0);
-  assert.strictEqual(await p.locator('#vServerLocal').count(), 0);
-  assert.strictEqual(await p.evaluate(() => window.EWData.settings().robotMode), 'server');
-  assert.deepStrictEqual(errs.filter((e) => !e.includes('401')), []);
-  console.log('Сервер, повреждённый ответ, отказ по ключу, первый запуск, автономное продолжение и возврат с резервной копией — ОК.');
-  await b.close();
-})().catch((e) => { console.error(e); process.exit(1); });`;
-eval(head + tail);
+// Серверный слой: ошибки, таймаут, резервная копия и запоздалый ответ.
+const assert = require('assert'), fs = require('fs'), path = require('path'), vm = require('vm');
+const values = new Map(); let mode = 'ok', delayed, timeoutMs;
+const state = (cash) => ({ on:true, mm2:true, accs:[{key:'d_long',name:'основной',cash,dep:100000,pos:[],closed:[],hist:[],cfg:{},px:{},seen:{},pend:{}}] });
+const response = () => ({status:200,text:async()=>JSON.stringify({kind:'ew-robots-state',v:1,state:state(123456)})});
+const c = { URL, console, clearTimeout, setTimeout(fn,ms){timeoutMs=ms;return setTimeout(fn,ms===20000?5:ms);}, localStorage:{getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)}, fetch:async()=>{
+ if(mode==='wait') return new Promise(r=>{delayed=r;});
+ if(mode==='401') return {status:401,text:async()=>'{}'};
+ if(mode==='bad') return {status:200,text:async()=>JSON.stringify({kind:'ew-robots-state',v:1,state:{accs:[{}]}})};
+ return response();
+}};
+vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../android/assets/data.js'),'utf8'),c);const D=c.EWData;
+(async()=>{
+ D.saveSettings({...D.settings(),serverUrl:'https://robots.test/api/robots',serverKey:'test'}); D.vaccSet(state(100000));
+ await D.serverSync(); assert.strictEqual(D.settings().robotMode,'server');assert.strictEqual(D.vaccGet().accs[0].cash,123456); assert.strictEqual(D.nextAlarm(),0);assert.strictEqual((await D.robotStep()).length,0);
+ const at=D.store.get('serverRobots').at;
+ for(mode of ['401','bad','wait']){await assert.rejects(D.serverSync());assert.strictEqual(D.vaccGet().accs[0].cash,123456);assert.strictEqual(D.store.get('serverRobots').at,at);}
+ assert.strictEqual(timeoutMs,20000);
+ assert(D.serverOffline());assert.strictEqual(D.vaccGet().accs[0].cash,123456);
+ let local=D.vaccGet();local.accs[0].cash=130000;D.vaccSet(local);mode='ok';await D.serverSync();assert.strictEqual(D.files.get('vacc-local.json').accs[0].cash,130000);
+ mode='wait';const pending=D.serverSync();D.serverOffline();delayed(response());await assert.rejects(pending,/изменён/);assert.strictEqual(D.settings().robotMode,'local');
+ console.log('Серверный слой: 401, повреждённое состояние, таймаут, автономная копия и запоздалый ответ — ОК.');
+})().catch(e=>{console.error(e);process.exit(1);});

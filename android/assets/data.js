@@ -289,13 +289,22 @@
   }
 
   const q = (x) => (x ? Number(x.units || 0) + Number(x.nano || 0) / 1e9 : 0);
+  function validCandle(b) {
+    return b && Number.isFinite(b.t) && b.t > 0 && [b.o, b.h, b.l, b.c].every((x) => Number.isFinite(x) && x > 0) && b.h >= Math.max(b.o, b.c, b.l) && b.l <= Math.min(b.o, b.c);
+  }
+  function updateLiveCandle(b, v, tf, now) {
+    const T = TF[tf]; now = now || Date.now();
+    if (!validCandle(b) || b.done !== false || !T || !v || !Number.isFinite(v.price) || v.price <= 0 || !Number.isFinite(v.t) || v.t < b.t || v.t >= b.t + T.ms || v.t > now + 5000 || now >= b.t + T.ms || (b.liveT && v.t < b.liveT)) return false;
+    b.c = v.price; b.h = Math.max(b.h, v.price); b.l = Math.min(b.l, v.price); b.liveT = v.t;
+    return true;
+  }
 
   function parseCandles(js) {
     const list = js.candles || [];
     return list.map((c) => ({
       t: Date.parse(c.time), o: q(c.open), h: q(c.high), l: q(c.low), c: q(c.close),
       v: Number(c.volume || 0), done: c.isComplete !== false && c.is_complete !== false,
-    })).filter((b) => b.t && b.h > 0 && b.l > 0);
+    })).filter(validCandle);
   }
 
   // свечи за период [from, to] окнами, от нового к старому, пока не наберём need
@@ -398,7 +407,7 @@
   function readCache(key) {
     const c = store.get(key, null);
     if (!c || !c.r) return null;
-    return { bars: c.r.map((a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5], done: a[6] !== 0 })), at: c.at, full: c.full };
+    return { bars: c.r.map((a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5], done: a[6] !== 0 })).filter(validCandle), at: c.at, full: c.full };
   }
 
   async function findInstrument(token, query) {
@@ -710,7 +719,7 @@
     if (!uids.length) return {};
     const js = await call(token, MD + 'GetLastPrices', { instrumentId: uids });
     const out = {};
-    for (const p of js.lastPrices || []) { const id = p.instrumentUid || p.figi; if (id) out[id] = { price: q(p.price), t: Date.parse(p.time || '') || Date.now() }; }
+    for (const p of js.lastPrices || []) { const id = p.instrumentUid || p.figi; if (id) out[id] = { price: q(p.price), t: Date.parse(p.time || '') || 0 }; }
     return out;
   }
 
@@ -1403,5 +1412,5 @@
   function bgLock(ms) { const l = store.get('bgLock', 0); if (Date.now() - l < ms) return false; store.set('bgLock', Date.now()); return true; }
   function bgUnlock() { store.set('bgLock', 0); }
 
-  root.EWData = { pendUntil, notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, serverGet, serverSync, serverOffline, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
+  root.EWData = { validCandle, updateLiveCandle, pendUntil, notifySend, candleEnd, dispDate, mxState, CRYPTO_ID, isCrypto, nextAlarm, robBusy, notifSave, bgLock, bgUnlock, widgetPush, vaccGet, vaccSet, vEquity, robotStep, serverGet, serverSync, serverOffline, getCashFlows, log, logInit, logFlush, logRead, logClear, setDec, needBg, priceItems, instByUid, getOperations, getLastPrices, buildMarket, getMarket, getAccounts, getAccountMoney, getUniverse, files, instInfo, getDividends, adjustDividends, withDividends, scanNeed, getScanBars, TF, store, settings, saveSettings, call, loadCandles, getBars, findInstrument, events, checkAll, decimals, fmtPrice, parseCandles };
 })(typeof window !== 'undefined' ? window : globalThis);

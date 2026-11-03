@@ -31,6 +31,7 @@ const tail = `  await p.goto('file://' + require('path').resolve(__dirname, '../
   await p.screenshot({ path: __dirname + '/shots/BI2-short-levels.png' });
   await p.click('#robNav [data-rnav="all"]'); await p.waitForTimeout(300);
   assert.match(await p.textContent('#robBody'), /Общий счёт/);
+  if (await p.locator('[data-fold="robCombo"]').evaluate(e => e.classList.contains('folded'))) await p.click('[data-fold="robCombo"] > h3');
   await p.click('[data-man="strategy"]'); await p.waitForTimeout(2500);
   assert.strictEqual(await p.$eval('#manual', (e) => e.hidden), false);
   const frame = p.frames().find((f) => /manual\\.html/.test(f.url()));

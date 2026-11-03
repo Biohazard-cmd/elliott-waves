@@ -344,6 +344,9 @@ body.desk ::-webkit-scrollbar { width: 10px; height: 10px; }
 body.desk ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
 body.desk ::-webkit-scrollbar-track { background: transparent; }
 @media (min-width: 1600px) { body.desk { grid-template-columns: minmax(0, 1fr) 540px; } }
+#pop.viewScreen { position:fixed; inset:0!important; width:100%!important; max-width:none!important; height:100dvh; border:0; border-radius:0; z-index:200; background:var(--bg); padding:0 16px 32px; overflow:auto; }
+#pop.viewScreen .viewHead { position:sticky; top:0; z-index:1; background:var(--bg); display:flex; align-items:center; gap:16px; padding:12px 0; border-bottom:1px solid var(--line); margin-bottom:12px; }
+#pop.viewScreen .pitem { min-height:46px; }
 </style>
 </head>
 <body>
